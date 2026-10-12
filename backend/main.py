@@ -4,7 +4,7 @@ from copy import deepcopy
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Body, FastAPI, File, Form, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import Body, FastAPI, File, Form, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -12,9 +12,10 @@ from backend.matches import MatchManager, timestamp
 from pydantic import ValidationError
 from backend.engine import create_registry
 from backend.engine.registry import GameRegistry
-from backend.models import GameSelection, MatchRequest
-from backend.network import demo_host, same_origin
+from backend.models import GameSelection, MatchRequest, SessionUpdate
+from backend.network import NetworkSettings, lan_addresses, same_origin
 from backend.runner import MAX_SOURCE_BYTES, prepare_submission, toolchains
+from backend.sessions import COOKIE_NAME, SESSION_SECONDS, Sessions
 from backend.storage import Store
 
 PROJECT = Path(__file__).resolve().parent.parent
@@ -22,34 +23,68 @@ TERMINAL = {"completed", "interrupted"}
 
 
 def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
-               registry: GameRegistry | None = None) -> FastAPI:
+               registry: GameRegistry | None = None, network: NetworkSettings | None = None) -> FastAPI:
     installed = registry or create_registry()
+    settings = network or NetworkSettings.from_environment()
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         app.state.registry = installed
         app.state.store = Store((base_dir or PROJECT).resolve(), installed)
+        app.state.sessions = Sessions(app.state.store.data / "sessions.json")
         app.state.manager = MatchManager(app.state.store, tick_seconds)
         app.state.upload_lock = asyncio.Lock()
         yield
         await app.state.manager.shutdown()
 
-    app = FastAPI(title="NEON ARENA", version="2.0.0", lifespan=lifespan)
+    app = FastAPI(title="NEON ARENA", version="2.1.0", lifespan=lifespan)
 
     @app.middleware("http")
     async def trusted_demo_network(request, call_next):
         host = request.headers.get("host", "")
-        if not demo_host(host):
-            return JSONResponse({"detail": "Chỉ hỗ trợ localhost hoặc địa chỉ LAN riêng."}, status_code=403)
-        if not same_origin(request.headers.get("origin"), host):
+        if not settings.allows_host(host):
+            return JSONResponse({"detail": "Hostname không được phép. Demo mặc định chỉ hỗ trợ local/LAN."}, status_code=403)
+        if not same_origin(request.headers.get("origin"), host, request.url.scheme):
             return JSONResponse({"detail": "Origin không được phép."}, status_code=403)
+        mutation = request.method not in {"GET", "HEAD", "OPTIONS"}
+        if settings.read_only and mutation and request.url.path != "/api/session":
+            return JSONResponse({"detail": "Server ở chế độ chỉ xem; nộp bot, chạy trận và chỉnh luật đã tắt."}, status_code=403)
+        identity = await asyncio.to_thread(app.state.sessions.resolve, request.cookies.get(COOKIE_NAME))
+        token = None
+        if not identity and (request.url.path == "/api/session" or mutation):
+            participant, token, key = await asyncio.to_thread(app.state.sessions.create)
+            identity = participant, key
+        request.state.participant = identity[0] if identity else None
+        request.state.session_key = identity[1] if identity else None
         response = await call_next(request)
+        if token:
+            response.set_cookie(COOKIE_NAME, token, max_age=SESSION_SECONDS, httponly=True,
+                                samesite="lax", secure=request.url.scheme == "https", path="/")
+        if request.url.path.startswith("/api/"):
+            response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         return response
 
     @app.get("/api/health")
     async def health():
-        return {"status": "ok", "toolchains": toolchains(), "protocol": 1}
+        return {"status": "ok", "toolchains": toolchains(), "protocol": 1,
+                "read_only": settings.read_only}
+
+    @app.get("/api/session")
+    async def session(request: Request):
+        return {"participant": request.state.participant, "read_only": settings.read_only}
+
+    @app.put("/api/session")
+    async def rename_session(update: SessionUpdate, request: Request):
+        participant = await asyncio.to_thread(app.state.sessions.rename, request.state.session_key, update.name)
+        return {"participant": participant, "read_only": settings.read_only}
+
+    @app.get("/api/network")
+    async def network_info(request: Request):
+        port = request.url.port or (443 if request.url.scheme == "https" else 80)
+        addresses = [] if settings.read_only else await asyncio.to_thread(lan_addresses)
+        return {"origin": str(request.base_url).rstrip("/"), "read_only": settings.read_only,
+                "lan_urls": [f"{request.url.scheme}://{address}:{port}" for address in addresses]}
 
     def game_or_404(game_id: str):
         try:
@@ -114,11 +149,13 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
             game_or_404(game_id)
         return [public_bot(bot) for bot in app.state.store.get_bots() if not game_id or bot["game_id"] == game_id]
 
-    async def submit(source: bytes, filename: str, name: str, game_id: str, sample_key: str | None = None):
+    async def submit(source: bytes, filename: str, name: str, game_id: str, owner: dict,
+                     sample_key: str | None = None):
         game_or_404(game_id)
         async with app.state.upload_lock:
             store = app.state.store
             if sample_key:
+                sample_key = f"{owner['id']}:{sample_key}"
                 existing = next((bot for bot in store.get_bots() if bot.get("sample_key") == sample_key and bot["status"] == "ready"), None)
                 if existing:
                     return public_bot(existing)
@@ -132,19 +169,19 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
                    "filename": filename, "language": Path(filename).suffix.lower()[1:],
                    "status": status, "logs": logs, "command": command, "folder": str(folder),
                    "created_at": timestamp(), "sample_key": sample_key}
-            bot["game_id"] = game_id
+            bot.update(game_id=game_id, owner=deepcopy(owner))
             await asyncio.to_thread(store.save_bot, bot)
             return public_bot(bot)
 
     @app.post("/api/bots", status_code=201)
-    async def upload_bot(file: UploadFile = File(...), name: str = Form("", max_length=48),
+    async def upload_bot(request: Request, file: UploadFile = File(...), name: str = Form("", max_length=48),
                          game_id: str = Form(...)):
         filename = (file.filename or "bot.py").replace("\\", "/").split("/")[-1][:128]
         try:
             source = await file.read(MAX_SOURCE_BYTES + 1)
         finally:
             await file.close()
-        return await submit(source, filename, name, game_id)
+        return await submit(source, filename, name, game_id, request.state.participant)
 
     def sample_info(game_id, language):
         sample = game_or_404(game_id).samples.get(language)
@@ -159,31 +196,32 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
         return FileResponse(path, filename=path.name, media_type="text/plain")
 
     @app.post("/api/games/{game_id}/samples/{language}/submit", status_code=201)
-    async def submit_game_sample(game_id: str, language: str):
+    async def submit_game_sample(game_id: str, language: str, request: Request):
         sample = sample_info(game_id, language)
         path = PROJECT / "samples" / sample["path"]
         source = path.read_bytes()
         # Updating a sample source creates a new submission instead of silently
         # reusing an older executable. The same source still compiles only once.
         digest = hashlib.sha256(source).hexdigest()[:16]
-        return await submit(source, path.name, sample["name"], game_id, f"{game_id}:{language}:{digest}")
+        return await submit(source, path.name, sample["name"], game_id, request.state.participant,
+                            f"{game_id}:{language}:{digest}")
 
     @app.get("/api/samples/{language}")
     async def download_sample(language: str):
         return await download_game_sample(app.state.store.selected_game_id, language)
 
     @app.post("/api/samples/{language}/submit", status_code=201)
-    async def submit_sample(language: str):
-        return await submit_game_sample(app.state.store.selected_game_id, language)
+    async def submit_sample(language: str, request: Request):
+        return await submit_game_sample(app.state.store.selected_game_id, language, request)
 
     @app.get("/api/matches")
     async def matches():
         return app.state.manager.get_matches()
 
     @app.post("/api/matches", status_code=201)
-    async def start_match(request: MatchRequest):
+    async def start_match(request: MatchRequest, http_request: Request):
         try:
-            return await app.state.manager.start(request)
+            return await app.state.manager.start(request, created_by=http_request.state.participant)
         except ValidationError as exc:
             raise HTTPException(422, exc.errors(include_context=False)) from exc
         except ValueError as exc:
@@ -206,7 +244,7 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
     @app.websocket("/ws/matches/{match_id}")
     async def watch(websocket: WebSocket, match_id: str, after: int = Query(-1, ge=-1, le=100000)):
         host = websocket.headers.get("host", "")
-        if not demo_host(host) or not same_origin(websocket.headers.get("origin"), host):
+        if not settings.allows_host(host) or not same_origin(websocket.headers.get("origin"), host, websocket.scope["scheme"]):
             await websocket.close(code=1008)
             return
         manager = app.state.manager
@@ -256,6 +294,10 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
     @app.get("/", include_in_schema=False)
     async def index():
         return FileResponse(PROJECT / "frontend" / "index.html")
+
+    @app.get("/lan", include_in_schema=False)
+    async def lan_guide():
+        return FileResponse(PROJECT / "frontend" / "lan.html")
 
     return app
 

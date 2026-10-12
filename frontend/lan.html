@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="vi">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#080b12"><title>NEON ARENA / Hướng dẫn LAN</title><link rel="icon" href="/static/favicon.svg"><link rel="stylesheet" href="/static/styles.css"></head>
+<body><article class="protocol-document lan-guide">
+<a class="text-button" href="/">← Trở về đấu trường</a>
+<p class="eyebrow">NETWORK PROGRAMMING / MULTI-CLIENT</p>
+<h1>ONE SERVER.<br><em>MANY CHALLENGERS.</em></h1>
+<p>Một laptop chạy FastAPI và các bot. Các laptop còn lại chỉ cần trình duyệt, cùng Wi-Fi và địa chỉ LAN của máy chủ; không cần cài compiler hay Docker trên máy người chơi.</p>
+<div class="network-status"><strong id="current-origin">Đang kiểm tra kết nối…</strong><p id="network-mode"></p><div id="lan-links"></div></div>
+<h2>01 / Khởi động máy chủ Windows</h2>
+<p>Cài Python, JDK và G++ theo README trong source. Trong thư mục LTM chạy:</p>
+<pre>start.bat
+# Hoặc khi môi trường đã cài:
+.\.venv\Scripts\python.exe run.py --host 0.0.0.0 --port 8000</pre>
+<p><code>0.0.0.0</code> là địa chỉ lắng nghe trên mọi card mạng, không phải URL để nhập vào trình duyệt. Giữ cửa sổ server mở. Một process, một worker để toàn bộ spectator dùng chung trạng thái trận.</p>
+<h2>02 / Tìm IPv4 và truy cập từ laptop thứ hai</h2>
+<pre>ipconfig
+Get-NetConnectionProfile</pre>
+<p>Lấy <strong>IPv4 Address</strong> của card <strong>Wireless LAN adapter Wi-Fi</strong>, ví dụ <code>192.168.2.16</code>. Không chọn địa chỉ adapter VPN/WSL/VirtualBox. Laptop B mở <code>http://IP-MAY-CHU:8000</code>. Cả hai máy nên mở bằng cùng URL LAN để link chia sẻ và cookie phiên ổn định.</p>
+<p>Không dùng localhost trên laptop B: đó là địa chỉ của chính laptop B. IP có thể thay đổi sau khi kết nối Wi-Fi lại; chạy ipconfig để xem IP mới. Muốn ổn định, dùng DHCP reservation trên router theo MAC của card Wi-Fi; không tự chọn một IP trùng thiết bị khác.</p>
+<h2>03 / Demo hai người chơi</h2>
+<ol>
+<li>Cả hai mở website, đặt nickname khác nhau ở thanh <strong>YOUR PLAYER SESSION</strong>. Cookie riêng giúp server ghi nhận người nộp bot/người tạo trận.</li>
+<li>Cùng chọn Robot Battle hoặc OTT v2. Mỗi máy tải một bot mẫu ở <strong>Nộp bot</strong>, rồi upload file đó bằng form của mình. Có thể dùng Python ở máy A và C++ hoặc Java ở máy B.</li>
+<li><strong>SHARED BOT LIBRARY</strong> trên cả hai máy tự cập nhật mỗi 2 giây, hiện tên người nộp. Người chơi A chọn hai bot và nhấn Start Match.</li>
+<li>Người chơi B vào <strong>Xem trận đấu</strong>, tìm mã trận/tên hai bot, nhấn <strong>Live</strong>. Hoặc dùng nút ↗ bên thanh playback để chia sẻ link cùng trận.</li>
+<li>Cả hai nhận cùng sequence trạng thái qua WebSocket. Pause/Reset chỉ điều khiển màn hình của từng máy; backend và máy còn lại tiếp tục. Để đối chiếu, dùng cùng tốc độ playback và cùng số lượt trên timeline.</li>
+<li>Trận kết thúc có thể Replay hoặc tải JSON; replay không chạy bot lần nữa.</li>
+</ol>
+<p>Phiên tồn tại 30 ngày và được giữ sau khi server khởi động lại. Browser ẩn danh hoặc browser khác tạo phiên mới; đổi IP/hostname tạo vùng cookie khác. Nickname chỉ là nhận diện trong nhóm, chưa phải tài khoản đăng nhập hay phân quyền organizer.</p>
+<h2>04 / Firewall và lỗi kết nối</h2>
+<p>Chỉ dùng Wi-Fi riêng đáng tin cậy. Trong <strong>Windows Settings → Network &amp; Internet → Wi-Fi → mạng hiện tại</strong>, chọn profile <strong>Private</strong> nếu đúng là mạng của nhóm. Khi Windows hỏi quyền cho Python, cho phép trên Private networks. Không cần tắt toàn bộ firewall.</p>
+<p>Nếu vẫn bị chặn, trên máy chủ mở PowerShell với quyền Administrator và thêm đúng rule TCP cổng đang dùng, chỉ cho mạng riêng và subnet LAN:</p>
+<pre>New-NetFirewallRule -DisplayName "NEON ARENA LAN 8000" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 8000 -Profile Private -RemoteAddress LocalSubnet
+# Xem rule:
+Get-NetFirewallRule -DisplayName "NEON ARENA LAN 8000"
+# Gỡ rule khi không còn demo:
+Remove-NetFirewallRule -DisplayName "NEON ARENA LAN 8000"</pre>
+<p>Trên laptop B kiểm tra:</p>
+<pre>Test-NetConnection IP-MAY-CHU -Port 8000
+Invoke-RestMethod http://IP-MAY-CHU:8000/api/health</pre>
+<ul><li><code>TcpTestSucceeded=False</code>: kiểm tra server, IPv4, port, firewall và hai máy cùng subnet. Guest Wi-Fi hoặc AP/client isolation có thể chặn hai client dù cùng SSID.</li><li>Trang vào được nhưng bot không chạy: compiler chỉ cần trên máy chủ; xem Compiler log và /api/health.</li><li>Live mất kết nối: giữ server hoạt động; browser tự reconnect theo sequence còn thiếu. Nếu dùng proxy, phải chuyển tiếp WebSocket Upgrade.</li></ul>
+<h2>05 / HTTPS, WSS và reverse proxy sau này</h2>
+<p>Frontend gọi REST bằng đường dẫn tương đối; WebSocket dùng host của website và tự chuyển <code>ws</code> thành <code>wss</code> khi trang dùng HTTPS. Mẫu Nginx và cấu hình nằm trong <code>docs/NETWORKING.md</code> và <code>deploy/nginx.conf.example</code>.</p>
+<p>Khi dùng domain/VPS, cấu hình <code>ARENA_READ_ONLY=1</code> và <code>ARENA_ALLOWED_HOSTS=arena.example.com</code>. Chạy backend trên loopback phía sau proxy tin cậy. Chế độ này vẫn cho xem live/replay, nhưng server chặn upload, chạy trận và chỉnh luật. Demo LAN không cần proxy hay TLS.</p>
+<div class="safety-note">TRUSTED GROUP ONLY<br><span>Chỉ chạy code bot do nhóm tin cậy viết. Subprocess không phải sandbox. Không port-forward router hay công khai tính năng thực thi code lên Internet khi chưa có sandbox an toàn.</span></div>
+</article><script>
+fetch('/api/network').then(response => { if (!response.ok) throw new Error(); return response.json(); }).then(info => {
+  document.querySelector('#current-origin').textContent = 'WEBSITE / ' + info.origin;
+  document.querySelector('#network-mode').textContent = info.read_only ? 'READ ONLY — chỉ xem live/replay.' : 'TRUSTED LAN — nộp bot và tạo trận trong nhóm.';
+  const target = document.querySelector('#lan-links');
+  if (info.lan_urls.length) {
+    const text = document.createElement('p'); text.textContent = 'Địa chỉ máy chủ gợi ý (chọn IP của card Wi-Fi trong ipconfig):'; target.append(text);
+    for (const url of info.lan_urls) { const row = document.createElement('p'); const link = document.createElement('a'); link.href = url; link.textContent = url; row.append(link); target.append(row); }
+  }
+}).catch(() => { document.querySelector('#current-origin').textContent = 'Mở trang hướng dẫn từ server đang chạy để kiểm tra địa chỉ.'; });
+</script></body></html>

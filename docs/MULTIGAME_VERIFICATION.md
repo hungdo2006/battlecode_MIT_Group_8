@@ -2,6 +2,8 @@
 
 Ngày **12/10/2026**, Windows, Asia/Saigon. Source nâng cấp trực tiếp tại `D:\LTM`. Báo cáo v1 được giữ riêng ở `VERIFICATION.md`.
 
+Bổ sung network multi-client được ghi riêng ở [NETWORK_VERIFICATION.md](NETWORK_VERIFICATION.md), gồm session/owner, hai người nộp bot qua LAN, khám phá trận và hai live streams. Số test bên dưới là tại thời điểm nâng cấp đa game.
+
 ## Rà soát và kiến trúc
 
 - Đọc backend, frontend, runner, store, các bot mẫu, test, scripts và tài liệu hiện tại. V1 đã có robot engine riêng nhưng Rules model/UI, việc hỏi hai bot mỗi lượt, HUD và log còn giả định Robot Battle.

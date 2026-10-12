@@ -7,6 +7,7 @@ const app = {
   cursor: 0, paused: false, speed: 1, socket: null, generation: 0,
   switchingGame: false, launching: false, transition: null, nextFrameAt: 0,
   victoryDismissed: false, displayedResult: false, reconnectTimer: null,
+  participant: null, readOnly: false, refreshing: false,
 };
 
 function el(tag, className, text) {
@@ -40,6 +41,39 @@ async function api(path, options = {}) {
 function jsonOptions(method, body) {
   return { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
 }
+
+function ownerLabel(owner) {
+  if (!owner) return "Submission cũ / chưa có phiên";
+  return `${owner.name} · ${owner.id.slice(0, 4).toUpperCase()}${owner.id === app.participant?.id ? " · CỦA BẠN" : ""}`;
+}
+
+function renderSession() {
+  $("#participant-name").textContent = app.participant.name;
+  $("#participant-id").textContent = `ID / ${app.participant.id.toUpperCase()} · Phiên riêng của trình duyệt`;
+  $("#session-name").value = app.participant.name;
+  $("#readonly-notice").classList.toggle("hidden", !app.readOnly);
+  applyReadOnly();
+}
+
+function applyReadOnly() {
+  if (!app.readOnly) return;
+  $$("#upload-form [type=submit], #quick-match [type=submit], #create-match [type=submit], #rules-form input, #rules-form textarea, #rules-form select, #rules-form [type=submit], #default-rules, #seed-samples, [data-sample]").forEach(node => {
+    node.disabled = true; node.title = "Server chỉ cho phép xem live/replay";
+  });
+}
+
+$("#session-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const button = event.currentTarget.querySelector("button");
+  button.disabled = true;
+  try {
+    const data = await api("/api/session", jsonOptions("PUT", { name: $("#session-name").value }));
+    app.participant = data.participant;
+    renderSession(); renderBots();
+    toast("Đã lưu nickname. Bot và trận mới sẽ ghi tên này.");
+  } catch (error) { toast(error.message, true); }
+  finally { button.disabled = false; }
+});
 
 const labels = { home: "OVERVIEW", upload: "BOT LABORATORY", create: "MATCH CONTROL", watch: "BATTLE ARCHIVE", rules: "GAME CONFIGURATION" };
 function navigate() {
@@ -76,7 +110,7 @@ function populateBotSelectors() {
     placeholder.value = "";
     select.replaceChildren(placeholder);
     ready.forEach(bot => {
-      const option = el("option", "", `${bot.name} (${bot.language.toUpperCase()})`);
+      const option = el("option", "", `${bot.name} (${bot.language.toUpperCase()}) · ${bot.owner?.name || "bot cũ"}`);
       option.value = bot.id;
       select.append(option);
     });
@@ -97,6 +131,7 @@ function renderBots() {
     row.append(el("span", `language-icon ${bot.language === "py" ? "python" : bot.language}`, bot.language.toUpperCase()));
     const description = el("div", "bot-description");
     description.append(el("strong", "", bot.name), el("small", "", bot.filename));
+    description.append(el("small", "bot-owner", `NỘP BỞI / ${ownerLabel(bot.owner)}`));
     description.append(el("span", "tag", app.games.find(game => game.game_id === bot.game_id)?.name || bot.game_id));
     row.append(description, el("span", `match-status ${bot.status === "error" ? "interrupted" : ""}`, bot.status.toUpperCase()));
     if (bot.logs) {
@@ -129,13 +164,13 @@ async function selectGame(gameId, persist = true) {
   app.switchingGame = true;
   $$(".game-select").forEach(node => { node.disabled = true; });
   try {
-    if (persist) await api("/api/games/selected", jsonOptions("PUT", { game_id: gameId }));
+    if (persist && !app.readOnly) await api("/api/games/selected", jsonOptions("PUT", { game_id: gameId }));
     app.selectedGameId = gameId;
     app.rules = structuredClone(selectedGame().rules);
     populateGameSelectors(); populateBotSelectors(); renderRules(true); renderSamples();
     $("#rules-feedback").classList.add("hidden");
   } catch (error) { toast(error.message, true); populateGameSelectors(); }
-  finally { app.switchingGame = false; $$(".game-select").forEach(node => { node.disabled = false; }); }
+  finally { app.switchingGame = false; $$(".game-select").forEach(node => { node.disabled = false; }); applyReadOnly(); }
 }
 $$(".game-select").forEach(select => select.addEventListener("change", () => selectGame(select.value)));
 
@@ -232,6 +267,7 @@ function renderSamples() {
     return row;
   }));
   if (!game.samples.length) $("#sample-list").append(el("div", "empty-state", "Game này chưa có bot mẫu. Hãy nộp bot theo tài liệu adapter."));
+  applyReadOnly();
 }
 
 function resultDescription(match) {
@@ -251,6 +287,7 @@ function renderMatchList(target, matches) {
     const names = el("div", "match-names");
     names.append(document.createTextNode(match.bots.A.name), el("span", "", "VS"), document.createTextNode(match.bots.B.name));
     names.append(el("small", "match-date", `${match.game_name || app.games.find(g => g.game_id === match.game_id)?.name || match.game_id} · ${new Date(match.created_at).toLocaleString("vi-VN")} · ${match.turn} lượt`));
+    names.append(el("small", "match-date", `#${match.id} · TẠO BỞI / ${match.created_by ? ownerLabel(match.created_by) : "Trận cũ"}`));
     row.append(names, el("span", `match-status ${match.status}`, match.status.toUpperCase()), el("span", "match-result", resultDescription(match)));
     const button = el("button", "button ghost", ["running", "queued"].includes(match.status) ? "Live ↗" : "Replay ↗");
     button.addEventListener("click", () => loadMatch(match.id).catch(error => toast(error.message, true)));
@@ -606,19 +643,26 @@ setInterval(() => { $("#clock").textContent = new Date().toLocaleTimeString("vi-
 
 async function bootstrap() {
   try {
+    // Establish the cookie first; parallel startup requests then share one identity.
+    const session = await api("/api/session");
+    app.participant = session.participant; app.readOnly = session.read_only;
+    renderSession();
     const [health, bots, registry, matches] = await Promise.all([api("/api/health"), api("/api/bots"), api("/api/games"), api("/api/matches")]);
     app.bots = bots; app.games = registry.games; app.matches = matches;
     await selectGame(registry.selected_game_id, false);
     setConnection(health.status === "ok");
     renderBots(); renderRules(true); renderMatches();
+    applyReadOnly();
     const matchId = new URL(location.href).searchParams.get("match");
     if (matchId) await loadMatch(matchId);
   } catch (error) { setConnection(false); toast(`Không kết nối được backend: ${error.message}`, true); }
 }
 bootstrap();
 setInterval(async () => {
-  if (document.hidden) return;
-  try { await refreshMatches(); setConnection(true); }
+  if (document.hidden || app.refreshing || !app.participant) return;
+  app.refreshing = true;
+  try { await Promise.all([refreshMatches(), refreshBots()]); setConnection(true); }
   catch { setConnection(false); }
-}, 5000);
+  finally { app.refreshing = false; }
+}, 2000);
 window.addEventListener("beforeunload", () => { app.generation++; app.socket?.close(); });

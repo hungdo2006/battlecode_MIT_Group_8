@@ -2,6 +2,8 @@
 
 Nền tảng thi đấu bot đa game dành cho bài tập nhóm môn Lập trình mạng. Hiện hỗ trợ **Robot Battle** và **OTT v2**, đăng ký qua **GameRegistry + GameAdapter**. Backend **Python FastAPI**, frontend **HTML/CSS/JavaScript thuần + Canvas**, giao tiếp **HTTP REST + WebSocket**, bot **subprocess**, dữ liệu **JSON**. Không cần Docker, Node.js hoặc database server để chạy ứng dụng.
 
+Hỗ trợ nhiều người chơi LAN với **cookie phiên/nickname**, owner cho submission, người tạo trận và danh sách chung tự cập nhật. Xem [hướng dẫn networking, firewall và reverse proxy](docs/NETWORKING.md), [báo cáo kiểm thử multi-client](docs/NETWORK_VERIFICATION.md); trang hướng dẫn trong app ở `/lan`.
+
 > **Chỉ dùng local/LAN riêng với code tin cậy của nhóm.** Subprocess không phải sandbox. Bot có quyền của tài khoản chạy server, có thể đọc/ghi file, truy cập mạng hoặc tạo tiến trình khác. Giới hạn timeout/output không ngăn được các hành vi đó. Không công khai tính năng thực thi code lên Internet.
 
 ## Chạy nhanh trên Windows
@@ -25,8 +27,9 @@ Chỉ dùng trên một laptop: `.\.venv\Scripts\python.exe run.py --host 127.0.
 1. Laptop host chạy `start.bat`, giữ server hoạt động và tránh sleep.
 2. Xem URL LAN trong console hoặc dùng `ipconfig` để tìm IPv4 của adapter Wi-Fi/Ethernet. Ví dụ **`http://192.168.2.16:8000`**; dùng IP thực của host, không dùng `0.0.0.0` hoặc `127.0.0.1` trên máy khách.
 3. Máy/điện thoại khác cùng Wi-Fi mở URL LAN đó. Nếu Windows hỏi quyền mạng, cho phép Python trên mạng **Private**. Kiểm tra firewall TCP 8000 và Wi-Fi không bật client isolation nếu kết nối bị chặn.
-4. Mở cùng trận từ lịch sử, hoặc chia sẻ URL dạng `http://IP-HOST:8000/?match=ID#home`. Mỗi browser subscribe riêng tới cùng WebSocket; Pause chỉ ảnh hưởng playback của browser đó.
-5. Khi dùng nút chia sẻ, mở tab bằng URL LAN trước để link được sao chép dùng địa chỉ LAN.
+4. Mỗi máy đặt nickname ở **YOUR PLAYER SESSION**, chọn cùng game và nộp một source qua form. Thư viện bot chung hiển thị người nộp, tự cập nhật mỗi 2 giây; mọi thành viên có thể chọn bot của nhau.
+5. Một người tạo trận. Người còn lại tìm ID/tên bot trong **Xem trận đấu** rồi nhấn Live, hoặc mở URL `http://IP-HOST:8000/?match=ID#home`. Mỗi browser subscribe riêng tới cùng WebSocket; Pause chỉ ảnh hưởng playback của browser đó.
+6. Khi dùng nút chia sẻ, mở tab bằng URL LAN trước để link được sao chép dùng địa chỉ LAN. Trong app có **Hướng dẫn LAN** gồm IPv4, firewall Private/LocalSubnet và xử lý Wi-Fi isolation.
 
 Frontend dùng đường dẫn HTTP tương đối và `location.host` cho WebSocket, không cố định địa chỉ server. Không cần Internet khi chạy LAN sau khi đã cài dependency. Kiểm chứng tự động hai spectator:
 
@@ -34,7 +37,11 @@ Frontend dùng đường dẫn HTTP tương đối và `location.host` cho WebSo
 .\.venv\Scripts\python.exe scripts/check_lan.py --url http://IP-HOST:8000 --game ott_v2
 ```
 
-Script có thể chạy từ laptop khác hoặc từ host. Hai client độc lập trên một máy kiểm chứng broadcast/HTTP/WS; việc xác nhận hai thiết bị vật lý và firewall Wi-Fi vẫn cần mở URL từ thiết bị thứ hai.
+Script dùng hai cookie jar/nickname riêng, mỗi client upload một source Python/C++ (có thể `--language-b java`), B tìm trận A tạo, so hai stream với replay và reconnect. Có thể chạy từ laptop khác hoặc host; hai client trên một máy không thay thế nghiệm thu hai thiết bị vật lý. Kiểm thử Chrome hai người nộp bot: `scripts/check_multiclient_ui.py --url http://IP-HOST:8000 --game robot_battle` (cần Playwright/Chrome).
+
+Phiên tồn tại 30 ngày, được giữ qua restart; nickname là nhận diện trong nhóm, chưa có login/phân quyền. Owner/name được lưu như snapshot tại thời điểm nộp/tạo trận. Mỗi người có cache sample riêng, vẫn compile một lần cho mỗi submission.
+
+Khi chuẩn bị VPS, dùng **ARENA_READ_ONLY=1**, **ARENA_ALLOWED_HOSTS=arena.example.com** và backend loopback sau proxy TLS. Domain public chỉ được thêm trong chế độ chỉ xem; upload/tạo trận/chỉnh luật bị chặn. Frontend tự dùng HTTPS/WSS. Xem `deploy/nginx.conf.example`; chưa công khai runner lên Internet. Biến `ARENA_HOST`, `ARENA_PORT` và cờ `--proxy-headers --forwarded-allow-ips 127.0.0.1` được mô tả trong [NETWORKING.md](docs/NETWORKING.md), theo [FastAPI Behind a Proxy](https://fastapi.tiangolo.com/advanced/behind-a-proxy/).
 
 ### Cài Python
 
@@ -199,10 +206,12 @@ LTM/
 ├── tests/                # Luật game, runner, API + WebSocket + replay
 ├── scripts/
 │   ├── demo_match.py     # Kiểm chứng trận đa ngôn ngữ qua HTTP/WS thật
-│   ├── check_lan.py      # Hai spectator qua địa chỉ LAN
+│   ├── check_lan.py      # Hai phiên upload/discover/WS/reconnect qua LAN
+│   ├── check_multiclient_ui.py # Chrome: hai người chơi dùng giao diện thật
 │   └── check_ui.py       # QA tùy chọn với Chrome/Playwright
 ├── docs/                 # Ghi nhận kiểm chứng và ảnh giao diện
-├── data/                 # Tự tạo: bots.json, matches.json, rules.json, replays/
+├── deploy/               # Mẫu Nginx HTTPS/WSS cho chế độ chỉ xem
+├── data/                 # Tự tạo: bots.json, matches.json, rules.json, sessions.json, replays/
 ├── uploads/              # Tự tạo: source và executable/class của submission
 ├── requirements.txt
 ├── requirements-dev.txt
@@ -222,7 +231,10 @@ Storage tự nâng dữ liệu v1: bot cũ gắn game đã cài đầu tiên (Ro
 
 | Method | Endpoint | Công dụng |
 | --- | --- | --- |
-| GET | `/api/health` | Trạng thái, toolchain, protocol |
+| GET | `/api/health` | Trạng thái, toolchain, protocol, read_only |
+| GET / PUT | `/api/session` | Cookie phiên / đổi nickname `{name}` |
+| GET | `/api/network` | Origin hiện tại, mode, URL IPv4 LAN gợi ý |
+| GET | `/lan` | Trang hướng dẫn LAN/firewall/HTTPS |
 | GET | `/api/games` | Registry: metadata, schema, luật đã lưu, preview thật và game đang chọn |
 | PUT | `/api/games/selected` | Chọn game bằng `{game_id}` |
 | GET | `/api/games/{game_id}` | Thông tin đầy đủ của một game |
@@ -277,7 +289,7 @@ Trên Windows, runner gọi trực tiếp interpreter nền của `.venv` và gi
 
 Dữ liệu JSON được thay thế atomic để tránh file ghi dở. Replay chứa trạng thái đầu và từng lượt. Khi khởi động lại server, trận đang chạy được đánh dấu `interrupted` và vẫn có thể xem phần replay đã ghi. Đơn giản hóa lưu trữ bằng một server process; **không chạy nhiều Uvicorn workers** dùng chung thư mục dữ liệu.
 
-Không có sandbox filesystem/network, không giới hạn RAM/CPU tổng quát cho Python/C++, không có đăng nhập hoặc hạ tầng phục vụ người dùng không tin cậy. Bind `0.0.0.0` để demo trong LAN riêng; không tunnel, port-forward hoặc công khai server lên Internet. HTTP/WS dùng cùng origin, chỉ chấp nhận host local/IP riêng, không mở CORS wildcard.
+Không có sandbox filesystem/network, không giới hạn RAM/CPU tổng quát cho Python/C++, không có đăng nhập hoặc hạ tầng phục vụ người dùng không tin cậy. Bind `0.0.0.0` để demo trong LAN riêng; không tunnel, port-forward hoặc công khai runner lên Internet. HTTP/WS dùng cùng origin, mặc định chỉ chấp nhận host local/IP riêng, không mở CORS wildcard. Public domain cấu hình riêng bắt buộc chế độ chỉ xem. Host/Origin guard và cookie không thay thế sandbox hay firewall.
 
 ## Kiểm thử
 

@@ -17,13 +17,14 @@
       <span class="brand-mark">N<span>↗</span></span>
       <span>NEON<span class="brand-sub">ARENA<span class="brand-dot">.</span></span></span>
     </a>
-    <div class="sidebar-caption">CONTROL CENTER <span>v2.0</span></div>
+    <div class="sidebar-caption">CONTROL CENTER <span>v2.1</span></div>
     <nav aria-label="Điều hướng chính">
       <a class="nav-item active" href="#home" data-view="home"><span class="nav-icon">⌂</span>Trang chủ<span class="nav-number">01</span></a>
       <a class="nav-item" href="#upload" data-view="upload"><span class="nav-icon">↥</span>Nộp bot<span class="nav-number">02</span></a>
       <a class="nav-item" href="#create" data-view="create"><span class="nav-icon">⚔</span>Tạo trận đấu<span class="nav-number">03</span></a>
       <a class="nav-item" href="#watch" data-view="watch"><span class="nav-icon">▷</span>Xem trận đấu<span class="nav-number">04</span></a>
       <a class="nav-item" href="#rules" data-view="rules"><span class="nav-icon">⚙</span>Chỉnh luật chơi<span class="nav-number">05</span></a>
+      <a class="nav-item" href="/lan"><span class="nav-icon">⌁</span>Hướng dẫn LAN<span class="nav-number">06</span></a>
     </nav>
     <div class="sidebar-bottom">
       <div class="local-card"><span class="status-dot"></span> TRUSTED LAN DEMO<small>Chỉ chạy bot tin cậy trong nhóm.</small></div>
@@ -38,6 +39,12 @@
       <div class="topbar-right"><span class="connection" id="connection"><i class="status-dot"></i>Đang kết nối…</span><span class="clock" id="clock">--:--:--</span><span class="avatar">NA</span></div>
     </header>
     <main>
+      <section class="panel identity-bar" aria-label="Phiên người chơi">
+        <div><span class="eyebrow">YOUR PLAYER SESSION</span><strong id="participant-name">Đang nhận phiên…</strong><small id="participant-id"></small></div>
+        <form id="session-form"><label for="session-name">NICKNAME</label><div><input id="session-name" name="name" maxlength="32" required autocomplete="nickname" placeholder="Tên thành viên"><button class="button ghost small" type="submit">Lưu tên</button></div></form>
+        <a class="text-button" href="/lan">Kết nối máy khác ↗</a>
+      </section>
+      <div class="feedback hidden" id="readonly-notice">CHẾ ĐỘ CHỈ XEM — Live/replay hoạt động; nộp code, tạo trận và chỉnh luật đã tắt.</div>
       <div class="workspace-game panel">
         <div><span class="eyebrow">MULTI-GAME TOURNAMENT</span><strong id="workspace-game-name">Đang tải game…</strong></div>
         <label>GAME ĐANG CHỌN<select class="game-select" id="workspace-game-select" aria-label="Game đang chọn"></select></label>
@@ -90,7 +97,7 @@
             <div class="safety-note">TRUSTED GROUP ONLY<br><span>Subprocess không phải sandbox. Chỉ dùng code tin cậy trong nhóm, trên máy local hoặc LAN riêng.</span></div>
           </section>
         </div>
-        <section class="panel library-panel"><div class="panel-heading"><h2>BOT LIBRARY</h2><button class="text-button" id="refresh-bots">L?m m?i ?</button></div><div id="bot-library"></div></section>
+        <section class="panel library-panel"><div class="panel-heading"><h2>SHARED BOT LIBRARY</h2><button class="text-button" id="refresh-bots">Làm mới ↻</button></div><p class="shared-hint">Bot của mọi thành viên trong phòng LAN xuất hiện ở đây. Danh sách tự cập nhật mỗi 2 giây.</p><div id="bot-library"></div></section>
       </section>
 
       <section class="view" id="view-create"><div class="page-intro"><div class="eyebrow">02 / MATCH CONTROL</div><h1>CHOOSE YOUR <em>FIGHTERS.</em></h1><p>Hai bộ não. Một đấu trường. Ai sẽ viết nên chiến thắng?</p></div><form id="create-match" class="create-form"><label class="match-game-picker">Game thi đấu<select name="game_id" class="game-select" required></select></label><div class="fighter-selection"><section class="panel selection-card cyan-card"><div class="eyebrow">PLAYER 01 / CYAN</div><div class="selection-avatar">A</div><h2>CHALLENGER A</h2><label>Chọn bot A<select name="bot_a" class="bot-select bot-a" required><option value="">Chọn bot A</option></select></label><span class="selection-caption">ALGORITHM LOADED. WEAPONS READY.</span></section><div class="selection-vs">VS<span id="create-game-label">GAME</span></div><section class="panel selection-card purple-card"><div class="eyebrow">PLAYER 02 / PURPLE</div><div class="selection-avatar">B</div><h2>CHALLENGER B</h2><label>Chọn bot B<select name="bot_b" class="bot-select bot-b" required><option value="">Chọn bot B</option></select></label><span class="selection-caption">NO LUCK. JUST BETTER CODE.</span></section></div><section class="panel rules-summary"><div><span class="eyebrow">ACTIVE RULESET</span><div class="rules-chips" id="create-rules"></div></div><button type="button" class="text-button" data-go="rules">Chỉnh luật ↗</button></section><div class="launch-row"><p><span id="match-mode-hint">Chọn game để xem cơ chế lượt.</span><br>Biên dịch một lần. Mỗi trận lưu snapshot luật.</p><button class="button primary launch-button" type="submit">⚡ START MATCH <span>↗</span></button></div></form></section>

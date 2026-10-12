@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 
 class MatchRequest(BaseModel):
@@ -19,3 +19,18 @@ class MatchRequest(BaseModel):
 class GameSelection(BaseModel):
     model_config = ConfigDict(extra="forbid")
     game_id: str
+
+
+class SessionUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str
+
+    @field_validator("name")
+    @classmethod
+    def valid_name(cls, value: str):
+        if any(ord(c) < 32 or ord(c) == 127 for c in value):
+            raise ValueError("Nickname không được chứa ký tự điều khiển.")
+        value = " ".join(value.split())
+        if not 1 <= len(value) <= 32:
+            raise ValueError("Nickname cần từ 1 đến 32 ký tự.")
+        return value

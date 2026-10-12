@@ -34,7 +34,7 @@ class MatchManager:
         self.live: dict[str, LiveMatch] = {}
         self.tasks: set[asyncio.Task] = set()
 
-    async def start(self, request: MatchRequest) -> dict:
+    async def start(self, request: MatchRequest, created_by: dict | None = None) -> dict:
         if len(self.live) >= 2:
             raise ValueError("Tối đa 2 trận cùng lúc. Hãy đợi trận hiện tại kết thúc.")
         game_id = request.game_id or request.game or self.store.selected_game_id
@@ -51,7 +51,9 @@ class MatchManager:
         meta = {"id": match_id, "game_id": game_id, "game": game_id,
                 "game_name": metadata["name"], "game_version": metadata["version"],
                 "status": "queued", "created_at": timestamp(),
-                "bots": {p: {"id": b["id"], "name": b["name"], "language": b["language"]} for p, b in bots.items()},
+                "created_by": deepcopy(created_by),
+                "bots": {p: {"id": b["id"], "name": b["name"], "language": b["language"],
+                             "owner": deepcopy(b.get("owner"))} for p, b in bots.items()},
                 "rules": deepcopy(rules), "turn": 0, "result": None}
         live = LiveMatch(meta, adapter, state, [adapter.serialize_state(state)])
         self.live[match_id] = live

@@ -7,6 +7,7 @@ import argparse
 import asyncio
 from http.cookiejar import CookieJar
 import json
+import os
 from urllib.request import HTTPCookieProcessor, ProxyHandler, Request, build_opener
 from uuid import uuid4
 
@@ -46,6 +47,12 @@ class Player:
         self.cookies.add_cookie_header(request)
         return request.get_header("Cookie", "")
 
+    def organizer(self):
+        code = os.environ.get("ARENA_ADMIN_CODE")
+        if not code:
+            raise RuntimeError("This check changes rules; set ARENA_ADMIN_CODE in the shell running the check.")
+        return self.request("/api/session/organizer", {"code": code})
+
 
 async def watch(player, match_id, after=-1):
     endpoint = player.url.replace("http://", "ws://").replace("https://", "wss://")
@@ -82,10 +89,13 @@ async def check(args):
         bots.append(bot)
     discovered = await asyncio.to_thread(b.request, "/api/bots")
     assert {bot["id"] for bot in bots} <= {bot["id"] for bot in discovered}
-    rules = await asyncio.to_thread(a.request, f"/api/games/{game_id}/rules")
-    rules["max_turns"] = args.max_turns
-    match = await asyncio.to_thread(a.request, "/api/matches", {
-        "game_id": game_id, "bot_a": bots[0]["id"], "bot_b": bots[1]["id"], "rules": rules})
+    payload = {"game_id": game_id, "bot_a": bots[0]["id"], "bot_b": bots[1]["id"]}
+    if args.max_turns is not None:
+        await asyncio.to_thread(a.organizer)
+        rules = await asyncio.to_thread(a.request, f"/api/games/{game_id}/rules")
+        rules["max_turns"] = args.max_turns
+        payload["rules"] = rules
+    match = await asyncio.to_thread(a.request, "/api/matches", payload)
     assert match["created_by"] == identities[0]
     shared_list = await asyncio.to_thread(b.request, "/api/matches")
     assert match["id"] in {item["id"] for item in shared_list}
@@ -108,5 +118,5 @@ if __name__ == "__main__":
     parser.add_argument("--url", required=True)
     parser.add_argument("--game")
     parser.add_argument("--language-b", choices=("cpp", "java"), default="cpp")
-    parser.add_argument("--max-turns", type=int, default=30)
+    parser.add_argument("--max-turns", type=int, help="Organizer-only override; reads ARENA_ADMIN_CODE from environment")
     asyncio.run(check(parser.parse_args()))

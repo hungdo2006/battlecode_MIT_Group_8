@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class MatchRequest(BaseModel):
@@ -34,3 +34,8 @@ class SessionUpdate(BaseModel):
         if not 1 <= len(value) <= 32:
             raise ValueError("Nickname cần từ 1 đến 32 ký tự.")
         return value
+
+
+class OrganizerCode(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    code: str = Field(min_length=1, max_length=256)

@@ -1,5 +1,6 @@
 """Optional real Chrome QA: separate sessions, uploads, discovery and WS playback."""
 import argparse
+import os
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
@@ -16,6 +17,7 @@ def main(args):
         pages = [context.new_page() for context in contexts]
         errors = []
         sockets = [[], []]
+        organizer = playwright.request.new_context(base_url=args.url)
         original_rules = None
         original_game = None
 
@@ -36,13 +38,17 @@ def main(args):
             assert identities[0]["id"] != identities[1]["id"]
             assert contexts[0].cookies()[0]["value"] != contexts[1].cookies()[0]["value"]
             a, b = pages
-            catalog = a.request.get(args.url + "/api/games").json()
+            if not os.environ.get("ARENA_ADMIN_CODE"):
+                raise RuntimeError("Set ARENA_ADMIN_CODE for the separate Organizer fixture.")
+            assert organizer.post("/api/session/organizer", data={"code": os.environ["ARENA_ADMIN_CODE"]}).ok
+            assert a.evaluate("app.role") == b.evaluate("app.role") == "player"
+            catalog = organizer.get("/api/games").json()
             original_game = catalog["selected_game_id"]
-            original_rules = a.request.get(args.url + f"/api/games/{args.game}/rules").json()
+            original_rules = organizer.get(f"/api/games/{args.game}/rules").json()
             # Give B time to discover/join the live match through the 2-second poll.
             demo_rules = ({"map_size": 18, "initial_hp": 200, "damage": 10, "max_turns": 60}
                           if args.game == "robot_battle" else {"max_turns": 60, "rounds": 2})
-            assert a.request.put(args.url + f"/api/games/{args.game}/rules", data=demo_rules).ok
+            assert organizer.put(f"/api/games/{args.game}/rules", data=demo_rules).ok
             bots = []
             for index, page in enumerate(pages):
                 page.locator('.nav-item[data-view="upload"]').click()
@@ -59,6 +65,22 @@ def main(args):
                 assert bot["status"] == "ready", bot["logs"]
                 assert bot["owner"] == identities[index]
                 bots.append(bot)
+            # Ordinary selection is a browser preference, not a global default mutation.
+            other_game = "ott_v2" if args.game == "robot_battle" else "robot_battle"
+            a.locator("#upload-game").select_option(other_game)
+            a.wait_for_function("game => app.selectedGameId === game && !app.switchingGame", arg=other_game)
+            assert b.evaluate("app.selectedGameId") == args.game
+            assert organizer.get("/api/games").json()["selected_game_id"] == original_game
+            for page, expected in ((a, other_game), (b, args.game)):
+                page.reload(); page.get_by_text("SYSTEM ONLINE", exact=True).wait_for()
+                assert page.evaluate("app.selectedGameId") == expected
+            assert organizer.put("/api/games/selected", data={"game_id": other_game}).ok
+            b.reload(); b.get_by_text("SYSTEM ONLINE", exact=True).wait_for()
+            assert b.evaluate("app.selectedGameId") == args.game
+            assert organizer.put("/api/games/selected", data={"game_id": original_game}).ok
+            a.locator("#workspace-game-select").select_option(args.game)
+            a.wait_for_function("game => app.selectedGameId === game && !app.switchingGame", arg=args.game)
+            assert a.request.put(args.url + f"/api/games/{args.game}/rules", data={"max_turns": 1}).status == 403
             a.wait_for_function("id => app.bots.some(bot => bot.id === id)", arg=bots[1]["id"], timeout=10000)
             b.wait_for_function("id => app.bots.some(bot => bot.id === id)", arg=bots[0]["id"], timeout=10000)
             assert "Laptop B" in a.locator("#bot-library").inner_text()
@@ -104,11 +126,12 @@ def main(args):
             assert b.evaluate("app.participant.id") == identities[1]["id"]
             assert b.evaluate("document.documentElement.scrollWidth <= innerWidth")
             assert not errors, errors
-            print(f"NETWORK UI PASS: {args.game}; two identities; each browser uploaded; automatic discovery; two live WS; independent Pause; frames equal replay; guide/mobile; match={match_id}")
+            print(f"NETWORK UI PASS: {args.game}; two Players; protected rules; isolated game choice after reload/default change; uploads/discovery; two WS; independent Pause; replay; guide/mobile; match={match_id}")
         finally:
             if original_rules is not None:
-                pages[0].request.put(args.url + f"/api/games/{args.game}/rules", data=original_rules)
-                pages[0].request.put(args.url + "/api/games/selected", data={"game_id": original_game})
+                organizer.put(f"/api/games/{args.game}/rules", data=original_rules)
+                organizer.put("/api/games/selected", data={"game_id": original_game})
+            organizer.dispose()
             browser.close()
 
 

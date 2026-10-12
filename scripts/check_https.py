@@ -52,7 +52,10 @@ def main(args):
         data = temporary / "data"
         (data / "replays").mkdir(parents=True)
         (data / "matches.json").write_text(json.dumps({match["id"]: match}), encoding="utf-8")
-        shutil.copy2(ROOT / f"data/replays/{match['id']}.json", data / f"replays/{match['id']}.json")
+        replay = ROOT / f"data/replays/{match['id']}.jsonl"
+        if not replay.exists():
+            replay = replay.with_suffix(".json")
+        shutil.copy2(replay, data / "replays" / replay.name)
         cert, key = temporary / "cert.pem", temporary / "key.pem"
         subprocess.run([openssl, "req", "-x509", "-newkey", "rsa:2048", "-sha256", "-nodes",
                         "-keyout", str(key), "-out", str(cert), "-days", "1", "-subj", "/CN=localhost",

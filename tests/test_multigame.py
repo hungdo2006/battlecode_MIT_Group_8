@@ -11,8 +11,9 @@ from backend.runner import tool
 
 
 @pytest.fixture
-def client(tmp_path):
+def client(tmp_path, authorize_organizer):
     with TestClient(create_app(tmp_path, tick_seconds=0.001)) as connection:
+        authorize_organizer(connection)
         yield connection
 
 
@@ -162,10 +163,11 @@ class CounterAdapter(GameAdapter):
         return new
 
 
-def test_installing_third_adapter_needs_no_core_change(tmp_path):
+def test_installing_third_adapter_needs_no_core_change(tmp_path, authorize_organizer):
     registry = create_registry()
     registry.register(CounterAdapter())
     with TestClient(create_app(tmp_path, tick_seconds=0.001, registry=registry)) as client:
+        authorize_organizer(client)
         assert any(game["game_id"] == "counter_demo" for game in client.get("/api/games").json()["games"])
         code = b"import sys\nfor line in sys.stdin:\n print('{\"type\":\"wait\"}',flush=True)\n"
         bot = client.post("/api/bots", files={"file": ("counter.py", code)}, data={"game_id": "counter_demo"}).json()

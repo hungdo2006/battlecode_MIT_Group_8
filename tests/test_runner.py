@@ -46,6 +46,19 @@ def test_unicode_json_output_uses_utf8_on_windows(tmp_path):
         bot.close()
 
 
+def test_server_admin_code_is_not_in_bot_or_compiler_environment(tmp_path, monkeypatch):
+    from backend.runner import direct_python_launch
+    monkeypatch.setenv("ARENA_ADMIN_CODE", "private-organizer-credential")
+    monkeypatch.setenv("ARENA_BOT_TEST_VALUE", "keep-normal-environment")
+    bot = process(tmp_path, "import os,sys,json\nfor line in sys.stdin:\n print(json.dumps({'has_admin_code':'ARENA_ADMIN_CODE' in os.environ,'normal':os.environ.get('ARENA_BOT_TEST_VALUE')}),flush=True)\n")
+    try:
+        assert bot.request({}, timeout=2) == {"has_admin_code": False, "normal": "keep-normal-environment"}
+    finally:
+        bot.close()
+    _, environment = direct_python_launch(["g++", "--version"])
+    assert "ARENA_ADMIN_CODE" not in environment
+
+
 def test_timeout_kills_bot(tmp_path):
     bot = process(tmp_path, "import time\ntime.sleep(30)\n")
     try:

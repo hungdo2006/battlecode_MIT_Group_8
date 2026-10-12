@@ -2,6 +2,8 @@
 
 Ngày **12/10/2026**, Windows, Asia/Saigon. Bổ sung trực tiếp source tại `D:\LTM`, sau bản đa game. Không dùng Docker hay cloud; không thay đổi firewall hệ thống.
 
+Báo cáo này ghi nhận thời điểm v2.1. Review v2.2 đã thêm Organizer/Player, lựa chọn game riêng và replay append-only; xem [REVIEW_VERIFICATION.md](REVIEW_VERIFICATION.md) cho kết quả hiện tại.
+
 ## Chức năng đã triển khai
 
 | Yêu cầu | Triển khai / bằng chứng |

@@ -1,10 +1,12 @@
 import asyncio
 import hashlib
+import hmac
+import os
 from copy import deepcopy
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Body, FastAPI, File, Form, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import Body, Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -12,7 +14,7 @@ from backend.matches import MatchManager, timestamp
 from pydantic import ValidationError
 from backend.engine import create_registry
 from backend.engine.registry import GameRegistry
-from backend.models import GameSelection, MatchRequest, SessionUpdate
+from backend.models import GameSelection, MatchRequest, OrganizerCode, SessionUpdate
 from backend.network import NetworkSettings, lan_addresses, same_origin
 from backend.runner import MAX_SOURCE_BYTES, prepare_submission, toolchains
 from backend.sessions import COOKIE_NAME, SESSION_SECONDS, Sessions
@@ -26,6 +28,8 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
                registry: GameRegistry | None = None, network: NetworkSettings | None = None) -> FastAPI:
     installed = registry or create_registry()
     settings = network or NetworkSettings.from_environment()
+    admin_code = os.environ.get("ARENA_ADMIN_CODE", "")
+    admin_digest = hashlib.sha256(admin_code.encode("utf-8")).digest() if admin_code else None
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         app.state.registry = installed
@@ -36,7 +40,7 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
         yield
         await app.state.manager.shutdown()
 
-    app = FastAPI(title="NEON ARENA", version="2.1.0", lifespan=lifespan)
+    app = FastAPI(title="NEON ARENA", version="2.2.0", lifespan=lifespan)
 
     @app.middleware("http")
     async def trusted_demo_network(request, call_next):
@@ -55,6 +59,7 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
             identity = participant, key
         request.state.participant = identity[0] if identity else None
         request.state.session_key = identity[1] if identity else None
+        request.state.role = app.state.sessions.role(request.state.session_key)
         response = await call_next(request)
         if token:
             response.set_cookie(COOKIE_NAME, token, max_age=SESSION_SECONDS, httponly=True,
@@ -70,14 +75,39 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
         return {"status": "ok", "toolchains": toolchains(), "protocol": 1,
                 "read_only": settings.read_only}
 
+    def session_payload(request: Request):
+        return {"participant": request.state.participant, "read_only": settings.read_only,
+                "role": app.state.sessions.role(request.state.session_key),
+                "organizer_available": admin_digest is not None and not settings.read_only}
+
+    def require_organizer(request: Request):
+        if request.state.role != "organizer":
+            raise HTTPException(403, "Chỉ Organizer được chỉnh luật và game mặc định.")
+
     @app.get("/api/session")
     async def session(request: Request):
-        return {"participant": request.state.participant, "read_only": settings.read_only}
+        return session_payload(request)
 
     @app.put("/api/session")
     async def rename_session(update: SessionUpdate, request: Request):
         participant = await asyncio.to_thread(app.state.sessions.rename, request.state.session_key, update.name)
-        return {"participant": participant, "read_only": settings.read_only}
+        request.state.participant = participant
+        return session_payload(request)
+
+    @app.post("/api/session/organizer")
+    async def unlock_organizer(unlock: OrganizerCode, request: Request):
+        if admin_digest is None:
+            raise HTTPException(503, "Máy chủ chưa cấu hình ARENA_ADMIN_CODE.")
+        supplied = hashlib.sha256(unlock.code.encode("utf-8")).digest()
+        if not hmac.compare_digest(supplied, admin_digest):
+            raise HTTPException(403, "Mã Organizer không đúng.")
+        app.state.sessions.grant_organizer(request.state.session_key)
+        return session_payload(request)
+
+    @app.delete("/api/session/organizer")
+    async def leave_organizer(request: Request):
+        app.state.sessions.revoke_organizer(request.state.session_key)
+        return session_payload(request)
 
     @app.get("/api/network")
     async def network_info(request: Request):
@@ -101,7 +131,7 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
         return {"selected_game_id": app.state.store.selected_game_id,
                 "games": [describe_game(game_id) for game_id in installed.ids()]}
 
-    @app.put("/api/games/selected")
+    @app.put("/api/games/selected", dependencies=[Depends(require_organizer)])
     async def select_game(selection: GameSelection):
         game_or_404(selection.game_id)
         await asyncio.to_thread(app.state.store.select_game, selection.game_id)
@@ -127,11 +157,11 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
             raise HTTPException(422, str(exc)) from exc
         return await asyncio.to_thread(app.state.store.set_rules, game_id, values)
 
-    @app.put("/api/games/{game_id}/rules")
+    @app.put("/api/games/{game_id}/rules", dependencies=[Depends(require_organizer)])
     async def update_game_rules(game_id: str, rules: dict = Body(...)):
         return await persist_rules(game_id, rules)
 
-    @app.post("/api/games/{game_id}/rules/reset")
+    @app.post("/api/games/{game_id}/rules/reset", dependencies=[Depends(require_organizer)])
     async def reset_game_rules(game_id: str):
         return await persist_rules(game_id, game_or_404(game_id).validate_rules())
 
@@ -139,7 +169,7 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
     async def get_rules():
         return app.state.store.get_rules(app.state.store.selected_game_id)
 
-    @app.put("/api/rules")
+    @app.put("/api/rules", dependencies=[Depends(require_organizer)])
     async def save_rules(rules: dict = Body(...)):
         return await persist_rules(app.state.store.selected_game_id, rules)
 
@@ -220,6 +250,9 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
 
     @app.post("/api/matches", status_code=201)
     async def start_match(request: MatchRequest, http_request: Request):
+        # Protect the per-match override too, otherwise /api/matches bypasses Rules permissions.
+        if request.rules is not None and http_request.state.role != "organizer":
+            raise HTTPException(403, "Player dùng luật đã lưu; chỉ Organizer được gửi rules riêng cho trận.")
         try:
             return await app.state.manager.start(request, created_by=http_request.state.participant)
         except ValidationError as exc:

@@ -7,8 +7,9 @@ WAIT_BOT = b"import sys,json\nfor line in sys.stdin:\n print(json.dumps({'type':
 
 
 @pytest.fixture
-def client(tmp_path):
+def client(tmp_path, authorize_organizer):
     with TestClient(create_app(tmp_path, tick_seconds=0.001)) as client:
+        authorize_organizer(client)
         yield client
 
 

@@ -37,11 +37,12 @@ class MatchManager:
     async def start(self, request: MatchRequest, created_by: dict | None = None) -> dict:
         if len(self.live) >= 2:
             raise ValueError("Tối đa 2 trận cùng lúc. Hãy đợi trận hiện tại kết thúc.")
-        game_id = request.game_id or request.game or self.store.selected_game_id
-        adapter = self.registry.get(game_id)
         bots = {"A": self.store.get_bot(request.bot_a), "B": self.store.get_bot(request.bot_b)}
         if any(not bot or bot["status"] != "ready" for bot in bots.values()):
             raise ValueError("Cả hai bot phải tồn tại và đã biên dịch thành công.")
+        # A global default change cannot redirect an implicit match using existing bots.
+        game_id = request.game_id or request.game or bots["A"]["game_id"]
+        adapter = self.registry.get(game_id)
         if any(bot["game_id"] != game_id for bot in bots.values()):
             raise ValueError("Cả hai submission phải thuộc game đã chọn.")
         rules = adapter.validate_rules(self.store.get_rules(game_id) if request.rules is None else request.rules)
@@ -59,7 +60,7 @@ class MatchManager:
         self.live[match_id] = live
         try:
             await asyncio.to_thread(self.store.save_match, meta)
-            await asyncio.to_thread(self.store.save_replay, match_id, live.frames)
+            await asyncio.to_thread(self.store.start_replay, match_id, live.frames[0])
         except Exception:
             self.live.pop(match_id, None)
             raise
@@ -89,16 +90,17 @@ class MatchManager:
         return {"match": match, **(replay or {"version": 1, "frames": []})}
 
     async def _publish(self, live: LiveMatch, state: dict):
-        live.state = state
         frame = live.adapter.serialize_state(state)
+        # Append only the new frame; do not hold the spectator condition during disk IO.
+        await asyncio.to_thread(self.store.append_replay_frame, live.meta["id"], frame)
+        live.state = state
         result = live.adapter.get_result(state)
         live.meta.update(turn=frame["turn"], result=result)
         if result:
             live.meta.update(status="completed", finished_at=timestamp())
         async with live.changed:
             live.frames.append(frame)
-            # Persist every turn: replay survives browser closure and server restarts.
-            await asyncio.to_thread(self.store.save_replay, live.meta["id"], live.frames)
+            # The complete record is written before this frame becomes visible to spectators.
             await asyncio.to_thread(self.store.save_match, live.meta)
             live.changed.notify_all()
 

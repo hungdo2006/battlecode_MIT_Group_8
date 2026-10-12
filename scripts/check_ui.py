@@ -5,6 +5,7 @@ python scripts/check_ui.py --url http://127.0.0.1:8000 --spectator-url http://HO
 Uses installed Chrome. Creates real submissions/matches, then restores configs.
 """
 import argparse
+import os
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 
@@ -68,6 +69,13 @@ def main(args):
         try:
             page.goto(args.url)
             page.get_by_text("SYSTEM ONLINE", exact=True).wait_for()
+            if not os.environ.get("ARENA_ADMIN_CODE"):
+                raise RuntimeError("Set ARENA_ADMIN_CODE to run Organizer UI checks.")
+            page.locator("#organizer-toggle").click()
+            page.locator("#organizer-code").fill(os.environ["ARENA_ADMIN_CODE"])
+            page.locator("#organizer-form [type=submit]").click()
+            page.wait_for_function("app.role === 'organizer'")
+            assert page.locator("#organizer-code").input_value() == ""
             select_game("robot_battle")
             assert page.locator("#rules-fields [name=initial_hp]").count() == 1
             assert page.locator("#rules-fields [name=rounds]").count() == 0
@@ -151,6 +159,10 @@ def main(args):
             for game_id, rules in original_rules.items():
                 page.request.put(f"{args.url}/api/games/{game_id}/rules", data=rules)
             page.request.put(args.url + "/api/games/selected", data={"game_id": original_game})
+            if page.evaluate("app.role") == "organizer":
+                page.locator("#organizer-toggle").click()
+                page.wait_for_function("app.role === 'player'")
+                assert page.locator("#rules-form [type=submit]").is_disabled()
             browser.close()
 
 

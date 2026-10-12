@@ -27,7 +27,8 @@ Get-NetConnectionProfile</pre>
 <li>Cả hai nhận cùng sequence trạng thái qua WebSocket. Pause/Reset chỉ điều khiển màn hình của từng máy; backend và máy còn lại tiếp tục. Để đối chiếu, dùng cùng tốc độ playback và cùng số lượt trên timeline.</li>
 <li>Trận kết thúc có thể Replay hoặc tải JSON; replay không chạy bot lần nữa.</li>
 </ol>
-<p>Phiên tồn tại 30 ngày và được giữ sau khi server khởi động lại. Browser ẩn danh hoặc browser khác tạo phiên mới; đổi IP/hostname tạo vùng cookie khác. Nickname chỉ là nhận diện trong nhóm, chưa phải tài khoản đăng nhập hay phân quyền organizer.</p>
+<p>Phiên tồn tại 30 ngày và giữ sau khi server khởi động lại. Browser khác/ẩn danh tạo phiên mới; đổi IP/hostname tạo vùng cookie khác. Mọi người bắt đầu với quyền Player; nộp bot và tạo trận theo luật đã lưu. Nickname không phải tài khoản đăng nhập.</p>
+<p>Ban tổ chức đặt biến môi trường <code>ARENA_ADMIN_CODE</code> trước khi chạy server, rồi dùng nút <strong>Mở quyền Organizer</strong> và nhập đúng mã. Chỉ Organizer sửa/reset luật, đặt game mặc định hoặc gửi luật riêng cho trận. Rời Organizer hoặc restart server thu hồi quyền. Chọn game thường chỉ ảnh hưởng browser của bạn, được lưu qua reload; nút Đặt game mặc định là thao tác riêng của Organizer. Mã không lưu trong frontend và không gửi vào subprocess bot.</p>
 <h2>04 / Firewall và lỗi kết nối</h2>
 <p>Chỉ dùng Wi-Fi riêng đáng tin cậy. Trong <strong>Windows Settings → Network &amp; Internet → Wi-Fi → mạng hiện tại</strong>, chọn profile <strong>Private</strong> nếu đúng là mạng của nhóm. Khi Windows hỏi quyền cho Python, cho phép trên Private networks. Không cần tắt toàn bộ firewall.</p>
 <p>Nếu vẫn bị chặn, trên máy chủ mở PowerShell với quyền Administrator và thêm đúng rule TCP cổng đang dùng, chỉ cho mạng riêng và subnet LAN:</p>

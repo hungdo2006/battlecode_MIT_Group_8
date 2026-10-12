@@ -102,14 +102,37 @@ class Store:
         with self.lock:
             return deepcopy(self.matches.get(match_id))
 
-    def save_replay(self, match_id: str, frames: list[dict]):
+    def start_replay(self, match_id: str, initial_frame: dict):
         with self.lock:
-            self._write(self.replays / f"{match_id}.json", {"version": 1, "frames": frames})
+            path = self.replays / f"{match_id}.jsonl"
+            # Exclusive create prevents an accidental reset of existing history.
+            with path.open("xb") as stream:
+                stream.write(self._frame_line(initial_frame))
+
+    @staticmethod
+    def _frame_line(frame: dict) -> bytes:
+        return (json.dumps(frame, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
+
+    def append_replay_frame(self, match_id: str, frame: dict):
+        line = self._frame_line(frame)
+        with self.lock:
+            # One complete frame per record; closing flushes before publishing to spectators.
+            with (self.replays / f"{match_id}.jsonl").open("ab") as stream:
+                stream.write(line)
 
     def get_replay(self, match_id: str) -> dict | None:
         with self.lock:
-            path = self.replays / f"{match_id}.json"
-            return self._read(path, None)
+            path = self.replays / f"{match_id}.jsonl"
+            if not path.exists():
+                # Old JSON replays stay readable without rewriting user data.
+                return self._read(self.replays / f"{match_id}.json", None)
+            frames = []
+            with path.open("rb") as stream:
+                for line in stream:
+                    if not line.endswith(b"\n"):
+                        break  # A crash mid-write leaves an uncommitted final record.
+                    frames.append(json.loads(line))
+            return {"version": 1, "frames": frames}
 
     @staticmethod
     def new_id() -> str:

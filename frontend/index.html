@@ -17,7 +17,7 @@
       <span class="brand-mark">N<span>↗</span></span>
       <span>NEON<span class="brand-sub">ARENA<span class="brand-dot">.</span></span></span>
     </a>
-    <div class="sidebar-caption">CONTROL CENTER <span>v2.1</span></div>
+    <div class="sidebar-caption">CONTROL CENTER <span>v2.2</span></div>
     <nav aria-label="Điều hướng chính">
       <a class="nav-item active" href="#home" data-view="home"><span class="nav-icon">⌂</span>Trang chủ<span class="nav-number">01</span></a>
       <a class="nav-item" href="#upload" data-view="upload"><span class="nav-icon">↥</span>Nộp bot<span class="nav-number">02</span></a>
@@ -40,9 +40,10 @@
     </header>
     <main>
       <section class="panel identity-bar" aria-label="Phiên người chơi">
-        <div><span class="eyebrow">YOUR PLAYER SESSION</span><strong id="participant-name">Đang nhận phiên…</strong><small id="participant-id"></small></div>
+        <div><span class="eyebrow">YOUR PLAYER SESSION <span class="tag" id="participant-role">PLAYER</span></span><strong id="participant-name">Đang nhận phiên…</strong><small id="participant-id"></small></div>
         <form id="session-form"><label for="session-name">NICKNAME</label><div><input id="session-name" name="name" maxlength="32" required autocomplete="nickname" placeholder="Tên thành viên"><button class="button ghost small" type="submit">Lưu tên</button></div></form>
         <a class="text-button" href="/lan">Kết nối máy khác ↗</a>
+        <button class="button ghost small" id="organizer-toggle" type="button">Mở quyền Organizer</button>
       </section>
       <div class="feedback hidden" id="readonly-notice">CHẾ ĐỘ CHỈ XEM — Live/replay hoạt động; nộp code, tạo trận và chỉnh luật đã tắt.</div>
       <div class="workspace-game panel">
@@ -105,7 +106,7 @@
       <section class="view" id="view-watch"><div class="page-intro"><div class="eyebrow">03 / BATTLE ARCHIVE</div><h1>EVERY TURN.<br><em>EVERY BATTLE.</em></h1><p>Xem trực tiếp hoặc tua lại trận đã kết thúc. Replay không chạy lại bot.</p></div><section class="panel"><div class="panel-heading"><h2>MATCH HISTORY</h2><button class="text-button" id="refresh-matches">Làm mới ↻</button></div><div id="all-matches" class="match-list"></div></section></section>
 
       <section class="view" id="view-rules">
-        <div class="page-intro"><div class="eyebrow">04 / GAME REGISTRY</div><h1>CHOOSE THE GAME.<br><em>SET THE RULES.</em></h1><p>Chọn game đã cài đặt, xem luật và lưu cấu hình cho các trận mới. Trận đang chạy giữ snapshot riêng.</p></div>
+        <div class="page-intro"><div class="eyebrow">04 / GAME REGISTRY</div><h1>CHOOSE THE GAME.<br><em>SET THE RULES.</em></h1><p>Chọn game cho trình duyệt của bạn. Organizer quản lý luật và game mặc định; trận đang chạy giữ snapshot riêng.</p></div>
         <div class="game-library" id="game-library" aria-label="Danh sách game đã cài đặt"></div>
         <section class="panel game-information">
           <div><span class="eyebrow">SELECTED GAME</span><h2 id="game-name">Đang tải…</h2><p id="game-description"></p></div>
@@ -116,8 +117,9 @@
           <section class="panel">
             <div class="panel-heading"><h2 id="rules-heading">RULESET</h2><span class="tag">VALIDATED</span></div>
             <form id="rules-form" class="padded-form">
+              <p class="form-note" id="rules-access-note"></p>
               <div id="rules-fields" class="rules-fields"></div>
-              <div class="form-buttons"><button class="button primary" type="submit">Lưu cấu hình ↗</button><button class="button ghost" type="button" id="default-rules">Khôi phục mặc định</button></div>
+              <div class="form-buttons"><button class="button primary" type="submit">Lưu cấu hình ↗</button><button class="button ghost" type="button" id="default-rules">Khôi phục mặc định</button><button class="button ghost" type="button" id="set-default-game">Đặt game mặc định</button></div>
               <div class="feedback hidden" id="rules-feedback" role="status"></div>
             </form>
           </section>
@@ -128,6 +130,7 @@
       <footer class="main-footer"><span>NEON ARENA <span class="muted">/ NETWORK PROGRAMMING PROJECT</span></span><span>LOCAL / LAN <i class="status-dot"></i></span></footer>
     </main>
   </div>
+  <dialog class="organizer-dialog" id="organizer-dialog" aria-labelledby="organizer-title"><form id="organizer-form" class="padded-form"><h2 id="organizer-title">ORGANIZER ACCESS</h2><p class="form-note">Nhập mã do người chạy server cung cấp. Quyền chỉ áp dụng cho phiên này và mất khi server khởi động lại.</p><label for="organizer-code">Mã Organizer<input type="password" id="organizer-code" name="code" maxlength="256" required autocomplete="off"></label><div class="form-buttons"><button class="button primary" type="submit">Xác minh</button><button class="button ghost" id="organizer-cancel" type="button">Đóng</button></div></form></dialog>
   <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 </body>
 </html>

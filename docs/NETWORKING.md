@@ -33,7 +33,9 @@ Frontend gọi `/api/...` bằng relative paths và mở `ws(s)://location.host/
 
 Bot lưu `owner={id,name}`; trận lưu `created_by` và owner của hai bot. Đó là snapshot tên tại thời điểm upload/tạo trận: đổi nickname không đổi lịch sử. Sample compilation cache theo **phiên + game + ngôn ngữ + hash source**: cùng người nộp lại cùng mẫu dùng executable sẵn; hai người nộp cùng mẫu vẫn có submission/owner riêng. Dữ liệu v1/v2 cũ không có owner vẫn xem được, UI ghi rõ là submission/trận cũ.
 
-Đây là nhận diện browser cho nhóm tin cậy, **không phải đăng nhập, phân quyền hoặc sandbox**. Không có vai trò organizer riêng: các thành viên LAN vẫn dùng chung cấu hình luật. Cookie là host-scoped (các port cùng host dùng chung vùng cookie); đổi hostname/IP tạo vùng khác. Bootstrap thiết lập phiên trước khi fetch song song, tránh tạo nhiều identity cho một browser.
+Nickname/cookie nhận diện browser, không phải tài khoản Internet hay sandbox. Có phân quyền **Player/Organizer**: chỉ phiên xác minh `ARENA_ADMIN_CODE` được sửa luật/game mặc định. `POST /api/session/organizer {"code":"..."}` mở quyền, DELETE cùng endpoint thu hồi. Quyền chỉ giữ trên server, mất khi restart; mã không lưu vào JSON/frontend, không truyền cho compiler/bot. Player dùng luật đã lưu, API chặn override rules. Xem README mục Organizer và Player để cấu hình biến môi trường.
+
+Chọn game thường chỉ lưu localStorage của browser; không gọi API thay default. Chỉ nút **Đặt game mặc định** do Organizer bấm mới thay cấu hình chung. Hai browser giữ lựa chọn sau reload kể cả khi default thay đổi; trận/replay giữ game ID riêng. Cookie là host-scoped (các port cùng host dùng chung vùng cookie); đổi hostname/IP tạo vùng khác. Bootstrap thiết lập phiên trước khi fetch song song, tránh tạo nhiều identity cho một browser.
 
 ## IP và Windows Firewall
 
@@ -91,5 +93,7 @@ Cấu hình proxy dựa trên [FastAPI Behind a Proxy](https://fastapi.tiangolo.
 ```
 
 check_lan dùng **hai cookie jar**, đổi nickname, mỗi client upload một file bot (Python/C++), client B tìm trận A tạo, hai socket nhận trạng thái, reconnect và so với replay. Check UI dùng hai browser context độc lập: nickname/upload thực tế, tự thấy bot/trận, hai WebSocket, Pause riêng, same saved result. Test tự động trên host không chứng minh hai laptop vật lý; theo checklist trên để nghiệm thu hai thiết bị thật và ghi lại ID trận.
+
+check_lan không override luật theo mặc định nên hai client là Player; nếu dùng `--max-turns` thì client A cần `ARENA_ADMIN_CODE` để gửi override. Các QA browser chỉnh luật đọc cùng biến trong shell chạy script. check_multiclient_ui dùng Organizer fixture riêng và hai Player, còn kiểm tra game selection/default isolation. Replay mới ghi append-only JSONL, API vẫn xuất JSON và đọc archive `.json` cũ.
 
 check_https cần OpenSSL trên PATH, tự tạo certificate self-signed tạm và xác thực bằng CA đó (không tắt certificate verification); kiểm tra cookie Secure giữ phiên, WSS replay và read-only. Không sửa trust store hệ thống, không chạy lại bot, xóa dữ liệu/cert tạm và dừng listener sau test. OpenSSL không phải dependency để chạy demo LAN.

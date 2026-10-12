@@ -94,3 +94,7 @@ V2.3: Competition controller chỉ quản lý admission và snapshot, không ch�
 Nguồn: [hungdo2006/ottv2-playhtml](https://github.com/hungdo2006/ottv2-playhtml). Bản đọc ngày 12/10/2026 có các file js chuyển tiếp sang `src/engine`; bản chuẩn nằm trong `config/rules/standard-9x9.json`. Snapshot source + SHA-256 và MIT license được giữ tại `docs/reference/ottv2/`. Các file này chỉ là reference cho test, không được nạp vào backend runtime hoặc phục vụ như engine trên frontend. Không tích hợp playhtml, Express hoặc Socket.IO.
 
 `tests/reference_ott.mjs` và test Python đối chiếu nước đi/kết quả với module JavaScript nguồn trên các state được sinh có seed. Node chỉ cần cho kiểm chứng này; các trận của ứng dụng chạy Python engine thuần.
+
+## Multiplayer v3
+
+Lobby ghép hai Player và chốt submission sau Accept, rồi gọi MatchManager với MatchRequest cùng participant snapshots. Không thêm luật game vào Lobby/MatchManager: adapter và runner giữ nguyên. API tạo trận trực tiếp bị chặn; xem [MULTIPLAYER.md](MULTIPLAYER.md) cho invitation/presence/metadata. Các test adapter thứ ba vẫn chạy qua quy trình invitation thật.

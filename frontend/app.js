@@ -11,6 +11,7 @@ const app = {
   role: "player", organizerAvailable: false,
   competition: null, competitionSocket: null, competitionTimer: null,
   competitionGeneration: 0, competitionBusy: false, shuttingDown: false,
+  lobby: null, invitationBusy: false, seenStarts: new Set(), seenFinishes: new Set(), heartbeatTimer: null,
 };
 
 function el(tag, className, text) {
@@ -50,6 +51,115 @@ function ownerLabel(owner) {
   return `${owner.name} · ${owner.id.slice(0, 4).toUpperCase()}${owner.id === app.participant?.id ? " · CỦA BẠN" : ""}`;
 }
 
+function languageLabel(language) { return ({ py: "Python", cpp: "C++", java: "Java" })[language] || language; }
+function fighterLabel(match, side) {
+  const key = side.toLowerCase();
+  const bot = match.bots[side];
+  const name = match[`player_${key}_name_snapshot`] || match.participants?.[side]?.name || bot.owner?.name || bot.name;
+  return `${name} / ${languageLabel(bot.language)} · ${bot.name}`;
+}
+function activeFrozen() {
+  if (app.lobby?.me?.current_match_id) return true;
+  return (app.lobby?.invitations || []).some(inv => ["PENDING", "PARTIALLY_ACCEPTED"].includes(inv.status)
+    && inv.responses[app.participant?.id] === "ACCEPTED");
+}
+
+function acceptLobby(lobby) {
+  app.lobby = lobby;
+  app.serverClockOffset = lobby.server_time * 1000 - Date.now();
+  const players = $("#players-list"); players.replaceChildren();
+  $("#players-count").textContent = `${lobby.players.length} PLAYERS`;
+  if (!lobby.players.length) players.append(el("div", "empty-state", "Đang chờ Player mở website qua LAN."));
+  for (const player of lobby.players) {
+    const row = el("div", "player-row");
+    const info = el("div", "bot-description");
+    info.append(el("strong", "", player.display_name), el("small", "", player.active_bot ? `${player.active_bot.name} / ${languageLabel(player.active_bot.language)}` : "Chưa có Active Bot tương thích"));
+    row.append(info, el("span", `match-status ${player.online ? "running" : "interrupted"}`, player.status));
+    if (player.current_match_id) {
+      const live = el("button", "button ghost small", "LIVE ↗");
+      live.onclick = () => loadMatch(player.current_match_id).catch(e => toast(e.message, true)); row.append(live);
+    }
+    players.append(row);
+  }
+  const me = lobby.me;
+  $("#player-status").textContent = me?.status || "OFFLINE";
+  $("#active-bot-name").textContent = me?.active_bot ? `${me.active_bot.name} / ${languageLabel(me.active_bot.language)}` : "Chưa chọn Active Bot";
+  $("#player-match-note").textContent = me?.current_match_id ? "Bot đang thi đấu trên server. Bạn có thể reconnect để xem tiếp." : me?.invitation_id ? "Bạn đang có lời mời. Chọn Accept hoặc Decline." : "Chọn bot READY rồi chờ Organizer gửi lời mời. Giữ website mở.";
+  $("#resume-match").classList.toggle("hidden", !me?.current_match_id);
+  populateBotSelectors(); renderBots(); renderInvitations(); applyPermissions();
+  for (const inv of [...lobby.invitations].reverse()) {
+    const relevant = inv.player_ids.includes(app.participant?.id) || app.role === "organizer";
+    if (inv.status === "STARTED" && relevant && !app.seenStarts.has(inv.id)) {
+      app.seenStarts.add(inv.id);
+      if (!inv.finished || me?.current_match_id === inv.match_id) {
+        loadMatch(inv.match_id).then(refreshMatches).catch(error => { app.seenStarts.delete(inv.id); toast(error.message, true); });
+      }
+    }
+    if (inv.finished && relevant && !app.seenFinishes.has(inv.id)) {
+      app.seenFinishes.add(inv.id);
+      if (app.match?.id === inv.match_id) toast("MATCH FINISHED / Kết quả đã lưu. Player sẵn sàng cho lời mời tiếp theo.");
+    }
+  }
+}
+
+function renderInvitations() {
+  const target = $("#invitations-list"); target.replaceChildren();
+  const invitations = app.lobby?.invitations || [];
+  if (!invitations.length) target.append(el("div", "empty-state", "Chưa có lời mời thi đấu."));
+  for (const inv of invitations.slice(0, 20)) {
+    const row = el("div", "invitation-row"), info = el("div", "bot-description");
+    const names = inv.player_ids.map(pid => `${inv.players[pid].name} · ${pid.slice(0, 6).toUpperCase()} / ${languageLabel(inv.bots[pid].language)}`);
+    info.append(el("strong", "", names.join(" VS ")), el("small", "", `${inv.game_name} / ${inv.id}`),
+      el("small", "", inv.player_ids.map(pid => `${inv.players[pid].name}: ${inv.responses[pid]}`).join(" · ")));
+    row.append(info, el("span", "match-status", inv.finished ? "FINISHED" : inv.status));
+    if (app.role === "organizer" && ["PENDING", "PARTIALLY_ACCEPTED"].includes(inv.status)) {
+      const cancel = el("button", "button ghost small", "CANCEL");
+      cancel.onclick = async () => { try { await api(`/api/invitations/${inv.id}/cancel`, { method: "POST" }); } catch (error) { toast(error.message, true); } };
+      row.append(cancel);
+    }
+    target.append(row);
+  }
+  const pending = app.role === "player" && invitations.find(inv => ["PENDING", "PARTIALLY_ACCEPTED"].includes(inv.status));
+  const dialog = $("#invitation-dialog");
+  if (!pending) { if (dialog.open) dialog.close(); app.currentInvitation = null; return; }
+  app.currentInvitation = pending;
+  const fighters = $("#invitation-fighters"); fighters.replaceChildren();
+  for (const pid of pending.player_ids) {
+    const info = el("div", "invitation-fighter");
+    info.append(el("h3", "", pending.players[pid].name), el("small", "", `ID / ${pid.slice(0, 6).toUpperCase()}`), el("p", "", pending.bots[pid].name), el("span", "tag", languageLabel(pending.bots[pid].language)));
+    fighters.append(info);
+  }
+  $("#invitation-game").textContent = `${pending.game_name} / Mời bởi Organizer ${pending.organizer.name}`;
+  const accepted = pending.responses[app.participant.id] === "ACCEPTED";
+  $("#invitation-wait").textContent = accepted ? "WAITING FOR OPPONENT... Active Bot đã chốt." : "Chấp nhận để xác nhận Active Bot hiện tại của bạn.";
+  $("#invitation-accept").disabled = accepted || app.invitationBusy || app.readOnly;
+  $("#invitation-decline").disabled = app.invitationBusy || app.readOnly;
+  updateInvitationCountdown();
+  if (!dialog.open) dialog.showModal();
+}
+
+function updateInvitationCountdown() {
+  if (!app.currentInvitation) return;
+  const left = Math.max(0, Math.ceil((app.currentInvitation.expires_at * 1000 - Date.now() - app.serverClockOffset) / 1000));
+  $("#invitation-countdown").textContent = `${left}s TO RESPOND`;
+  if (!left) $("#invitation-accept").disabled = true;
+}
+setInterval(updateInvitationCountdown, 500);
+$("#invitation-dialog").addEventListener("cancel", event => event.preventDefault());
+for (const action of ["accept", "decline"]) $("#invitation-" + action).addEventListener("click", async () => {
+  if (!app.currentInvitation || app.invitationBusy) return;
+  const id = app.currentInvitation.id;
+  app.invitationBusy = true; renderInvitations();
+  try {
+    const inv = await api(`/api/invitations/${id}/${action}`, { method: "POST" });
+    const index = app.lobby.invitations.findIndex(item => item.id === inv.id);
+    if (index >= 0 && app.lobby.invitations[index].status !== "STARTED") app.lobby.invitations[index] = inv;
+    renderInvitations();
+  } catch (error) { toast(error.message, true); }
+  finally { app.invitationBusy = false; renderInvitations(); }
+});
+$("#resume-match").onclick = () => { if (app.lobby?.me?.current_match_id) loadMatch(app.lobby.me.current_match_id).catch(e => toast(e.message, true)); };
+
 function renderSession() {
   $("#participant-name").textContent = app.participant.name;
   $("#participant-id").textContent = `ID / ${app.participant.id.toUpperCase()} · Phiên riêng của trình duyệt`;
@@ -73,11 +183,16 @@ function applyPermissions() {
   $("#competition-close").disabled = !organizer || !app.competition?.competition_locked || app.competitionBusy;
   $("#competition-open").classList.toggle("hidden", app.role !== "organizer");
   $("#competition-close").classList.toggle("hidden", app.role !== "organizer");
-  $("#rules-access-note").textContent = app.competition?.competition_locked ? "LOCKED RULESET / Snapshot đã chốt. Đóng cuộc thi và chờ các trận kết thúc để cấu hình lại." : allowed ? "ORGANIZER / Chọn game, lưu luật rồi LOCK GAME / OPEN COMPETITION." : "PLAYER / Game và luật do ban tổ chức chốt. Chờ cuộc thi mở để tạo trận.";
+  $("#rules-access-note").textContent = app.competition?.competition_locked ? "LOCKED RULESET / Snapshot đã chốt. Đóng cuộc thi và chờ các trận kết thúc để cấu hình lại." : allowed ? "ORGANIZER / Chọn game, lưu luật rồi LOCK GAME / OPEN COMPETITION." : "PLAYER / Game và luật do ban tổ chức chốt. Chọn Active Bot rồi chờ lời mời.";
+  $$(".organizer-only").forEach(node => node.classList.toggle("hidden", !organizer));
+  $$(".player-only, [data-go=upload], .nav-item[data-view=upload]").forEach(node => node.classList.toggle("hidden", organizer));
+  $$("#rules-form [type=submit], #default-rules").forEach(node => node.classList.toggle("hidden", !organizer));
+  if (organizer && location.hash === "#upload") location.hash = "create";
   $$("#quick-match [type=submit], #create-match [type=submit]").forEach(node => {
-    node.disabled = app.readOnly || !app.competition?.competition_locked || app.launching || app.competitionBusy;
+    node.disabled = !organizer || !app.competition?.competition_locked || app.launching || app.competitionBusy
+      || (app.lobby?.players || []).filter(player => player.status === "READY").length < 2;
   });
-  if (app.readOnly) $$("#upload-form [type=submit], #seed-samples, [data-sample]").forEach(node => { node.disabled = true; });
+  $$("#upload-form [type=submit], #seed-samples, [data-sample]").forEach(node => { node.disabled = organizer || app.readOnly; });
   renderCompetitionBanner();
 }
 
@@ -86,7 +201,7 @@ function renderCompetitionBanner() {
   $("#competition-status").textContent = state?.phase === "open" ? "COMPETITION OPEN" : state?.phase === "draining" ? "CLOSING / WAITING" : "WAITING FOR ORGANIZER";
   $("#competition-banner").classList.toggle("competition-live", state?.competition_locked === true);
   $("#competition-game").textContent = app.games.find(game => game.game_id === state?.selected_game_id)?.name || "Đang tải game…";
-  $("#competition-message").textContent = state?.phase === "open" ? "Game và luật đã khóa. Chỉ bot tương thích được nộp và thi đấu." : state?.phase === "draining" ? `Đã chặn trận mới. Đang chờ ${state.pending_matches} trận/bot kết thúc trước khi mở khóa cấu hình.` : "Ban tổ chức đang chuẩn bị game và luật. Có thể nộp bot cho game hiện tại; chưa thể tạo trận.";
+  $("#competition-message").textContent = state?.phase === "open" ? "Game và luật đã khóa. Organizer mời hai Player READY; trận bắt đầu sau hai lượt ACCEPT." : state?.phase === "draining" ? `Đã chặn trận mới. Đang chờ ${state.pending_matches} trận/bot kết thúc trước khi mở khóa cấu hình.` : "Ban tổ chức đang chuẩn bị game và luật. Có thể nộp bot cho game hiện tại; chưa thể tạo trận.";
 }
 
 async function acceptCompetition(state) {
@@ -114,6 +229,11 @@ function connectCompetitionSocket() {
   const scheme = location.protocol === "https:" ? "wss" : "ws";
   const socket = new WebSocket(`${scheme}://${location.host}/ws/competition`);
   app.competitionSocket = socket;
+  socket.onopen = () => {
+    clearInterval(app.heartbeatTimer);
+    const beat = () => { if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "heartbeat" })); };
+    beat(); app.heartbeatTimer = setInterval(beat, 10000);
+  };
   socket.onmessage = event => {
     if (socket !== app.competitionSocket) return;
     let message; try { message = JSON.parse(event.data); } catch { return; }
@@ -121,9 +241,12 @@ function connectCompetitionSocket() {
       const restarted = app.competition && app.competition.server_id !== message.state.server_id;
       if (restarted) api("/api/session").then(acceptSession).catch(() => {});
       acceptCompetition(message.state).catch(error => toast(error.message, true));
+      if (message.role && message.role !== app.role) api("/api/session").then(acceptSession).catch(() => {});
+      if (message.lobby) acceptLobby(message.lobby);
     }
   };
   socket.onclose = () => {
+    if (socket === app.competitionSocket) clearInterval(app.heartbeatTimer);
     if (!app.shuttingDown && socket === app.competitionSocket) app.competitionTimer = setTimeout(connectCompetitionSocket, 1200);
   };
 }
@@ -132,6 +255,8 @@ function acceptSession(data) {
   app.participant = data.participant; app.readOnly = data.read_only;
   app.role = data.role; app.organizerAvailable = data.organizer_available;
   renderSession();
+  renderBots();
+  renderInvitations();
 }
 
 $("#session-form").addEventListener("submit", async event => {
@@ -190,31 +315,32 @@ function renderStats() {
 }
 
 function populateBotSelectors() {
-  const ready = app.bots.filter(bot => bot.status === "ready" && bot.game_id === app.selectedGameId).reverse();
-  $$(".bot-select").forEach(select => {
+  const ready = (app.lobby?.players || []).filter(player => player.status === "READY");
+  $$(".player-select").forEach(select => {
     const selected = select.value;
-    const isA = select.classList.contains("bot-a");
-    const placeholder = el("option", "", isA ? "Chọn bot A" : "Chọn bot B");
+    const isA = select.classList.contains("player-a");
+    const placeholder = el("option", "", isA ? "Chọn Player A" : "Chọn Player B");
     placeholder.value = "";
     select.replaceChildren(placeholder);
-    ready.forEach(bot => {
-      const option = el("option", "", `${bot.name} (${bot.language.toUpperCase()}) · ${bot.owner?.name || "bot cũ"}`);
-      option.value = bot.id;
+    ready.forEach(player => {
+      const option = el("option", "", `${player.display_name} / ${languageLabel(player.active_bot.language)} · ${player.active_bot.name}`);
+      option.value = player.player_id;
       select.append(option);
     });
-    select.value = ready.some(bot => bot.id === selected) ? selected : (ready[isA ? 0 : Math.min(1, ready.length - 1)]?.id || "");
+    select.value = ready.some(player => player.player_id === selected) ? selected : (ready[isA ? 0 : 1]?.player_id || "");
   });
 }
-$$(".bot-select").forEach(select => select.addEventListener("change", () => {
-  const selector = select.classList.contains("bot-a") ? ".bot-a" : ".bot-b";
+$$(".player-select").forEach(select => select.addEventListener("change", () => {
+  const selector = select.classList.contains("player-a") ? ".player-a" : ".player-b";
   $$(selector).forEach(other => { other.value = select.value; });
 }));
 
 function renderBots() {
   const target = $("#bot-library");
   target.replaceChildren();
-  if (!app.bots.length) target.append(el("div", "empty-state", "Chưa có submission. Tải code hoặc dùng bot mẫu ở trên."));
-  app.bots.forEach(bot => {
+  const mine = app.bots.filter(bot => bot.owner?.id === app.participant?.id);
+  if (!mine.length) target.append(el("div", "empty-state", "Chưa có submission. Tải code hoặc dùng bot mẫu ở trên."));
+  mine.forEach(bot => {
     const row = el("div", "bot-row");
     row.append(el("span", `language-icon ${bot.language === "py" ? "python" : bot.language}`, bot.language.toUpperCase()));
     const description = el("div", "bot-description");
@@ -222,6 +348,15 @@ function renderBots() {
     description.append(el("small", "bot-owner", `NỘP BỞI / ${ownerLabel(bot.owner)}`));
     description.append(el("span", "tag", app.games.find(game => game.game_id === bot.game_id)?.name || bot.game_id));
     row.append(description, el("span", `match-status ${bot.status === "error" ? "interrupted" : ""}`, bot.status.toUpperCase()));
+    const active = app.lobby?.me?.active_bot_id === bot.id;
+    const button = el("button", "button ghost small", active ? "ACTIVE BOT ✓" : "SET AS ACTIVE BOT");
+    button.disabled = app.role !== "player" || app.readOnly || bot.status !== "ready" || bot.game_id !== app.selectedGameId || active || activeFrozen();
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      try { await api("/api/players/active-bot", jsonOptions("PUT", { bot_id: bot.id })); toast("Đã chọn Active Bot. Chờ Organizer gửi lời mời."); }
+      catch (error) { toast(error.message, true); }
+    });
+    row.append(button);
     if (bot.logs) {
       const details = el("details");
       details.append(el("summary", "", "Compiler log"), el("pre", "", bot.logs));
@@ -359,19 +494,19 @@ function renderSamples() {
 function resultDescription(match) {
   if (match.status === "interrupted") return "Gián đoạn";
   if (!match.result) return "Đang thi đấu";
-  return match.result.winner ? `${match.result.winner} WINS` : "DRAW";
+  return match.result.winner ? `${fighterLabel(match, match.result.winner)} WINS` : "DRAW";
 }
 
 function renderMatchList(target, matches) {
   target.replaceChildren();
-  if (!matches.length) target.append(el("div", "empty-state", "Chưa có trận đấu. Chọn hai bot và nhấn Start Match."));
+  if (!matches.length) target.append(el("div", "empty-state", "Chưa có trận đấu. Organizer mời hai Player READY để thi đấu."));
   matches.forEach((match, index) => {
     const row = el("div", "match-row");
     row.dataset.matchId = match.id;
     row.dataset.gameId = match.game_id;
     row.append(el("span", "match-id", `#${String(index + 1).padStart(3, "0")}`));
     const names = el("div", "match-names");
-    names.append(document.createTextNode(match.bots.A.name), el("span", "", "VS"), document.createTextNode(match.bots.B.name));
+    names.append(document.createTextNode(fighterLabel(match, "A")), el("span", "", "VS"), document.createTextNode(fighterLabel(match, "B")));
     names.append(el("small", "match-date", `${match.game_name || app.games.find(g => g.game_id === match.game_id)?.name || match.game_id} · ${new Date(match.created_at).toLocaleString("vi-VN")} · ${match.turn} lượt`));
     names.append(el("small", "match-date", `#${match.id} · TẠO BỞI / ${match.created_by ? ownerLabel(match.created_by) : "Trận cũ"}`));
     row.append(names, el("span", `match-status ${match.status}`, match.status.toUpperCase()), el("span", "match-result", resultDescription(match)));
@@ -450,13 +585,7 @@ $("#seed-samples").addEventListener("click", async event => {
       try { seeded.push(await addSample(language, gameId)); } catch (error) { errors.push(`${language.toUpperCase()}: ${error.message}`); }
     }
     await refreshBots();
-    if (app.selectedGameId === gameId && seeded.length) {
-      const a = seeded.find(bot => bot.language === "py") || seeded[0];
-      const b = seeded.find(bot => bot.language === "cpp") || seeded[Math.min(1, seeded.length - 1)];
-      $$(".bot-a").forEach(select => { select.value = a.id; });
-      $$(".bot-b").forEach(select => { select.value = b.id; });
-    }
-    toast(errors.length ? errors.join("\n") : seeded.length ? `${seeded.length} bot mẫu đã sẵn sàng. Nhấn Start Match để thi đấu.` : "Game này chưa có bot mẫu; hãy nộp code cho game đã chọn.", errors.length > 0);
+    toast(errors.length ? errors.join("\n") : seeded.length ? `${seeded.length} bot mẫu đã sẵn sàng. Chọn SET AS ACTIVE BOT trong My Submissions.` : "Game này chưa có bot mẫu; hãy nộp code cho game đã chọn.", errors.length > 0);
   } finally { button.disabled = false; button.textContent = "Thêm bot mẫu ↗"; applyPermissions(); }
 });
 
@@ -511,10 +640,8 @@ async function launch(event) {
   buttons.forEach(button => { button.disabled = true; });
   try {
     const form = event.currentTarget;
-    const match = await api("/api/matches", jsonOptions("POST", { bot_a: form.elements.bot_a.value, bot_b: form.elements.bot_b.value, game_id: form.elements.game_id.value }));
-    await loadMatch(match.id);
-    await refreshMatches();
-    toast("Bot đã triển khai. Trận đấu đang chạy trên server.");
+    await api("/api/invitations", jsonOptions("POST", { player_a_id: form.elements.player_a_id.value, player_b_id: form.elements.player_b_id.value }));
+    toast("Đã gửi lời mời. Trận tự bắt đầu sau khi cả hai Player Accept.");
   } catch (error) { toast(error.message, true); }
   finally { app.launching = false; applyPermissions(); }
 }
@@ -600,7 +727,7 @@ function updateHud(frame) {
   $("#turn-max").textContent = hud.turnMax;
   for (const player of ["A", "B"]) {
     const key = player.toLowerCase();
-    $("#fighter-" + key + "-name").textContent = app.match?.bots[player].name || "CHƯA CHỌN BOT";
+    $("#fighter-" + key + "-name").textContent = app.match ? fighterLabel(app.match, player) : "CHƯA CHỌN BOT";
     $("#hp-" + key + "-fill").style.width = `${Math.max(0, Math.min(100, 100 * hud.players[player].value / hud.players[player].max))}%`;
     $("#hp-" + key + "-text").textContent = hud.players[player].text;
   }
@@ -640,7 +767,7 @@ function renderCombatLog() {
   log.replaceChildren();
   if (!app.match) return;
   const lines = [];
-  lines.push({ turn: "SYS", text: `${app.match.bots.A.name} vs ${app.match.bots.B.name}`, type: "" });
+  lines.push({ turn: "SYS", text: `${fighterLabel(app.match, "A")} vs ${fighterLabel(app.match, "B")}`, type: "" });
   for (const frame of app.frames.slice(0, app.cursor + 1)) {
     const renderer = NeonRenderers.get(frameGameId(frame));
     for (const event of frame.events) {
@@ -665,7 +792,7 @@ function showResult(frame) {
   app.displayedResult = true;
   $("#victory-overlay").classList.remove("hidden");
   $("#victory-title").textContent = app.match?.status === "interrupted" ? "INTERRUPTED" : result.winner ? "VICTORY" : "DRAW";
-  $("#victory-winner").textContent = result.winner ? app.match.bots[result.winner].name : "KHÔNG CÓ NGƯỜI THẮNG";
+  $("#victory-winner").textContent = result.winner ? fighterLabel(app.match, result.winner) : "KHÔNG CÓ NGƯỜI THẮNG";
   const reasons = { bot_error: "Lỗi bot: " + Object.entries(result.faults || {}).map(([p, error]) => `${p}: ${error}`).join(" · "), server_restart: "Máy chủ đã khởi động lại giữa trận.", server_shutdown: "Máy chủ dừng giữa trận.", server_error: "Máy chủ gặp lỗi khi xử lý trận đấu." };
   $("#victory-reason").textContent = reasons[result.reason] || NeonRenderers.get(frameGameId(frame)).result(result);
 }
@@ -761,4 +888,4 @@ setInterval(async () => {
   catch { setConnection(false); }
   finally { app.refreshing = false; }
 }, 2000);
-window.addEventListener("beforeunload", () => { app.shuttingDown = true; app.generation++; app.socket?.close(); clearTimeout(app.competitionTimer); app.competitionSocket?.close(); });
+window.addEventListener("beforeunload", () => { app.shuttingDown = true; app.generation++; app.socket?.close(); clearTimeout(app.competitionTimer); clearInterval(app.heartbeatTimer); app.competitionSocket?.close(); });

@@ -1,3 +1,4 @@
+from workflow import official_match, player_client
 """Authorization, stable game defaults and append-only replay regression tests."""
 import json
 import os
@@ -26,7 +27,7 @@ def watch(client, match_id):
 
 
 def bot(client):
-    response = client.post("/api/bots", files={"file": ("wait.py", WAIT)}, data={"game_id": "robot_battle"})
+    response = player_client(client).post("/api/bots", files={"file": ("wait.py", WAIT)}, data={"game_id": "robot_battle"})
     assert response.status_code == 201
     return response.json()
 
@@ -54,8 +55,8 @@ def test_player_cannot_edit_rules_default_or_override_match(tmp_path, authorize_
             open_competition(organizer)
             request = {"bot_a": submission["id"], "bot_b": submission["id"], "game_id": "robot_battle"}
             assert player.post("/api/matches", json={**request, "rules": {"max_turns": 1}}).status_code == 403
-            response = player.post("/api/matches", json=request)
-            assert response.status_code == 201
+            response = official_match(organizer, request)
+            assert response.status_code == 200
             frames, match = watch(player, response.json()["id"])
             assert len(frames) == 4 and match["rules"]["max_turns"] == 3
         finally:
@@ -114,7 +115,7 @@ def test_locked_game_rejects_implicit_incompatible_bot_pair(tmp_path, authorize_
             assert organizer.put("/api/games/selected", json={"game_id": "ott_v2"}).status_code == 200
             open_competition(organizer, "ott_v2")
             response = player.post("/api/matches", json={"bot_a": submission["id"], "bot_b": submission["id"]})
-            assert response.status_code == 400
+            assert response.status_code == 403
         finally:
             player.close()
 
@@ -158,7 +159,7 @@ def test_long_match_saved_replay_equal_live_without_whole_history_rewrites(tmp_p
         authorize_organizer(client)
         submission = bot(client)
         open_competition(client, rules={"max_turns": 120})
-        match = client.post("/api/matches", json={"bot_a": submission["id"], "bot_b": submission["id"]}).json()
+        match = official_match(client, {"bot_a": submission["id"], "bot_b": submission["id"]}).json()
         frames, metadata = watch(client, match["id"])
         assert len(frames) == 121 and metadata["result"]["reason"] == "turn_limit"
         assert client.get(f"/api/matches/{match['id']}/replay").json()["frames"] == frames
@@ -179,7 +180,7 @@ def test_failed_replay_write_never_broadcasts_phantom_frame(tmp_path, monkeypatc
             raise OSError("test disk full")
 
         monkeypatch.setattr(client.app.state.store, "append_replay_frame", disk_error)
-        match = client.post("/api/matches", json={"bot_a": submission["id"], "bot_b": submission["id"]}).json()
+        match = official_match(client, {"bot_a": submission["id"], "bot_b": submission["id"]}).json()
         frames, metadata = watch(client, match["id"])
         assert len(frames) == 1 and frames[0]["turn"] == 0
         assert metadata["status"] == "interrupted" and metadata["result"]["reason"] == "server_error"

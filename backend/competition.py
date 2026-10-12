@@ -20,12 +20,16 @@ class Competition:
         self.changed = asyncio.Condition()
         self.revision = 0
         self.server_id = uuid4().hex
+        self.lobby = None
 
     def get_state(self):
         state = self.store.get_competition()
         pending = len(self.manager.live)  # Includes bot cleanup, not just visible status.
-        phase = "open" if state["competition_locked"] else "draining" if pending else "setup"
+        invitations = sum(inv["status"] in {"PENDING", "PARTIALLY_ACCEPTED"}
+                          for inv in self.lobby.invitations.values()) if self.lobby else 0
+        phase = "open" if state["competition_locked"] else "draining" if pending or invitations else "setup"
         return {**state, "phase": phase, "pending_matches": pending,
+                "pending_invitations": invitations,
                 "can_edit": phase == "setup", "rules": state["active_rules_snapshot"]
                 if state["competition_locked"] else self.store.get_rules(state["selected_game_id"]),
                 "revision": self.revision, "server_id": self.server_id}
@@ -35,6 +39,8 @@ class Competition:
             raise CompetitionConflict("Cuộc thi đã khóa. Hãy đóng cuộc thi trước khi sửa game hoặc luật.")
         if self.manager.live:
             raise CompetitionConflict("Còn trận đang chạy/chờ hoặc bot đang được thu hồi. Hãy đợi hoặc hủy trận hợp lệ.")
+        if self.lobby and any(inv["status"] in {"PENDING", "PARTIALLY_ACCEPTED"} for inv in self.lobby.invitations.values()):
+            raise CompetitionConflict("Còn lời mời chưa được đóng hợp lệ. Hãy đợi xử lý hoặc hủy lời mời.")
 
     async def publish(self):
         async with self.changed:
@@ -52,5 +58,7 @@ class Competition:
         async with self.lock:
             # Closing admission is immediate; existing matches retain their snapshots.
             await asyncio.to_thread(self.store.close_competition)
+            if self.lobby:
+                self.lobby.cancel_pending("competition_closed")
             await self.publish()
             return self.get_state()

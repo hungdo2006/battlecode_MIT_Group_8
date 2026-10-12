@@ -1,3 +1,4 @@
+from workflow import official_match
 """Competition authority, persistence, broadcast and concurrent admission."""
 from concurrent.futures import ThreadPoolExecutor
 import asyncio
@@ -33,7 +34,7 @@ def upload(client, game_id="robot_battle"):
 
 
 def create_match(client, bot, **extra):
-    return client.post("/api/matches", json={"bot_a": bot["id"], "bot_b": bot["id"], **extra})
+    return official_match(client, {"bot_a": bot["id"], "bot_b": bot["id"], **extra})
 
 
 def watch(client, match_id):
@@ -72,10 +73,10 @@ def test_locked_game_and_rules_cannot_be_spoofed(room, open_competition):
     bot = upload(player)
     snapshot = open_competition(organizer, rules={"max_turns": 3, "initial_hp": 60})["active_rules_snapshot"]
     for actor in (organizer, player):
-        assert create_match(actor, bot, game_id="ott_v2").status_code == 409
-        assert create_match(actor, bot, game="ott_v2").status_code == 409
+        assert actor.post("/api/matches", json={"bot_a": bot["id"], "bot_b": bot["id"], "game_id": "ott_v2"}).status_code == 403
+        assert actor.post("/api/matches", json={"bot_a": bot["id"], "bot_b": bot["id"], "game": "ott_v2"}).status_code == 403
         override = create_match(actor, bot, rules={"max_turns": 1})
-        assert override.status_code == (403 if actor is player else 409)
+        assert override.status_code == 403
     assert player.put("/api/rules", json={"max_turns": 1}).status_code == 403
     for method, path, payload in (("PUT", "/api/rules", {"max_turns": 1}),
                                  ("PUT", "/api/games/robot_battle/rules", {"max_turns": 1}),
@@ -85,7 +86,7 @@ def test_locked_game_and_rules_cannot_be_spoofed(room, open_competition):
                                  ("PUT", "/api/games/selected", {"game_id": "ott_v2"})):
         assert organizer.request(method, path, json=payload).status_code == 409
     response = create_match(player, bot)
-    assert response.status_code == 201
+    assert response.status_code == 200
     frames, match = watch(player, response.json()["id"])
     assert match["game_id"] == "robot_battle" and match["rules_snapshot"] == snapshot
     assert match["rules"] == snapshot and all(f["rules"] == snapshot for f in frames)
@@ -99,8 +100,8 @@ def test_submissions_and_sample_cache_only_current_game(room, open_competition):
     assert player.post("/api/samples/python/submit").json()["id"] == first["id"]
     for actor in (organizer, player):
         response = actor.post("/api/bots", files={"file": ("wrong.py", WAIT)}, data={"game_id": "ott_v2"})
-        assert response.status_code == 409
-        assert actor.post("/api/games/ott_v2/samples/python/submit").status_code == 409
+        assert response.status_code == (403 if actor is organizer else 409)
+        assert actor.post("/api/games/ott_v2/samples/python/submit").status_code == (403 if actor is organizer else 409)
     assert organizer.post("/api/competition/close").status_code == 200
     assert organizer.put("/api/games/selected", json={"game_id": "ott_v2"}).status_code == 200
     # Legacy sample alias follows server-selected game, not a caller's old preference.
@@ -182,7 +183,7 @@ def test_old_replay_and_incompatible_bot_retained_after_switch(room, open_compet
         await asyncio.gather(*list(organizer.app.state.manager.tasks), return_exceptions=True)
     organizer.portal.call(finish_cleanup)
     open_competition(organizer, "ott_v2")
-    assert create_match(player, robot).status_code == 400
+    assert player.put("/api/players/active-bot", json={"bot_id": robot["id"]}).status_code == 409
     payload = player.get(f"/api/matches/{match['id']}/replay").json()
     assert payload["frames"] == frames
     assert payload["match"]["game_id"] == "robot_battle"
@@ -236,7 +237,7 @@ def test_match_admission_and_close_are_serialized(room, open_competition, monkey
         close = executor.submit(organizer.post, "/api/competition/close")
         release.set()
         match = start.result(timeout=5)
-        assert match.status_code == 201
+        assert match.status_code == 200
         assert close.result(timeout=5).json()["phase"] == "draining"
     assert create_match(player, bot).status_code == 409
     assert organizer.put("/api/games/selected", json={"game_id": "ott_v2"}).status_code == 409

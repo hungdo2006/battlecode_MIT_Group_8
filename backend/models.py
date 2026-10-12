@@ -39,3 +39,14 @@ class SessionUpdate(BaseModel):
 class OrganizerCode(BaseModel):
     model_config = ConfigDict(extra="forbid")
     code: str = Field(min_length=1, max_length=256)
+
+
+class ActiveBotSelection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    bot_id: str = Field(min_length=1, max_length=64)
+
+
+class InvitationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    player_a_id: str = Field(min_length=1, max_length=64)
+    player_b_id: str = Field(min_length=1, max_length=64)

@@ -15,6 +15,7 @@ def authorize_organizer():
         response = client.post("/api/session/organizer", json={"code": os.environ["ARENA_ADMIN_CODE"]})
         assert response.status_code == 200, response.text
         assert response.json()["role"] == "organizer"
+        client.app.state._regression_organizer = client
     return authorize
 
 

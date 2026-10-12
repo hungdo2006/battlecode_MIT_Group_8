@@ -36,7 +36,8 @@ class MatchManager:
         self.match_tasks: dict[str, asyncio.Task] = {}
         self.on_activity = None
 
-    async def start(self, request: MatchRequest, created_by: dict | None = None) -> dict:
+    async def start(self, request: MatchRequest, created_by: dict | None = None,
+                    participants: dict | None = None, invitation_id: str | None = None) -> dict:
         if len(self.live) >= 2:
             raise ValueError("Tối đa 2 trận cùng lúc. Hãy đợi trận hiện tại kết thúc.")
         game_id, rules = self.store.match_configuration(request.game_id or request.game, request.rules)
@@ -57,6 +58,14 @@ class MatchManager:
                 "bots": {p: {"id": b["id"], "name": b["name"], "language": b["language"],
                              "owner": deepcopy(b.get("owner"))} for p, b in bots.items()},
                 "rules": deepcopy(rules), "rules_snapshot": deepcopy(rules), "turn": 0, "result": None}
+        meta.update(invitation_id=invitation_id, participants=deepcopy(participants), winner=None)
+        for side, bot in bots.items():
+            prefix = side.lower()
+            participant = (participants or {}).get(side) or bot.get("owner") or {}
+            meta.update({f"player_{prefix}_id": participant.get("id"),
+                         f"player_{prefix}_name_snapshot": participant.get("name"),
+                         f"bot_{prefix}_id": bot["id"], f"bot_{prefix}_name_snapshot": bot["name"],
+                         f"bot_{prefix}_language": bot["language"]})
         live = LiveMatch(meta, adapter, state, [adapter.serialize_state(state)])
         self.live[match_id] = live
         try:
@@ -100,7 +109,7 @@ class MatchManager:
         await asyncio.to_thread(self.store.append_replay_frame, live.meta["id"], frame)
         live.state = state
         result = live.adapter.get_result(state)
-        live.meta.update(turn=frame["turn"], result=result)
+        live.meta.update(turn=frame["turn"], result=result, winner=result.get("winner") if result else None)
         if result:
             live.meta.update(status="completed", finished_at=timestamp())
         async with live.changed:

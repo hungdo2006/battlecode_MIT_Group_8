@@ -5,12 +5,12 @@ Usage: python scripts/demo_match.py --a python --b cpp
 import argparse
 import asyncio
 import json
-import websockets
-from check_lan import Player
+from check_lan import Player, presence, invited_match, watch
 
 
 async def demo(args):
-    player = Player(args.url)
+    player, opponent, organizer = Player(args.url), Player(args.url), Player(args.url)
+    await asyncio.to_thread(organizer.organizer)
     catalog = await asyncio.to_thread(player.request, "/api/games")
     game_id = args.game or catalog["selected_game_id"]
     if args.open_competition or args.max_turns is not None or args.rounds is not None:
@@ -19,28 +19,20 @@ async def demo(args):
             rules["max_turns"] = args.max_turns
         if args.rounds is not None:
             rules["rounds"] = args.rounds
-        await asyncio.to_thread(player.prepare_competition, game_id, rules)
+        await asyncio.to_thread(organizer.prepare_competition, game_id, rules)
     bot_a = await asyncio.to_thread(player.request, f"/api/games/{game_id}/samples/{args.a}/submit", {})
-    bot_b = await asyncio.to_thread(player.request, f"/api/games/{game_id}/samples/{args.b}/submit", {})
+    bot_b = await asyncio.to_thread(opponent.request, f"/api/games/{game_id}/samples/{args.b}/submit", {})
     for bot in (bot_a, bot_b):
         if bot["status"] != "ready":
             raise RuntimeError(bot["logs"])
-    payload = {"game_id": game_id, "bot_a": bot_a["id"], "bot_b": bot_b["id"]}
-    match = await asyncio.to_thread(player.request, "/api/matches", payload)
-    print(f"MATCH {match['id']}: {bot_a['name']} vs {bot_b['name']}")
-    url = args.url.replace("http://", "ws://").replace("https://", "wss://")
-    states = []
-    async with websockets.connect(f"{url}/ws/matches/{match['id']}") as socket:
-        async for raw in socket:
-            message = json.loads(raw)
-            if message["type"] == "state":
-                state = message["state"]
-                states.append(state)
-                print(f"Turn {state['turn']:03}: actions={json.dumps(state['actions'], ensure_ascii=False)}")
-            if message["type"] == "complete":
-                print("RESULT:", json.dumps(message["match"]["result"], ensure_ascii=False))
-                assert message["match"]["result"]["reason"] != "bot_error", "A sample bot faulted"
-                break
+    async with presence(organizer), presence(player), presence(opponent):
+        match = await invited_match(organizer, player, opponent, [bot_a, bot_b])
+        print(f"MATCH {match['id']}: {bot_a['name']} vs {bot_b['name']}")
+        streams = await asyncio.gather(*(watch(p, match['id']) for p in (organizer, player, opponent)))
+        assert streams[0] == streams[1] == streams[2]
+        states = streams[0][0]
+        print("RESULT:", json.dumps(streams[0][1]["result"], ensure_ascii=False))
+        assert streams[0][1]["result"]["reason"] != "bot_error"
     replay = await asyncio.to_thread(player.request, f"/api/matches/{match['id']}/replay")
     assert states == replay["frames"], "Saved replay differs from the live WebSocket feed"
     print(f"VERIFIED: {len(states)} live frames equal saved JSON replay.")

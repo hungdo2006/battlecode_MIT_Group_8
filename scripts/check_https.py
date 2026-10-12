@@ -98,7 +98,10 @@ def main(args):
             jar.add_cookie_header(cookie_request)
             frames = asyncio.run(watch(base, match["id"], context, cookie_request.get_header("Cookie")))
             assert frames == get(f"/api/matches/{match['id']}/replay")["frames"]
-            assert asyncio.run(competition_state(base, context, cookie_request.get_header("Cookie"))) == get("/api/competition")
+            ws_state = asyncio.run(competition_state(base, context, cookie_request.get_header("Cookie")))
+            rest_state = get("/api/competition")
+            # Connecting/disconnecting changes presence revision, not locked rules.
+            assert {k: v for k, v in ws_state.items() if k != "revision"} == {k: v for k, v in rest_state.items() if k != "revision"}
             try:
                 opener.open(Request(base + "/api/bots", data=b"", method="POST"), timeout=10)
                 raise AssertionError("Read-only HTTPS accepted upload")

@@ -18,18 +18,17 @@
 Get-NetConnectionProfile</pre>
 <p>Lấy <strong>IPv4 Address</strong> của card <strong>Wireless LAN adapter Wi-Fi</strong>, ví dụ <code>192.168.2.16</code>. Không chọn địa chỉ adapter VPN/WSL/VirtualBox. Laptop B mở <code>http://IP-MAY-CHU:8000</code>. Cả hai máy nên mở bằng cùng URL LAN để link chia sẻ và cookie phiên ổn định.</p>
 <p>Không dùng localhost trên laptop B: đó là địa chỉ của chính laptop B. IP có thể thay đổi sau khi kết nối Wi-Fi lại; chạy ipconfig để xem IP mới. Muốn ổn định, dùng DHCP reservation trên router theo MAC của card Wi-Fi; không tự chọn một IP trùng thiết bị khác.</p>
-<h2>03 / Demo hai người chơi</h2>
+<h2>03 / Demo ba laptop</h2>
 <ol>
-<li>Cả hai mở website, đặt nickname khác nhau ở thanh <strong>YOUR PLAYER SESSION</strong>. Cookie riêng giúp server ghi nhận người nộp bot/người tạo trận.</li>
-<li>Organizer chọn Robot Battle hoặc OTT v2, lưu luật rồi nhấn <strong>LOCK GAME / OPEN COMPETITION</strong>. Hai máy tự nhận cùng game/snapshot. Mỗi máy tải và upload bot mẫu phù hợp; ví dụ Python ở A, C++/Java ở B.</li>
-<li><strong>SHARED BOT LIBRARY</strong> trên cả hai máy tự cập nhật mỗi 2 giây, hiện tên người nộp. Người chơi A chọn hai bot và nhấn Start Match.</li>
-<li>Người chơi B vào <strong>Xem trận đấu</strong>, tìm mã trận/tên hai bot, nhấn <strong>Live</strong>. Hoặc dùng nút ↗ bên thanh playback để chia sẻ link cùng trận.</li>
-<li>Cả hai nhận cùng sequence trạng thái qua WebSocket. Pause/Reset chỉ điều khiển màn hình của từng máy; backend và máy còn lại tiếp tục. Để đối chiếu, dùng cùng tốc độ playback và cùng số lượt trên timeline.</li>
-<li>Trận kết thúc có thể Replay hoặc tải JSON; replay không chạy bot lần nữa.</li>
+<li>Laptop 1 chạy server. Đặt <code>ARENA_ADMIN_CODE</code> trong PowerShell trước <code>start.bat</code>; mở quyền Organizer, chọn Robot Battle/OTT v2, lưu luật rồi <strong>LOCK GAME / OPEN COMPETITION</strong>.</li>
+<li>Laptop 2/3 mở URL LAN, đặt nickname Hoang/Minh, upload bot Python/C++/Java theo game hiện tại. Trong <strong>MY SUBMISSIONS</strong>, mỗi người nhấn <strong>SET AS ACTIVE BOT</strong>; giữ website mở để READY.</li>
+<li>Organizer mở <strong>Phòng thi đấu</strong>, thấy Player online và bot/ngôn ngữ. Chọn hai người READY, nhấn <strong>INVITE TO MATCH</strong>. Organizer không nộp bot hoặc tự tham gia.</li>
+<li>Hai Player nhận popup cùng lời mời, mỗi người chọn Accept/Decline. Một Accept chưa chạy trận; hai Accept tự tạo đúng một trận và cả ba tự mở cùng <strong>LIVE ARENA</strong>.</li>
+<li>Ba trình duyệt nhận cùng sequence/result. Pause/Reset/tua độc lập; bot vẫn chạy trên server. Hoang / C++ VS Minh / Python được lưu vào history/replay, kể cả sau khi đổi nickname.</li>
+<li>Hết trận, Player về READY nếu còn online. Mất mạng/reconnect không hủy trận đang chạy. Reconnect lời mời không tự Accept. Decline/hết hạn 60 giây/Organizer Cancel/Close kết thúc lời mời chưa chạy.</li>
 </ol>
-<p>Phiên tồn tại 30 ngày và giữ sau khi server khởi động lại. Browser khác/ẩn danh tạo phiên mới; đổi IP/hostname tạo vùng cookie khác. Mọi người bắt đầu với quyền Player; nộp bot và tạo trận theo luật đã lưu. Nickname không phải tài khoản đăng nhập.</p>
-<p>Ban tổ chức đặt <code>ARENA_ADMIN_CODE</code> trước khi chạy server, rồi nhấn Mở quyền Organizer và nhập mã. Chỉ Organizer chọn game/cấu hình luật khi chưa mở và không còn task. Khi khóa, không ai đổi được game/luật; mọi trận dùng snapshot server. CLOSE COMPETITION chặn trận mới ngay và chờ bot kết thúc trước khi cho cấu hình lại. Player có thể chuẩn bị bot cho game hiện tại khi chờ, nhưng chỉ tạo trận khi OPEN.</p>
-<p>WebSocket cập nhật trạng thái cuộc thi cho mọi client không cần reload. Lock/snapshot giữ qua restart, quyền Organizer cần xác minh lại; mã không lưu frontend hoặc gửi vào subprocess. Trận và replay cũ vẫn giữ game/luật riêng dù ban tổ chức đã chọn game khác.</p>
+<p>Cookie giữ 30 ngày, không dùng nickname làm định danh. Tên trùng được phân biệt bằng ID ngắn. Presence dựa trên WebSocket/heartbeat 10 giây, timeout 35 giây. Restart giữ Active Bot/identity/history, hủy lời mời cũ đang chờ và thu hồi quyền Organizer.</p>
+<p>Close chặn lời mời/trận mới, chờ trận và bot cleanup trước khi đổi game/luật. Replay dùng snapshot/game của chính trận, không bị đổi theo cuộc thi. Chỉ chạy bot tin cậy trong LAN.</p>
 <h2>04 / Firewall và lỗi kết nối</h2>
 <p>Chỉ dùng Wi-Fi riêng đáng tin cậy. Trong <strong>Windows Settings → Network &amp; Internet → Wi-Fi → mạng hiện tại</strong>, chọn profile <strong>Private</strong> nếu đúng là mạng của nhóm. Khi Windows hỏi quyền cho Python, cho phép trên Private networks. Không cần tắt toàn bộ firewall.</p>
 <p>Nếu vẫn bị chặn, trên máy chủ mở PowerShell với quyền Administrator và thêm đúng rule TCP cổng đang dùng, chỉ cho mạng riêng và subnet LAN:</p>

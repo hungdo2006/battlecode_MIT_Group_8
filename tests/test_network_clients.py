@@ -1,3 +1,4 @@
+from workflow import official_match, player_client
 """Multi-user workflow, persistent identities and safe read-only proxy mode."""
 import pytest
 from fastapi.testclient import TestClient
@@ -12,7 +13,7 @@ WAIT = b"import sys,json\nfor line in sys.stdin:\n print(json.dumps({'type':'wai
 
 
 def upload(client, name):
-    response = client.post("/api/bots", files={"file": ("bot.py", WAIT)},
+    response = player_client(client).post("/api/bots", files={"file": ("bot.py", WAIT)},
                            data={"name": name, "game_id": "robot_battle", "owner": "forged"})
     assert response.status_code == 201
     return response.json()
@@ -35,6 +36,7 @@ def test_two_players_upload_discover_watch_and_reconnect(tmp_path, authorize_org
         # B shares the running app but has an independent browser cookie jar.
         b = TestClient(app, base_url="http://192.168.1.20:8000")
         b.portal = a.portal  # One server event loop, separate HTTP cookie jars.
+        app.state._regression_clients = [b]
         try:
             alice = a.put("/api/session", json={"name": "  Laptop A  "}).json()["participant"]
             bob = b.put("/api/session", json={"name": "Laptop B"}).json()["participant"]
@@ -46,9 +48,9 @@ def test_two_players_upload_discover_watch_and_reconnect(tmp_path, authorize_org
             rules = {"map_size": 7, "initial_hp": 50, "damage": 10, "max_turns": 8}
             authorize_organizer(a)
             open_competition(a, rules=rules)
-            created = a.post("/api/matches", json={"bot_a": bot_a["id"], "bot_b": bot_b["id"],
+            created = official_match(a, {"bot_a": bot_a["id"], "bot_b": bot_b["id"],
                                                     "game_id": "robot_battle"})
-            assert created.status_code == 201
+            assert created.status_code == 200
             match = created.json()
             assert match["created_by"] == alice
             assert match["bots"]["B"]["owner"] == bob
@@ -123,7 +125,7 @@ def test_read_only_domain_replay_and_proxy_https(tmp_path, authorize_organizer, 
         authorize_organizer(lan)
         open_competition(lan, rules={"max_turns": 2})
         bot = upload(lan, "trusted")
-        match = lan.post("/api/matches", json={"bot_a": bot["id"], "bot_b": bot["id"]}).json()
+        match = official_match(lan, {"bot_a": bot["id"], "bot_b": bot["id"]}).json()
         with lan.websocket_connect(f"/ws/matches/{match['id']}") as ws:
             ws.receive_json()
             frames, _ = frames_until_complete(ws)

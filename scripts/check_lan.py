@@ -11,6 +11,7 @@ import os
 import time
 from urllib.request import HTTPCookieProcessor, ProxyHandler, Request, build_opener
 from uuid import uuid4
+from contextlib import asynccontextmanager
 
 from websockets.asyncio.client import connect
 
@@ -86,8 +87,56 @@ async def watch(player, match_id, after=-1):
     raise AssertionError("WebSocket closed before completion")
 
 
+@asynccontextmanager
+async def presence(player):
+    """The same lobby heartbeat as the browser; identity is the HTTP cookie."""
+    await asyncio.to_thread(player.request, "/api/session")
+    endpoint = player.url.replace("http://", "ws://").replace("https://", "wss://")
+    async with connect(endpoint + "/ws/competition", origin=player.url,
+                       additional_headers={"Cookie": player.cookie_header()}) as socket:
+        initial = json.loads(await socket.recv())
+        player.lobby_state = initial.get("lobby")
+        async def receive():
+            async for raw in socket:
+                message = json.loads(raw)
+                if message.get("lobby"):
+                    player.lobby_state = message["lobby"]
+        async def heartbeat():
+            while True:
+                await socket.send(json.dumps({"type": "heartbeat"}))
+                await asyncio.sleep(10)
+        tasks = [asyncio.create_task(receive()), asyncio.create_task(heartbeat())]
+        try:
+            yield
+        finally:
+            for task in tasks: task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+
+async def invited_match(organizer, a, b, bots):
+    """Only the automated demo clients accept automatically; real UI asks users."""
+    ids = []
+    for player, bot in zip((a, b), bots):
+        await asyncio.to_thread(player.request, "/api/players/active-bot", {"bot_id": bot["id"]}, "PUT")
+        ids.append((await asyncio.to_thread(player.request, "/api/session"))["participant"]["id"])
+    inv = await asyncio.to_thread(organizer.request, "/api/invitations", {"player_a_id": ids[0], "player_b_id": ids[1]})
+    first = await asyncio.to_thread(a.request, f"/api/invitations/{inv['id']}/accept", {})
+    assert first["status"] == "PARTIALLY_ACCEPTED" and first["match_id"] is None
+    second = await asyncio.to_thread(b.request, f"/api/invitations/{inv['id']}/accept", {})
+    assert second["status"] == "STARTED"
+    match_id = second["match_id"]
+    for _ in range(100):
+        if all(any(i.get("match_id") == match_id for i in p.lobby_state["invitations"]) for p in (organizer, a, b)):
+            break
+        await asyncio.sleep(0.02)
+    else:
+        raise AssertionError("All three lobby clients must receive the same match_id")
+    return await asyncio.to_thread(organizer.request, f"/api/matches/{match_id}")
+
+
 async def check(args):
-    a, b = Player(args.url), Player(args.url)
+    a, b, organizer = Player(args.url), Player(args.url), Player(args.url)
+    await asyncio.to_thread(organizer.organizer)
     health = await asyncio.to_thread(a.request, "/api/health")
     assert health["status"] == "ok" and not health["read_only"]
     identities = []
@@ -101,7 +150,7 @@ async def check(args):
         rules = await asyncio.to_thread(a.request, f"/api/games/{game_id}/rules")
         if args.max_turns is not None:
             rules["max_turns"] = args.max_turns
-        await asyncio.to_thread(a.prepare_competition, game_id, rules)
+        await asyncio.to_thread(organizer.prepare_competition, game_id, rules)
     bots = []
     for index, (player, language) in enumerate(((a, "python"), (b, args.language_b))):
         bot = await asyncio.to_thread(player.upload, game_id, language, f"LAN {language.upper()} {identities[index]['id'][:4]}")
@@ -110,21 +159,20 @@ async def check(args):
         bots.append(bot)
     discovered = await asyncio.to_thread(b.request, "/api/bots")
     assert {bot["id"] for bot in bots} <= {bot["id"] for bot in discovered}
-    payload = {"game_id": game_id, "bot_a": bots[0]["id"], "bot_b": bots[1]["id"]}
-    match = await asyncio.to_thread(a.request, "/api/matches", payload)
-    assert match["created_by"] == identities[0]
-    shared_list = await asyncio.to_thread(b.request, "/api/matches")
-    assert match["id"] in {item["id"] for item in shared_list}
-    first, second = await asyncio.gather(watch(a, match["id"]), watch(b, match["id"]))
+    async with presence(organizer), presence(a), presence(b):
+        match = await invited_match(organizer, a, b, bots)
+        shared_list = await asyncio.to_thread(b.request, "/api/matches")
+        assert match["id"] in {item["id"] for item in shared_list}
+        first, second, third = await asyncio.gather(watch(a, match["id"]), watch(b, match["id"]), watch(organizer, match["id"]))
     replay = await asyncio.to_thread(b.request, f"/api/matches/{match['id']}/replay")
-    assert first[0] == second[0] == replay["frames"]
+    assert first[0] == second[0] == third[0] == replay["frames"]
     assert first[1]["result"] == second[1]["result"] == replay["match"]["result"]
     assert first[1]["result"]["reason"] != "bot_error"
     after = len(first[0]) // 2
     reconnected = await watch(b, match["id"], after=after)
     assert reconnected[0] == first[0][after + 1:]
     print(f"LAN PASS: {args.url}; distinct sessions; each player uploaded a bot; shared discovery;")
-    print(f"2 independent WS spectators; {len(first[0])} frames equal replay; reconnect after={after} passed.")
+    print(f"3 independent WS spectators; invitation/accept flow; {len(first[0])} frames equal replay; reconnect after={after} passed.")
     print(f"Open on both devices: {args.url}/?match={match['id']}#home")
     print("Result:", json.dumps(replay["match"]["result"], ensure_ascii=False))
 

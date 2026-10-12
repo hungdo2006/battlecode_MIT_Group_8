@@ -1,0 +1,39 @@
+{
+  "id": "standard-9x9",
+  "name": "Standard 9×9",
+  "board": { "rows": 9, "columns": 9 },
+  "turn": { "firstPlayer": "P1" },
+  "movement": { "maxSteps": 1, "directions": [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]] },
+  "pieceTypes": [
+    { "id": "rock", "name": "Rock", "symbol": "R" },
+    { "id": "paper", "name": "Paper", "symbol": "P" },
+    { "id": "scissors", "name": "Scissors", "symbol": "S" }
+  ],
+  "beats": { "rock": ["scissors"], "paper": ["rock"], "scissors": ["paper"] },
+  "goals": { "P1": { "row": 8, "col": 8 }, "P2": { "row": 0, "col": 0 } },
+  "winConditions": ["reachGoal", "eliminatePieceType"],
+  "startingPieces": {
+    "P1": [
+      { "type": "rock", "row": 0, "col": 1 },
+      { "type": "paper", "row": 0, "col": 2 },
+      { "type": "scissors", "row": 0, "col": 3 },
+      { "type": "rock", "row": 0, "col": 4 },
+      { "type": "paper", "row": 0, "col": 5 },
+      { "type": "scissors", "row": 0, "col": 6 },
+      { "type": "rock", "row": 0, "col": 7 },
+      { "type": "paper", "row": 1, "col": 3 },
+      { "type": "scissors", "row": 1, "col": 5 }
+    ],
+    "P2": [
+      { "type": "scissors", "row": 8, "col": 1 },
+      { "type": "paper", "row": 8, "col": 2 },
+      { "type": "rock", "row": 8, "col": 3 },
+      { "type": "scissors", "row": 8, "col": 4 },
+      { "type": "paper", "row": 8, "col": 5 },
+      { "type": "rock", "row": 8, "col": 6 },
+      { "type": "scissors", "row": 8, "col": 7 },
+      { "type": "paper", "row": 7, "col": 3 },
+      { "type": "rock", "row": 7, "col": 5 }
+    ]
+  }
+}

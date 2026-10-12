@@ -1,0 +1,24 @@
+{
+  "repository": "https://github.com/hungdo2006/ottv2-playhtml",
+  "branch": "main",
+  "retrieved_date": "2026-10-12",
+  "sha256": {
+    "README.md": "cc552665c6755166a73b853aad53936ad8c7face3e28b1d4761ac7834be13d54",
+    "js/rules.js": "88ff3499ca70ca341aef6c43cdba6b2d7b51a03f2d94e9f3094553df4e078ebf",
+    "js/state.js": "76c2ee1da377be6c08b31ab2b320e85fd33e5f57972b7c2bc2dfb78a8eed27bc",
+    "js/constants.js": "c6b4e24c04cc4b852f4787e170a38d158832aeab01d925e3ae9ff9a5ba592939",
+    "js/ui.js": "98a94989372afd8e9f318852a133a30f7170ac067cc668443731f3215ba76158",
+    "LICENSE": "2a998b1d8219a5ed972b4f26a0810ecd43f0667f3000c4306247468f996ec4cd",
+    "tests/rules.test.js": "cd65978fd6d4baa9fc4d1cf07f2e89641518ba5df32d321b4e77a9ca3943a161",
+    "package.json": "c12b3271b59eace4ca1c77ac413b4d881995ea63d91afad2b7802c56731fe5e4",
+    "src/config/defaultRuleSet.js": "470762d1ce7c8b6b095c01c6bdf315335bd2155de1928e91e96efa670e1edb97",
+    "src/engine/rules.js": "c749cbb60d4657e5d74de4dbf1cb6aeadd672a70b58968842302f35eb696b046",
+    "src/engine/state.js": "0d6d0df4e90e514285fd4205805f195e397c66f1dbef77868005e1f8e6b2fa07",
+    "src/engine/coordinates.js": "ed60e8ec4e5965752eb00e247632b1f70570dd49ec003a52190a3d42989749c0",
+    "js/pieceAssets.js": "71944813a1e5b05e1b8a9527fa0d0a3fb99036cfc73b4ab57a2fc32ee8709586",
+    "config/rules/standard-9x9.json": "ecbe7adf5b2e4e7b81679d85c0027cc11cfb240640fd5ff7bfb49a4feb63bdea",
+    "src/config/validateRuleSet.js": "824b40824505bcdabb7c3e5545a65174f80dd14b232d7cbab548c7342d577f19",
+    "src/engine/winConditions/reachGoal.js": "b787e9b6334ee78650ad65b4a34027c1ae9bbbf5163ec1f84a72e5d097215c00",
+    "src/engine/winConditions/eliminatePieceType.js": "e39419d6b75d86522e5c03563d943fb1da0678a0d036d92470ef94fc3c953742"
+  }
+}

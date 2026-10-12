@@ -1,0 +1,624 @@
+"use strict";
+
+const $ = (selector) => document.querySelector(selector);
+const $$ = (selector) => [...document.querySelectorAll(selector)];
+const app = {
+  bots: [], matches: [], games: [], selectedGameId: null, rules: {}, match: null, frames: [],
+  cursor: 0, paused: false, speed: 1, socket: null, generation: 0,
+  switchingGame: false, launching: false, transition: null, nextFrameAt: 0,
+  victoryDismissed: false, displayedResult: false, reconnectTimer: null,
+};
+
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+let toastTimer;
+function toast(message, error = false) {
+  const node = $("#toast");
+  node.textContent = message;
+  node.className = "toast" + (error ? " error" : "");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => node.classList.add("hidden"), error ? 8500 : 4000);
+}
+
+async function api(path, options = {}) {
+  const response = await fetch(path, options);
+  const data = await response.json();
+  if (!response.ok) {
+    const detail = Array.isArray(data.detail)
+      ? data.detail.map(item => `${item.loc?.join(".")}: ${item.msg}`).join("; ")
+      : data.detail;
+    throw new Error(detail || `HTTP ${response.status}`);
+  }
+  return data;
+}
+
+function jsonOptions(method, body) {
+  return { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
+}
+
+const labels = { home: "OVERVIEW", upload: "BOT LABORATORY", create: "MATCH CONTROL", watch: "BATTLE ARCHIVE", rules: "GAME CONFIGURATION" };
+function navigate() {
+  let view = location.hash.slice(1) || "home";
+  if (!labels[view]) view = "home";
+  $$(".view").forEach(node => node.classList.toggle("active", node.id === `view-${view}`));
+  $$(".nav-item").forEach(node => node.classList.toggle("active", node.dataset.view === view));
+  $("#page-label").textContent = labels[view];
+  window.scrollTo({ top: 0, behavior: "instant" });
+}
+window.addEventListener("hashchange", navigate);
+$$("[data-go]").forEach(button => button.addEventListener("click", () => { location.hash = button.dataset.go; }));
+navigate();
+
+function setConnection(online) {
+  $("#connection").replaceChildren(el("i", "status-dot"), document.createTextNode(online ? "SYSTEM ONLINE" : "SERVER OFFLINE"));
+  $("#connection .status-dot").style.background = online ? "var(--green)" : "var(--pink)";
+}
+
+function renderStats() {
+  $("#stat-bots").textContent = String(app.bots.length).padStart(2, "0");
+  $("#stat-matches").textContent = String(app.matches.filter(m => m.status === "completed").length).padStart(2, "0");
+  const running = app.matches.filter(m => ["running", "queued"].includes(m.status)).length;
+  $("#stat-live").textContent = String(running).padStart(2, "0");
+  $("#live-note").textContent = running ? "BATTLE IN PROGRESS" : "SYSTEM STANDBY";
+}
+
+function populateBotSelectors() {
+  const ready = app.bots.filter(bot => bot.status === "ready" && bot.game_id === app.selectedGameId).reverse();
+  $$(".bot-select").forEach(select => {
+    const selected = select.value;
+    const isA = select.classList.contains("bot-a");
+    const placeholder = el("option", "", isA ? "Chọn bot A" : "Chọn bot B");
+    placeholder.value = "";
+    select.replaceChildren(placeholder);
+    ready.forEach(bot => {
+      const option = el("option", "", `${bot.name} (${bot.language.toUpperCase()})`);
+      option.value = bot.id;
+      select.append(option);
+    });
+    select.value = ready.some(bot => bot.id === selected) ? selected : (ready[isA ? 0 : Math.min(1, ready.length - 1)]?.id || "");
+  });
+}
+$$(".bot-select").forEach(select => select.addEventListener("change", () => {
+  const selector = select.classList.contains("bot-a") ? ".bot-a" : ".bot-b";
+  $$(selector).forEach(other => { other.value = select.value; });
+}));
+
+function renderBots() {
+  const target = $("#bot-library");
+  target.replaceChildren();
+  if (!app.bots.length) target.append(el("div", "empty-state", "Chưa có submission. Tải code hoặc dùng bot mẫu ở trên."));
+  app.bots.forEach(bot => {
+    const row = el("div", "bot-row");
+    row.append(el("span", `language-icon ${bot.language === "py" ? "python" : bot.language}`, bot.language.toUpperCase()));
+    const description = el("div", "bot-description");
+    description.append(el("strong", "", bot.name), el("small", "", bot.filename));
+    description.append(el("span", "tag", app.games.find(game => game.game_id === bot.game_id)?.name || bot.game_id));
+    row.append(description, el("span", `match-status ${bot.status === "error" ? "interrupted" : ""}`, bot.status.toUpperCase()));
+    if (bot.logs) {
+      const details = el("details");
+      details.append(el("summary", "", "Compiler log"), el("pre", "", bot.logs));
+      row.append(details);
+    }
+    target.append(row);
+  });
+  populateBotSelectors();
+  renderStats();
+}
+
+function selectedGame() { return app.games.find(game => game.game_id === app.selectedGameId); }
+
+function populateGameSelectors() {
+  $$(".game-select").forEach(select => {
+    select.replaceChildren(...app.games.map(game => {
+      const option = el("option", "", game.name);
+      option.value = game.game_id;
+      return option;
+    }));
+    select.value = app.selectedGameId || "";
+  });
+}
+
+async function selectGame(gameId, persist = true) {
+  if (app.switchingGame) { populateGameSelectors(); return; }
+  if (!app.games.some(game => game.game_id === gameId)) return;
+  app.switchingGame = true;
+  $$(".game-select").forEach(node => { node.disabled = true; });
+  try {
+    if (persist) await api("/api/games/selected", jsonOptions("PUT", { game_id: gameId }));
+    app.selectedGameId = gameId;
+    app.rules = structuredClone(selectedGame().rules);
+    populateGameSelectors(); populateBotSelectors(); renderRules(true); renderSamples();
+    $("#rules-feedback").classList.add("hidden");
+  } catch (error) { toast(error.message, true); populateGameSelectors(); }
+  finally { app.switchingGame = false; $$(".game-select").forEach(node => { node.disabled = false; }); }
+}
+$$(".game-select").forEach(select => select.addEventListener("change", () => selectGame(select.value)));
+
+function renderRules(fillForm = false) {
+  const game = selectedGame();
+  if (!game) return;
+  $("#workspace-game-name").textContent = `${game.name} / ${game.turn_mode === "simultaneous" ? "ĐỒNG THỜI" : "LUÂN PHIÊN"}`;
+  $("#game-name").textContent = game.name;
+  $("#game-description").textContent = game.description;
+  $("#rules-heading").textContent = `${game.name.toUpperCase()} / RULESET`;
+  $("#create-game-label").textContent = game.badge || game.name;
+  $("#match-mode-hint").textContent = game.turn_mode === "simultaneous" ? "Hai bot nhận cùng trạng thái và hành động đồng thời." : "Hai bot đi luân phiên. Server chỉ hỏi bot đến lượt.";
+  const source = $("#game-source");
+  source.classList.toggle("hidden", !game.source_url);
+  if (game.source_url) source.href = game.source_url;
+  const fixed = $("#game-fixed");
+  fixed.replaceChildren(...Object.entries(game.fixed_rules || {}).map(([key, value]) => {
+    const item = el("span", "fixed-rule");
+    item.append(el("small", "", key.toUpperCase()), document.createTextNode(String(value)));
+    return item;
+  }));
+  const library = $("#game-library");
+  library.replaceChildren(...app.games.map(installed => {
+    const button = el("button", "game-card" + (installed.game_id === app.selectedGameId ? " selected" : ""));
+    button.type = "button"; button.dataset.gameId = installed.game_id;
+    button.setAttribute("aria-pressed", String(installed.game_id === app.selectedGameId));
+    const copy = el("div", "game-card-copy");
+    copy.append(el("h2", "", installed.name), el("p", "", installed.description), el("small", "", `INSTALLED / v${installed.version} / ${installed.turn_mode.toUpperCase()}`));
+    button.append(el("span", "game-card-icon", installed.name.slice(0, 2).toUpperCase()), copy);
+    button.addEventListener("click", () => selectGame(installed.game_id));
+    return button;
+  }));
+  $("#rules-guide").replaceChildren(...[...(game.guide || []), { title: "BOT FAULT", description: "Timeout, crash, JSON hoặc action không hợp lệ: bot bị xử thua. Game state chỉ do server cập nhật." }].map((item, index) => {
+    const row = el("li"), copy = el("div");
+    copy.append(el("strong", "", item.title), el("p", "", item.description));
+    row.append(el("span", "", String(index + 1).padStart(2, "0")), copy);
+    return row;
+  }));
+  const properties = game.rules_schema.properties || {};
+  if (fillForm) {
+    $("#rules-fields").replaceChildren(...Object.entries(properties).map(([key, schema]) => {
+      const label = el("label", "", schema.title || key);
+      if (schema.minimum !== undefined && schema.maximum !== undefined) label.append(el("span", "input-hint", `${schema.minimum}–${schema.maximum}`));
+      let input;
+      if (schema.enum) {
+        input = el("select");
+        schema.enum.forEach(value => { const option = el("option", "", String(value)); option.value = String(value); input.append(option); });
+      } else if (["object", "array"].includes(schema.type)) input = el("textarea");
+      else {
+        input = el("input");
+        input.type = schema.type === "boolean" ? "checkbox" : ["integer", "number"].includes(schema.type) ? "number" : "text";
+        if (schema.minimum !== undefined) input.min = schema.minimum;
+        if (schema.maximum !== undefined) input.max = schema.maximum;
+        if (input.type === "number") input.step = schema.type === "integer" ? "1" : "any";
+      }
+      input.name = key;
+      if (schema.type === "boolean") input.checked = Boolean(app.rules[key]);
+      else input.value = ["object", "array"].includes(schema.type) ? JSON.stringify(app.rules[key], null, 2) : String(app.rules[key] ?? schema.default ?? "");
+      input.required = schema.type !== "boolean";
+      label.append(input);
+      if (schema.description) label.append(el("small", "field-description", schema.description));
+      return label;
+    }));
+  }
+  $("#create-rules").replaceChildren(...Object.entries(app.rules).map(([key, value]) => {
+    const chip = el("span");
+    chip.append(el("strong", "", String(value)), document.createTextNode(` ${properties[key]?.title || key}`));
+    return chip;
+  }));
+  if (!app.match) updateHud(currentFrame());
+}
+
+function renderSamples() {
+  const game = selectedGame();
+  if (!game) return;
+  $("#samples-game").textContent = game.badge || game.name;
+  $("#action-examples").textContent = (game.action_examples || []).map(action => JSON.stringify(action)).join("\n");
+  $("#sample-list").replaceChildren(...game.samples.map(sample => {
+    const row = el("div", "sample-card");
+    const copy = el("div");
+    copy.append(el("strong", "", sample.name), el("p", "", sample.description));
+    const link = el("a", "icon-button", "⇩");
+    link.href = `/api/games/${game.game_id}/samples/${sample.language}`;
+    link.title = `Tải bot ${sample.language}`;
+    const button = el("button", "icon-button", "＋");
+    button.dataset.sample = sample.language; button.title = `Nộp mẫu ${sample.language}`;
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      try { const bot = await addSample(sample.language, game.game_id); toast(`${bot.name} đã sẵn sàng.`); }
+      catch (error) { toast(error.message, true); }
+      finally { button.disabled = false; await refreshBots().catch(() => {}); }
+    });
+    row.append(el("span", `language-icon ${sample.language}`, sample.language === "python" ? "PY" : sample.language === "cpp" ? "C++" : "JAVA"), copy, link, button);
+    return row;
+  }));
+  if (!game.samples.length) $("#sample-list").append(el("div", "empty-state", "Game này chưa có bot mẫu. Hãy nộp bot theo tài liệu adapter."));
+}
+
+function resultDescription(match) {
+  if (match.status === "interrupted") return "Gián đoạn";
+  if (!match.result) return "Đang thi đấu";
+  return match.result.winner ? `${match.result.winner} WINS` : "DRAW";
+}
+
+function renderMatchList(target, matches) {
+  target.replaceChildren();
+  if (!matches.length) target.append(el("div", "empty-state", "Chưa có trận đấu. Chọn hai bot và nhấn Start Match."));
+  matches.forEach((match, index) => {
+    const row = el("div", "match-row");
+    row.dataset.matchId = match.id;
+    row.dataset.gameId = match.game_id;
+    row.append(el("span", "match-id", `#${String(index + 1).padStart(3, "0")}`));
+    const names = el("div", "match-names");
+    names.append(document.createTextNode(match.bots.A.name), el("span", "", "VS"), document.createTextNode(match.bots.B.name));
+    names.append(el("small", "match-date", `${match.game_name || app.games.find(g => g.game_id === match.game_id)?.name || match.game_id} · ${new Date(match.created_at).toLocaleString("vi-VN")} · ${match.turn} lượt`));
+    row.append(names, el("span", `match-status ${match.status}`, match.status.toUpperCase()), el("span", "match-result", resultDescription(match)));
+    const button = el("button", "button ghost", ["running", "queued"].includes(match.status) ? "Live ↗" : "Replay ↗");
+    button.addEventListener("click", () => loadMatch(match.id).catch(error => toast(error.message, true)));
+    row.append(button);
+    target.append(row);
+  });
+}
+
+function renderMatches() {
+  renderMatchList($("#recent-matches"), app.matches.slice(0, 4));
+  renderMatchList($("#all-matches"), app.matches);
+  $("#history-count").textContent = `${app.matches.length} MATCHES`;
+  renderStats();
+}
+
+async function refreshBots() { app.bots = await api("/api/bots"); renderBots(); }
+async function refreshMatches() { app.matches = await api("/api/matches"); renderMatches(); }
+$("#refresh-bots").addEventListener("click", () => refreshBots().catch(e => toast(e.message, true)));
+$("#refresh-matches").addEventListener("click", () => refreshMatches().catch(e => toast(e.message, true)));
+
+function feedback(selector, message, error = false) {
+  const target = $(selector);
+  target.textContent = message;
+  target.className = "feedback" + (error ? " error" : "");
+}
+
+$("#upload-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector("[type=submit]");
+  const file = $("#bot-file").files[0];
+  if (!file || file.size > 256 * 1024 || !/\.(py|cpp|java)$/i.test(file.name)) {
+    feedback("#upload-feedback", "Chọn file .py, .cpp hoặc .java không vượt quá 256 KiB.", true);
+    return;
+  }
+  button.disabled = true;
+  button.textContent = "Đang tải & biên dịch…";
+  $("#compiler-log").classList.add("hidden");
+  try {
+    const bot = await api("/api/bots", { method: "POST", body: new FormData(form) });
+    feedback("#upload-feedback", bot.status === "ready" ? `${bot.name} đã sẵn sàng thi đấu.` : "Biên dịch thất bại. Kiểm tra log bên dưới.", bot.status !== "ready");
+    if (bot.logs) {
+      $("#compiler-log").textContent = bot.logs;
+      $("#compiler-log").classList.remove("hidden");
+    }
+    await refreshBots();
+    if (bot.status === "ready") { form.reset(); populateGameSelectors(); $("#file-label").textContent = "Chọn hoặc kéo file vào đây"; }
+  } catch (error) { feedback("#upload-feedback", error.message, true); }
+  finally { button.disabled = false; button.textContent = "Upload & Compile ↗"; }
+});
+$("#bot-file").addEventListener("change", () => { $("#file-label").textContent = $("#bot-file").files[0]?.name || "Chọn hoặc kéo file vào đây"; });
+const dropZone = $("#drop-zone");
+["dragenter", "dragover"].forEach(name => dropZone.addEventListener(name, () => dropZone.classList.add("dragover")));
+["dragleave", "drop"].forEach(name => dropZone.addEventListener(name, () => dropZone.classList.remove("dragover")));
+
+async function addSample(language, gameId = app.selectedGameId) {
+  const bot = await api(`/api/games/${gameId}/samples/${language}/submit`, { method: "POST" });
+  if (bot.status !== "ready") throw new Error(bot.logs || "Biên dịch bot mẫu thất bại.");
+  return bot;
+}
+$("#seed-samples").addEventListener("click", async event => {
+  const button = event.currentTarget;
+  button.disabled = true;
+  button.textContent = "Đang thêm…";
+  const errors = [];
+  const gameId = app.selectedGameId;
+  const languages = selectedGame()?.samples.map(sample => sample.language) || [];
+  const seeded = [];
+  try {
+    for (const language of languages) {
+      try { seeded.push(await addSample(language, gameId)); } catch (error) { errors.push(`${language.toUpperCase()}: ${error.message}`); }
+    }
+    await refreshBots();
+    if (app.selectedGameId === gameId && seeded.length) {
+      const a = seeded.find(bot => bot.language === "py") || seeded[0];
+      const b = seeded.find(bot => bot.language === "cpp") || seeded[Math.min(1, seeded.length - 1)];
+      $$(".bot-a").forEach(select => { select.value = a.id; });
+      $$(".bot-b").forEach(select => { select.value = b.id; });
+    }
+    toast(errors.length ? errors.join("\n") : seeded.length ? `${seeded.length} bot mẫu đã sẵn sàng. Nhấn Start Match để thi đấu.` : "Game này chưa có bot mẫu; hãy nộp code cho game đã chọn.", errors.length > 0);
+  } finally { button.disabled = false; button.textContent = "Thêm bot mẫu ↗"; }
+});
+
+$("#rules-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector("[type=submit]");
+  const game = selectedGame();
+  if (!game) return;
+  button.disabled = true;
+  try {
+    const rules = Object.fromEntries(Object.entries(game.rules_schema.properties).map(([key, schema]) => {
+      const input = form.elements[key];
+      const value = schema.type === "boolean" ? input.checked : ["integer", "number"].includes(schema.type) ? Number(input.value) : ["object", "array"].includes(schema.type) ? JSON.parse(input.value) : input.value;
+      return [key, value];
+    }));
+    await api(`/api/games/${game.game_id}/rules`, jsonOptions("PUT", rules));
+    const fresh = await api(`/api/games/${game.game_id}`);
+    Object.assign(game, fresh);
+    if (app.selectedGameId === game.game_id) { app.rules = structuredClone(fresh.rules); renderRules(); }
+    feedback("#rules-feedback", "Đã lưu. Bộ luật này áp dụng cho các trận bắt đầu từ bây giờ.");
+  } catch (error) { feedback("#rules-feedback", error.message, true); }
+  finally { button.disabled = false; }
+});
+$("#default-rules").addEventListener("click", async event => {
+  const game = selectedGame();
+  if (!game) return;
+  const button = event.currentTarget; button.disabled = true;
+  try {
+    await api(`/api/games/${game.game_id}/rules/reset`, { method: "POST" });
+    const fresh = await api(`/api/games/${game.game_id}`);
+    Object.assign(game, fresh);
+    if (app.selectedGameId === game.game_id) { app.rules = structuredClone(fresh.rules); renderRules(true); }
+    feedback("#rules-feedback", `Đã khôi phục và lưu luật mặc định của ${game.name}.`);
+  } catch (error) { feedback("#rules-feedback", error.message, true); }
+  finally { button.disabled = false; }
+});
+
+async function launch(event) {
+  event.preventDefault();
+  if (app.launching) return;
+  if (app.switchingGame) { toast("Đang chọn game, hãy đợi một chút."); return; }
+  app.launching = true;
+  const buttons = [$("#quick-match [type=submit]"), $("#create-match [type=submit]")];
+  buttons.forEach(button => { button.disabled = true; });
+  try {
+    const form = event.currentTarget;
+    const match = await api("/api/matches", jsonOptions("POST", { bot_a: form.elements.bot_a.value, bot_b: form.elements.bot_b.value, game_id: form.elements.game_id.value }));
+    await loadMatch(match.id);
+    await refreshMatches();
+    toast("Bot đã triển khai. Trận đấu đang chạy trên server.");
+  } catch (error) { toast(error.message, true); }
+  finally { app.launching = false; buttons.forEach(button => { button.disabled = false; }); }
+}
+$("#quick-match").addEventListener("submit", launch);
+$("#create-match").addEventListener("submit", launch);
+
+async function loadMatch(id) {
+  const generation = ++app.generation;
+  app.socket?.close();
+  clearTimeout(app.reconnectTimer);
+  const payload = await api(`/api/matches/${id}/replay`);
+  if (generation !== app.generation) return;
+  app.match = payload.match;
+  app.frames = payload.frames;
+  app.cursor = 0;
+  app.paused = false;
+  app.victoryDismissed = false;
+  app.displayedResult = false;
+  app.nextFrameAt = performance.now() + 650;
+  app.transition = null;
+  $("#standby-overlay").classList.add("hidden");
+  $("#victory-overlay").classList.add("hidden");
+  location.hash = "home";
+  const link = new URL(location.href);
+  link.searchParams.set("match", id);
+  history.replaceState(null, "", link);
+  if (app.frames.length) setFrame(0, false);
+  updatePlayback();
+  if (["running", "queued"].includes(app.match.status)) connectSocket(id, generation);
+  else if (!app.frames.length) toast("Trận bị gián đoạn trước khi có trạng thái replay.", true);
+}
+
+function connectSocket(id, generation) {
+  if (generation !== app.generation) return;
+  const scheme = location.protocol === "https:" ? "wss" : "ws";
+  const socket = new WebSocket(`${scheme}://${location.host}/ws/matches/${id}?after=${app.frames.length - 1}`);
+  app.socket = socket;
+  socket.onmessage = event => {
+    if (generation !== app.generation) return;
+    let message;
+    try { message = JSON.parse(event.data); } catch { return; }
+    if (message.type === "hello") app.match = message.match;
+    if (message.type === "state") {
+      app.frames[message.seq] = message.state;
+      if (app.frames.length === 1) setFrame(0, false);
+    }
+    if (message.type === "complete") {
+      app.match = message.match;
+      refreshMatches().catch(() => {});
+    }
+    updatePlayback();
+  };
+  socket.onclose = () => {
+    if (generation !== app.generation || !["running", "queued"].includes(app.match?.status)) return;
+    app.reconnectTimer = setTimeout(async () => {
+      if (generation !== app.generation) return;
+      try {
+        const payload = await api(`/api/matches/${id}/replay`);
+        if (generation !== app.generation) return;
+        app.match = payload.match;
+        app.frames = payload.frames;
+        updatePlayback();
+        if (["running", "queued"].includes(app.match.status)) connectSocket(id, generation);
+        else refreshMatches().catch(() => {});
+      } catch {
+        if (generation === app.generation) connectSocket(id, generation);
+      }
+    }, 1500);
+  };
+  socket.onerror = () => { $("#feed-label").textContent = "RECONNECTING…"; };
+}
+
+function currentFrame() { return app.frames[app.cursor] || selectedGame()?.preview_state || null; }
+function frameGameId(frame) { return frame?.game_id || app.match?.game_id || app.match?.game || app.selectedGameId; }
+function updateHud(frame) {
+  if (!frame) return;
+  const gameId = frameGameId(frame);
+  const hud = NeonRenderers.get(gameId).hud(frame);
+  $("#arena-game").textContent = app.games.find(game => game.game_id === gameId)?.badge || gameId;
+  $("#arena-map-label").textContent = hud.grid;
+  $("#arena-phase").textContent = hud.phase;
+  $("#turn-counter").textContent = String(frame.turn).padStart(3, "0");
+  $("#turn-max").textContent = hud.turnMax;
+  for (const player of ["A", "B"]) {
+    const key = player.toLowerCase();
+    $("#fighter-" + key + "-name").textContent = app.match?.bots[player].name || "CHƯA CHỌN BOT";
+    $("#hp-" + key + "-fill").style.width = `${Math.max(0, Math.min(100, 100 * hud.players[player].value / hud.players[player].max))}%`;
+    $("#hp-" + key + "-text").textContent = hud.players[player].text;
+  }
+}
+
+function updatePlayback() {
+  const timeline = $("#timeline");
+  timeline.max = Math.max(0, app.frames.length - 1);
+  timeline.value = app.cursor;
+  $("#play-start").classList.toggle("selected", !app.paused && !!app.match);
+  $("#play-pause").classList.toggle("selected", app.paused && !!app.match);
+  const live = ["running", "queued"].includes(app.match?.status);
+  const status = $("#arena-status");
+  status.classList.toggle("running", live);
+  const label = !app.match ? "STANDBY" : app.paused ? "PAUSED" : live ? "LIVE" : "REPLAY";
+  status.replaceChildren(el("i"), document.createTextNode(label));
+  $("#feed-label").textContent = !app.match ? "WAITING FOR MATCH" : app.paused ? "PLAYBACK PAUSED / BACKEND CONTINUES" : live ? "WEBSOCKET / LIVE FEED" : "REPLAY / SAVED JSON";
+}
+
+function setFrame(index, animate = true) {
+  const previous = currentFrame();
+  app.cursor = Math.max(0, Math.min(index, app.frames.length - 1));
+  const frame = currentFrame();
+  const now = performance.now();
+  app.transition = { from: animate ? previous : frame, to: frame, started: now, duration: animate ? 280 / app.speed : 0 };
+  app.nextFrameAt = now + 430 / app.speed;
+  app.displayedResult = false;
+  app.victoryDismissed = false;
+  $("#victory-overlay").classList.add("hidden");
+  updateHud(frame);
+  renderCombatLog();
+  updatePlayback();
+}
+
+function renderCombatLog() {
+  const log = $("#combat-log");
+  log.replaceChildren();
+  if (!app.match) return;
+  const lines = [];
+  lines.push({ turn: "SYS", text: `${app.match.bots.A.name} vs ${app.match.bots.B.name}`, type: "" });
+  for (const frame of app.frames.slice(0, app.cursor + 1)) {
+    const renderer = NeonRenderers.get(frameGameId(frame));
+    for (const event of frame.events) {
+      const text = renderer.log(event);
+      if (!text) continue;
+      lines.push({ turn: String(frame.turn).padStart(3, "0"), text, type: event.type });
+    }
+    if (frame.result) lines.push({ turn: "END", text: frame.result.winner ? `${frame.result.winner} chiến thắng` : "Hòa", type: "result" });
+  }
+  lines.slice(-35).forEach(line => {
+    const row = el("div", `log-line ${line.type}`);
+    row.append(el("span", "", line.turn), document.createTextNode(line.text));
+    log.append(row);
+  });
+  log.scrollTop = log.scrollHeight;
+}
+
+function showResult(frame) {
+  if (app.victoryDismissed || app.displayedResult) return;
+  const result = frame.result || (app.cursor === app.frames.length - 1 && app.match?.status === "interrupted" ? app.match.result : null);
+  if (!result) return;
+  app.displayedResult = true;
+  $("#victory-overlay").classList.remove("hidden");
+  $("#victory-title").textContent = app.match?.status === "interrupted" ? "INTERRUPTED" : result.winner ? "VICTORY" : "DRAW";
+  $("#victory-winner").textContent = result.winner ? app.match.bots[result.winner].name : "KHÔNG CÓ NGƯỜI THẮNG";
+  const reasons = { bot_error: "Lỗi bot: " + Object.entries(result.faults || {}).map(([p, error]) => `${p}: ${error}`).join(" · "), server_restart: "Máy chủ đã khởi động lại giữa trận.", server_shutdown: "Máy chủ dừng giữa trận.", server_error: "Máy chủ gặp lỗi khi xử lý trận đấu." };
+  $("#victory-reason").textContent = reasons[result.reason] || NeonRenderers.get(frameGameId(frame)).result(result);
+}
+
+$("#play-pause").addEventListener("click", () => { app.paused = true; updatePlayback(); });
+$("#play-start").addEventListener("click", () => {
+  if (!app.match) { location.hash = "create"; return; }
+  if (app.cursor === app.frames.length - 1 && app.match.status === "completed") setFrame(0, false);
+  app.paused = false;
+  app.nextFrameAt = performance.now() + 400 / app.speed;
+  updatePlayback();
+});
+$("#play-reset").addEventListener("click", () => {
+  if (!app.frames.length) return;
+  app.paused = true;
+  setFrame(0, false);
+});
+$("#timeline").addEventListener("input", event => {
+  if (!app.frames.length) return;
+  app.paused = true;
+  setFrame(Number(event.target.value), false);
+});
+$("#play-speed").addEventListener("change", event => { app.speed = Number(event.target.value); });
+$("#dismiss-victory").addEventListener("click", () => { app.victoryDismissed = true; $("#victory-overlay").classList.add("hidden"); });
+$("#share-match").addEventListener("click", async () => {
+  if (!app.match) { toast("Chọn một trận trước khi chia sẻ."); return; }
+  const url = new URL(location.href); url.searchParams.set("match", app.match.id); url.hash = "home";
+  try {
+    if (navigator.clipboard) await navigator.clipboard.writeText(url.href);
+    else {
+      const input = el("textarea"); input.value = url.href; document.body.append(input);
+      input.select(); if (!document.execCommand("copy")) throw new Error("Copy unavailable"); input.remove();
+    }
+    toast("Đã sao chép link theo dõi. Các máy khác mở link qua IP LAN của host.");
+  } catch { toast(url.href); }
+});
+$("#download-replay").addEventListener("click", async () => {
+  if (!app.match) { toast("Chọn một trận trước khi tải replay."); return; }
+  try {
+    const replay = await api(`/api/matches/${app.match.id}/replay`);
+    const url = URL.createObjectURL(new Blob([JSON.stringify(replay, null, 2)], { type: "application/json" }));
+    const link = el("a");
+    link.href = url;
+    link.download = `neon-arena-${app.match.id}.json`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (error) { toast(error.message, true); }
+});
+
+// A renderer is selected only from the frame's game_id, never from the
+// organizer's current game selection: old replays retain the right renderer.
+const canvas = $("#arena");
+const ctx = canvas.getContext("2d");
+const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+function draw(time) {
+  const frame = currentFrame();
+  if (!frame) return;
+  NeonRenderers.get(frameGameId(frame)).draw(ctx, canvas, frame, app.transition, time, reducedMotion);
+  if (app.match && (!app.transition?.duration || time >= app.transition.started + app.transition.duration)) showResult(frame);
+}
+
+function animate(time) {
+  if (!app.paused && app.frames.length && time >= app.nextFrameAt && app.cursor < app.frames.length - 1) setFrame(app.cursor + 1);
+  if ($("#view-home").classList.contains("active") && !document.hidden) draw(time);
+  requestAnimationFrame(animate);
+}
+requestAnimationFrame(animate);
+setInterval(() => { $("#clock").textContent = new Date().toLocaleTimeString("vi-VN", { hour12: false }); }, 1000);
+
+async function bootstrap() {
+  try {
+    const [health, bots, registry, matches] = await Promise.all([api("/api/health"), api("/api/bots"), api("/api/games"), api("/api/matches")]);
+    app.bots = bots; app.games = registry.games; app.matches = matches;
+    await selectGame(registry.selected_game_id, false);
+    setConnection(health.status === "ok");
+    renderBots(); renderRules(true); renderMatches();
+    const matchId = new URL(location.href).searchParams.get("match");
+    if (matchId) await loadMatch(matchId);
+  } catch (error) { setConnection(false); toast(`Không kết nối được backend: ${error.message}`, true); }
+}
+bootstrap();
+setInterval(async () => {
+  if (document.hidden) return;
+  try { await refreshMatches(); setConnection(true); }
+  catch { setConnection(false); }
+}, 5000);
+window.addEventListener("beforeunload", () => { app.generation++; app.socket?.close(); });

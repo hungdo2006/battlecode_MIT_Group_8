@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>NEON ARENA / Bot protocol</title><link rel="stylesheet" href="/static/styles.css"></head>
+<body><article class="protocol-document">
+<a class="text-button" href="/#upload">← Trở về Nộp bot</a><h1>BOT PROTOCOL / JSON LINES v1</h1>
+<p>Bot chạy liên tục trong một subprocess. Mỗi request: đọc một dòng JSON UTF-8 trên stdin, trả đúng một dòng JSON trên stdout rồi flush. Chỉ ghi debug vào stderr. Mỗi submission chọn một game; server kiểm tra action theo game đó.</p>
+<h2>Robot Battle</h2><p>Hai bot được hỏi cùng trạng thái. Tọa độ x sang phải, y đi xuống. Move dùng 4 hướng; attack trúng đối thủ ở ô kề sau di chuyển.</p>
+<pre>{"protocol":1,"game_id":"robot_battle","game":"robot_battle","player":"A","turn":0,"rules":{"map_size":12,"initial_hp":100,"damage":20,"max_turns":100},"you":{"x":1,"y":6,"hp":100},"enemy":{"x":10,"y":6,"hp":100}}</pre>
+<pre>{"type":"move","direction":"right"}
+{"type":"attack"}
+{"type":"wait"}</pre>
+<h2>OTT v2</h2><p>A = P1, B = P2. Chỉ bot đến lượt được hỏi. Bàn 9×9, row/col từ 0; row 0 nằm dưới. Board là ma trận ô null hoặc <code>{"id":"...","owner":"A","type":"rock"}</code>. Ba type: rock, paper, scissors. A đi trước và nhắm i9 (8,8); B nhắm a1 (0,0).</p>
+<p>Observation gồm <code>protocol, game_id, game, player, turn, round, round_turn, current_player, rules, board_size, board, goals, counts, scores, last_move, legal_actions</code>. <code>turn</code> là sequence toàn trận; <code>round_turn</code> là số nước đã đi trong ván. <code>legal_actions</code> chứa các action hợp lệ; bot có thể chọn từ danh sách hoặc tự tính. Server luôn xác thực lại action.</p>
+<pre>{"action":"move","from":{"row":1,"col":3},"to":{"row":2,"col":4}}</pre>
+<p>Mỗi nước di chuyển một ô theo 8 hướng. Búa ăn Kéo, Kéo ăn Bao, Bao ăn Búa; không vào ô quân cùng đội/cùng loại hoặc quân mạnh hơn. Không có wait/attack. Đến góc đích hoặc loại hết một loại quân địch: thắng ván. Hết giới hạn nước hoặc không còn nước hợp lệ: hòa ván. Chơi đủ số ván rồi so điểm thắng.</p>
+<h2>Giới hạn runner</h2><p>Lượt đầu mỗi bot: 3 giây; các lượt sau: 1 giây. Stdout tối đa 4 KiB/dòng và 256 KiB/trận; stderr 64 KiB/trận. Crash, timeout, JSON/action sai: xử thua cả trận. Bot được giữ nguyên process qua các ván.</p>
+<p>Subprocess không phải sandbox. Chỉ dùng code tin cậy trong nhóm trên local/LAN riêng.</p>
+<h2>Bot mẫu</h2><div id="examples">Đang tải registry…</div>
+<script>
+fetch('/api/games').then(response => response.json()).then(data => {
+  const target = document.querySelector('#examples'); target.textContent = '';
+  for (const game of data.games) {
+    const row = document.createElement('p'); row.textContent = game.name + ': ';
+    for (const sample of game.samples) {
+      const link = document.createElement('a'); link.className = 'text-button';
+      link.href = '/api/games/' + game.game_id + '/samples/' + sample.language;
+      link.textContent = sample.language + ' ⇩'; row.append(link, document.createTextNode('   '));
+    }
+    target.append(row);
+  }
+}).catch(() => { document.querySelector('#examples').textContent = 'Cần mở tài liệu từ server đang chạy.'; });
+</script></article></body></html>

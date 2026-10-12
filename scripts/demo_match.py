@@ -13,20 +13,19 @@ async def demo(args):
     player = Player(args.url)
     catalog = await asyncio.to_thread(player.request, "/api/games")
     game_id = args.game or catalog["selected_game_id"]
+    if args.open_competition or args.max_turns is not None or args.rounds is not None:
+        rules = await asyncio.to_thread(player.request, f"/api/games/{game_id}/rules")
+        if args.max_turns is not None:
+            rules["max_turns"] = args.max_turns
+        if args.rounds is not None:
+            rules["rounds"] = args.rounds
+        await asyncio.to_thread(player.prepare_competition, game_id, rules)
     bot_a = await asyncio.to_thread(player.request, f"/api/games/{game_id}/samples/{args.a}/submit", {})
     bot_b = await asyncio.to_thread(player.request, f"/api/games/{game_id}/samples/{args.b}/submit", {})
     for bot in (bot_a, bot_b):
         if bot["status"] != "ready":
             raise RuntimeError(bot["logs"])
     payload = {"game_id": game_id, "bot_a": bot_a["id"], "bot_b": bot_b["id"]}
-    if args.max_turns is not None or args.rounds is not None:
-        await asyncio.to_thread(player.organizer)
-        rules = await asyncio.to_thread(player.request, f"/api/games/{game_id}/rules")
-        if args.max_turns is not None:
-            rules["max_turns"] = args.max_turns
-        if args.rounds is not None:
-            rules["rounds"] = args.rounds
-        payload["rules"] = rules
     match = await asyncio.to_thread(player.request, "/api/matches", payload)
     print(f"MATCH {match['id']}: {bot_a['name']} vs {bot_b['name']}")
     url = args.url.replace("http://", "ws://").replace("https://", "wss://")
@@ -54,6 +53,7 @@ if __name__ == "__main__":
     parser.add_argument("--b", choices=["python", "cpp", "java"], default="cpp")
     parser.add_argument("--url", default="http://127.0.0.1:8000")
     parser.add_argument("--game", help="Installed game_id; omitted means the organizer's selected game")
+    parser.add_argument("--open-competition", action="store_true", help="Organizer config/open; reads ARENA_ADMIN_CODE")
     parser.add_argument("--max-turns", type=int)
     parser.add_argument("--rounds", type=int, help="OTT v2 only")
     asyncio.run(demo(parser.parse_args()))

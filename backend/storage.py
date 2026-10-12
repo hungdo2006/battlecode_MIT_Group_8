@@ -7,6 +7,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from backend.engine.registry import GameRegistry
+from backend.competition import CompetitionConflict
 
 
 class Store:
@@ -25,12 +26,22 @@ class Store:
         fallback = registry.ids()[0]
         config = self._read(self.data / "rules.json", {})
         # Migrate v1's single flat rule object without erasing bots/replays.
-        saved = config.get("game_rules", {fallback: config})
+        saved = config.get("game_rules", {} if "selected_game_id" in config else {fallback: config})
         self.game_rules = {game_id: registry.get(game_id).validate_rules(saved.get(game_id))
                            for game_id in registry.ids()}
+        self.competition_locked = config.get("competition_locked", False)
+        if not isinstance(self.competition_locked, bool):
+            raise ValueError("competition_locked phải là boolean.")
         self.selected_game_id = config.get("selected_game_id", fallback)
         if self.selected_game_id not in registry.ids():
+            if self.competition_locked:
+                raise ValueError("Game đã khóa không còn được cài. Không tự chuyển cuộc thi sang game khác.")
             self.selected_game_id = fallback
+        snapshot = config.get("active_rules_snapshot")
+        if self.competition_locked and snapshot is None:
+            raise ValueError("Cuộc thi đã khóa nhưng thiếu active_rules_snapshot.")
+        self.active_rules_snapshot = (registry.get(self.selected_game_id).validate_rules(snapshot)
+                                      if snapshot is not None else None)
         for bot in self.bots.values():
             bot.setdefault("game_id", fallback)
             if bot.get("sample_key") and ":" not in bot["sample_key"]:
@@ -38,6 +49,8 @@ class Store:
         # A restarted server must not leave phantom "running" matches.
         for match in self.matches.values():
             match.setdefault("game_id", match.get("game", fallback))
+            if "rules" in match:
+                match.setdefault("rules_snapshot", deepcopy(match["rules"]))
             if match["status"] in ("queued", "running"):
                 match["status"] = "interrupted"
                 match["result"] = {"winner": None, "reason": "server_restart", "faults": {}}
@@ -69,8 +82,55 @@ class Store:
             self._write(self.data / "bots.json", self.bots)
 
     def _save_config(self):
-        self._write(self.data / "rules.json", {"version": 2, "selected_game_id": self.selected_game_id,
-                                              "game_rules": self.game_rules})
+        self._write(self.data / "rules.json", {"version": 3, "selected_game_id": self.selected_game_id,
+                                              "game_rules": self.game_rules,
+                                              "competition_locked": self.competition_locked,
+                                              "active_rules_snapshot": self.active_rules_snapshot})
+
+    def get_competition(self):
+        with self.lock:
+            return {"selected_game_id": self.selected_game_id,
+                    "competition_locked": self.competition_locked,
+                    "active_rules_snapshot": deepcopy(self.active_rules_snapshot)}
+
+    def open_competition(self):
+        with self.lock:
+            if self.competition_locked:
+                raise CompetitionConflict("Cuộc thi đang mở.")
+            previous_snapshot = self.active_rules_snapshot
+            self.active_rules_snapshot = deepcopy(self.game_rules[self.selected_game_id])
+            self.competition_locked = True
+            try:
+                self._save_config()
+            except Exception:
+                self.competition_locked = False
+                self.active_rules_snapshot = previous_snapshot
+                raise
+
+    def close_competition(self):
+        with self.lock:
+            previous = self.competition_locked
+            self.competition_locked = False
+            try:
+                self._save_config()
+            except Exception:
+                self.competition_locked = previous
+                raise
+
+    def require_submission_game(self, game_id: str):
+        with self.lock:
+            if game_id != self.selected_game_id:
+                raise CompetitionConflict("Submission phải thuộc game ban tổ chức đang chọn.")
+
+    def match_configuration(self, game_id: str | None, rules: dict | None):
+        with self.lock:
+            if not self.competition_locked:
+                raise CompetitionConflict("Cuộc thi chưa mở hoặc đã đóng. Không thể tạo trận mới.")
+            if game_id is not None and game_id != self.selected_game_id:
+                raise CompetitionConflict("Chỉ game đang khóa được phép tạo trận.")
+            if rules is not None:
+                raise CompetitionConflict("Trận dùng luật đã khóa trên server; không nhận rules override.")
+            return self.selected_game_id, deepcopy(self.active_rules_snapshot)
 
     def get_rules(self, game_id: str) -> dict:
         with self.lock:
@@ -79,15 +139,32 @@ class Store:
 
     def set_rules(self, game_id: str, rules: dict):
         with self.lock:
+            if self.competition_locked:
+                raise CompetitionConflict("Không thể chỉnh luật khi cuộc thi đã khóa.")
+            previous_rules, previous_snapshot = self.game_rules[game_id], self.active_rules_snapshot
             self.game_rules[game_id] = self.registry.get(game_id).validate_rules(rules)
-            self._save_config()
+            if game_id == self.selected_game_id:
+                self.active_rules_snapshot = None
+            try:
+                self._save_config()
+            except Exception:
+                self.game_rules[game_id], self.active_rules_snapshot = previous_rules, previous_snapshot
+                raise
             return deepcopy(self.game_rules[game_id])
 
     def select_game(self, game_id: str):
         with self.lock:
+            if self.competition_locked:
+                raise CompetitionConflict("Không thể đổi game khi cuộc thi đã khóa.")
             self.registry.get(game_id)
+            previous_game, previous_snapshot = self.selected_game_id, self.active_rules_snapshot
             self.selected_game_id = game_id
-            self._save_config()
+            self.active_rules_snapshot = None
+            try:
+                self._save_config()
+            except Exception:
+                self.selected_game_id, self.active_rules_snapshot = previous_game, previous_snapshot
+                raise
 
     def get_matches(self) -> list[dict]:
         with self.lock:

@@ -21,14 +21,15 @@ Get-NetConnectionProfile</pre>
 <h2>03 / Demo hai người chơi</h2>
 <ol>
 <li>Cả hai mở website, đặt nickname khác nhau ở thanh <strong>YOUR PLAYER SESSION</strong>. Cookie riêng giúp server ghi nhận người nộp bot/người tạo trận.</li>
-<li>Cùng chọn Robot Battle hoặc OTT v2. Mỗi máy tải một bot mẫu ở <strong>Nộp bot</strong>, rồi upload file đó bằng form của mình. Có thể dùng Python ở máy A và C++ hoặc Java ở máy B.</li>
+<li>Organizer chọn Robot Battle hoặc OTT v2, lưu luật rồi nhấn <strong>LOCK GAME / OPEN COMPETITION</strong>. Hai máy tự nhận cùng game/snapshot. Mỗi máy tải và upload bot mẫu phù hợp; ví dụ Python ở A, C++/Java ở B.</li>
 <li><strong>SHARED BOT LIBRARY</strong> trên cả hai máy tự cập nhật mỗi 2 giây, hiện tên người nộp. Người chơi A chọn hai bot và nhấn Start Match.</li>
 <li>Người chơi B vào <strong>Xem trận đấu</strong>, tìm mã trận/tên hai bot, nhấn <strong>Live</strong>. Hoặc dùng nút ↗ bên thanh playback để chia sẻ link cùng trận.</li>
 <li>Cả hai nhận cùng sequence trạng thái qua WebSocket. Pause/Reset chỉ điều khiển màn hình của từng máy; backend và máy còn lại tiếp tục. Để đối chiếu, dùng cùng tốc độ playback và cùng số lượt trên timeline.</li>
 <li>Trận kết thúc có thể Replay hoặc tải JSON; replay không chạy bot lần nữa.</li>
 </ol>
 <p>Phiên tồn tại 30 ngày và giữ sau khi server khởi động lại. Browser khác/ẩn danh tạo phiên mới; đổi IP/hostname tạo vùng cookie khác. Mọi người bắt đầu với quyền Player; nộp bot và tạo trận theo luật đã lưu. Nickname không phải tài khoản đăng nhập.</p>
-<p>Ban tổ chức đặt biến môi trường <code>ARENA_ADMIN_CODE</code> trước khi chạy server, rồi dùng nút <strong>Mở quyền Organizer</strong> và nhập đúng mã. Chỉ Organizer sửa/reset luật, đặt game mặc định hoặc gửi luật riêng cho trận. Rời Organizer hoặc restart server thu hồi quyền. Chọn game thường chỉ ảnh hưởng browser của bạn, được lưu qua reload; nút Đặt game mặc định là thao tác riêng của Organizer. Mã không lưu trong frontend và không gửi vào subprocess bot.</p>
+<p>Ban tổ chức đặt <code>ARENA_ADMIN_CODE</code> trước khi chạy server, rồi nhấn Mở quyền Organizer và nhập mã. Chỉ Organizer chọn game/cấu hình luật khi chưa mở và không còn task. Khi khóa, không ai đổi được game/luật; mọi trận dùng snapshot server. CLOSE COMPETITION chặn trận mới ngay và chờ bot kết thúc trước khi cho cấu hình lại. Player có thể chuẩn bị bot cho game hiện tại khi chờ, nhưng chỉ tạo trận khi OPEN.</p>
+<p>WebSocket cập nhật trạng thái cuộc thi cho mọi client không cần reload. Lock/snapshot giữ qua restart, quyền Organizer cần xác minh lại; mã không lưu frontend hoặc gửi vào subprocess. Trận và replay cũ vẫn giữ game/luật riêng dù ban tổ chức đã chọn game khác.</p>
 <h2>04 / Firewall và lỗi kết nối</h2>
 <p>Chỉ dùng Wi-Fi riêng đáng tin cậy. Trong <strong>Windows Settings → Network &amp; Internet → Wi-Fi → mạng hiện tại</strong>, chọn profile <strong>Private</strong> nếu đúng là mạng của nhóm. Khi Windows hỏi quyền cho Python, cho phép trên Private networks. Không cần tắt toàn bộ firewall.</p>
 <p>Nếu vẫn bị chặn, trên máy chủ mở PowerShell với quyền Administrator và thêm đúng rule TCP cổng đang dùng, chỉ cho mạng riêng và subnet LAN:</p>

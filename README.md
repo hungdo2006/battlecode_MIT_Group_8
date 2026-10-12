@@ -2,13 +2,13 @@
 
 Nền tảng thi đấu bot đa game dành cho bài tập nhóm môn Lập trình mạng. Hiện hỗ trợ **Robot Battle** và **OTT v2**, đăng ký qua **GameRegistry + GameAdapter**. Backend **Python FastAPI**, frontend **HTML/CSS/JavaScript thuần + Canvas**, giao tiếp **HTTP REST + WebSocket**, bot **subprocess**, dữ liệu **JSON**. Không cần Docker, Node.js hoặc database server để chạy ứng dụng.
 
-Hỗ trợ nhiều người chơi LAN với **cookie phiên/nickname**, owner cho submission, người tạo trận và danh sách chung tự cập nhật. Có quyền **Organizer/Player**, lựa chọn game riêng từng browser và replay ghi nối từng frame. Xem [review và kiểm chứng v2.2](docs/REVIEW_VERIFICATION.md), [hướng dẫn networking, firewall và reverse proxy](docs/NETWORKING.md); trang hướng dẫn trong app ở `/lan`.
+Hỗ trợ nhiều người chơi LAN với **cookie phiên/nickname**, owner cho submission, người tạo trận và danh sách chung tự cập nhật. **Organizer chọn và khóa một game cùng snapshot luật cho cuộc thi duy nhất**; mọi Player nhận cập nhật qua WebSocket. Replay ghi nối từng frame. Xem [kiểm chứng Game Lock v2.3](docs/COMPETITION_VERIFICATION.md), [hướng dẫn networking](docs/NETWORKING.md); trang hướng dẫn trong app ở `/lan`.
 
 > **Chỉ dùng local/LAN riêng với code tin cậy của nhóm.** Subprocess không phải sandbox. Bot có quyền của tài khoản chạy server, có thể đọc/ghi file, truy cập mạng hoặc tạo tiến trình khác. Giới hạn timeout/output không ngăn được các hành vi đó. Không công khai tính năng thực thi code lên Internet.
 
 ## Chạy nhanh trên Windows
 
-Nếu Python đã cài, nhấp đúp **`start.bat`**, rồi mở **http://127.0.0.1:8000**. Script tạo `.venv` và cài các thư viện khi cần; lần đầu cần Internet. Các lần sau chạy trực tiếp bằng môi trường đã tạo.
+Nếu Python đã cài, chạy **`start.bat`**, rồi mở **http://127.0.0.1:8000**. Script tạo `.venv` và cài thư viện khi cần; lần đầu cần Internet. Để mở cuộc thi mới, đặt `ARENA_ADMIN_CODE` trước khi chạy server theo mục Organizer bên dưới. Trạng thái ban đầu là đang cấu hình, chưa cho tạo trận.
 
 Hoặc mở PowerShell trong thư mục dự án:
 
@@ -27,7 +27,7 @@ Chỉ dùng trên một laptop: `.\.venv\Scripts\python.exe run.py --host 127.0.
 1. Laptop host chạy `start.bat`, giữ server hoạt động và tránh sleep.
 2. Xem URL LAN trong console hoặc dùng `ipconfig` để tìm IPv4 của adapter Wi-Fi/Ethernet. Ví dụ **`http://192.168.2.16:8000`**; dùng IP thực của host, không dùng `0.0.0.0` hoặc `127.0.0.1` trên máy khách.
 3. Máy/điện thoại khác cùng Wi-Fi mở URL LAN đó. Nếu Windows hỏi quyền mạng, cho phép Python trên mạng **Private**. Kiểm tra firewall TCP 8000 và Wi-Fi không bật client isolation nếu kết nối bị chặn.
-4. Mỗi máy đặt nickname ở **YOUR PLAYER SESSION**, chọn cùng game và nộp một source qua form. Thư viện bot chung hiển thị người nộp, tự cập nhật mỗi 2 giây; mọi thành viên có thể chọn bot của nhau.
+4. Mỗi máy đặt nickname ở **YOUR PLAYER SESSION**. Organizer chọn game, lưu luật và **LOCK GAME / OPEN COMPETITION**; mọi Player tự nhận game/luật đã chốt. Mỗi người nộp source phù hợp. Thư viện chung tự cập nhật mỗi 2 giây.
 5. Một người tạo trận. Người còn lại tìm ID/tên bot trong **Xem trận đấu** rồi nhấn Live, hoặc mở URL `http://IP-HOST:8000/?match=ID#home`. Mỗi browser subscribe riêng tới cùng WebSocket; Pause chỉ ảnh hưởng playback của browser đó.
 6. Khi dùng nút chia sẻ, mở tab bằng URL LAN trước để link được sao chép dùng địa chỉ LAN. Trong app có **Hướng dẫn LAN** gồm IPv4, firewall Private/LocalSubnet và xử lý Wi-Fi isolation.
 
@@ -43,7 +43,7 @@ Phiên tồn tại 30 ngày, được giữ qua restart; nickname là nhận di�
 
 ## Organizer và Player
 
-Mọi browser bắt đầu với quyền **Player**, kể cả trên máy chủ. Player nộp bot, chọn game riêng, tạo trận theo luật đã lưu, xem live/replay. Chỉ **Organizer** được sửa luật, khôi phục mặc định, đặt game mặc định hoặc gửi `rules` riêng khi tạo trận. Backend kiểm tra quyền cho cả API, không chỉ khóa nút trên giao diện.
+Mọi browser bắt đầu **Player**, kể cả máy chủ. Player nộp bot cho game ban tổ chức chọn, tạo trận khi cuộc thi mở, xem live/replay. Chỉ **Organizer** chọn game, cấu hình luật và mở/đóng cuộc thi. Backend kiểm tra mọi đường API; không tin game/luật do client tự khai để vượt khóa.
 
 Trước khi chạy server, trong PowerShell:
 
@@ -52,9 +52,17 @@ $env:ARENA_ADMIN_CODE = Read-Host 'Nhap ma Organizer cho nhom'
 .\start.bat
 ```
 
-Dùng mã đủ dài, chỉ chia sẻ với ban tổ chức. Trên website nhấn **Mở quyền Organizer**, nhập đúng mã rồi xác minh. Mã đọc từ environment lúc server khởi động, không hardcode trong frontend, không lưu vào localStorage hay data JSON, và không chuyển vào environment của compiler/bot. **Rời Organizer** trả phiên về Player; server restart thu hồi mọi quyền Organizer, nhưng nickname/cookie/lựa chọn game được giữ. Đổi mã cần restart server. Chưa đặt biến hoặc đặt rỗng: quyền Organizer bị tắt, Player vẫn có thể đấu theo luật hiện có.
+Dùng mã đủ dài, chỉ chia sẻ với ban tổ chức. Nhấn **Mở quyền Organizer**, nhập mã rồi xác minh. Mã đọc từ environment lúc startup, không hardcode frontend, không lưu vào JSON/localStorage và không chuyển vào compiler/bot. Rời Organizer hoặc restart thu hồi quyền; nickname/cookie và **trạng thái cuộc thi đã lưu** được giữ. Đổi mã cần restart. Thiếu mã: không mở được cuộc thi mới; nếu đã có cuộc thi khóa từ trước, Player vẫn đấu theo snapshot đó.
 
-**Chọn game** ở dropdown/card chỉ lưu vào localStorage của browser, không thay cấu hình chung. **Đặt game mặc định** là nút riêng trong Rules, chỉ Organizer được dùng; mặc định áp dụng cho browser chưa có lựa chọn đã lưu. Lựa chọn của browser khác và game của trận/replay hiện tại được giữ nguyên. Khi client tạo trận không gửi game_id, backend lấy game của bot A rồi xác thực bot B; việc đổi default không đổi game của các submission đã chọn.
+**Một cuộc thi, ba trạng thái:**
+
+1. **SETUP / chờ ban tổ chức:** Organizer chọn game ở dropdown/card, lưu/reset luật. Mọi client theo game server chọn; không dùng lựa chọn localStorage cũ. Chưa tạo trận được. Có thể chuẩn bị/nộp bot, nhưng chỉ cho game hiện tại.
+2. **LOCK GAME / OPEN COMPETITION:** server chốt `active_rules_snapshot` từ luật đã lưu, lưu khóa vào disk và phát WebSocket. Chỉ game đã khóa được nộp bot/tạo trận; cả hai bot phải tương thích. Không nhận `rules` override từ ai, kể cả Organizer. Form luật/game read-only. Giá trị chưa Save trên browser không đi vào snapshot.
+3. **CLOSE COMPETITION / UNLOCK:** chặn trận mới ngay. Nếu còn trận/chờ/cleanup bot thì trạng thái **DRAINING**, chưa đổi game/luật hoặc mở lại được. Khi hết task, WebSocket tự báo SETUP. Có thể chờ kết thúc hoặc Organizer hủy hợp lệ qua `POST /api/matches/{id}/cancel`; cancel thu hồi bot, lưu interrupted/replay đã có rồi mới cho cấu hình lại.
+
+Server giữ `selected_game_id`, `competition_locked`, `active_rules_snapshot` trong `data/rules.json` version 3. V1/v2 tự chuyển sang **chưa mở**, không xóa bot/replay. Restart giữ khóa/snapshot; trận đang chạy bị interrupted như trước. Mỗi trận lưu riêng `game_id`, `rules` và `rules_snapshot`; đổi cuộc thi không sửa lịch sử. Renderer luôn dùng game của frame/trận.
+
+`/ws/competition` gửi state đầy đủ cùng revision/server_id, initial state cho client mới, tự reconnect khi mất mạng. Đây là trạng thái mới nhất của một cuộc thi, không phải log lịch sử các lần mở/đóng. FastAPI dùng một admission lock cho cấu hình/open/close/create-match; submission kiểm tra game trước compile và kiểm tra lại trước commit nếu game đổi trong lúc compile.
 
 Đây là phân quyền đơn giản cho nhóm tin cậy. Demo HTTP LAN không mã hóa mã Organizer; HTTPS dùng khi có reverse proxy phù hợp. Không xem cơ chế này là sandbox hay hệ thống tài khoản Internet.
 
@@ -116,14 +124,14 @@ Backend ưu tiên một cặp `java`/`javac` trong cùng JDK: `JAVA_HOME`, `java
 
 ## Thử một trận trong giao diện
 
-1. Chọn **game** ở thanh trên, hoặc vào **Chỉnh luật chơi** để xem các game đã cài đặt, thông tin, luật cố định và form cấu hình riêng. Chọn Robot Battle hoặc OTT v2.
+1. Mở quyền Organizer, chọn Robot Battle hoặc OTT v2 ở thanh trên/Rules, lưu luật rồi nhấn **LOCK GAME / OPEN COMPETITION**. Player xem cùng game và luật đã chốt.
 2. Trang chủ → **Thêm bot mẫu**. Server nộp/chuẩn bị Python, C++, Java cho game đó. Cùng source mẫu được dùng lại; khi source thay đổi, hash mới tạo submission mới, không âm thầm dùng executable cũ.
-3. **Quick Deploy** hoặc **Tạo trận đấu** → chọn game, bot A và bot B → **Start Match**. Dropdown chỉ hiển thị bot sẵn sàng thuộc game đã chọn; server cũng kiểm tra và từ chối bot khác game.
+3. **Quick Deploy** hoặc **Tạo trận đấu** → chọn bot A/B → **Start Match**. Game lấy từ cuộc thi đang mở; dropdown chỉ hiển thị bot ready đúng game. Server từ chối request khác game hoặc override luật.
 4. Quan sát renderer và **Combat Log**: Robot có HP/tia tấn công; OTT có bàn cờ, loại quân, nước đi, capture, ván và điểm. Trạng thái thật được server gửi qua WebSocket.
 5. **Pause** chỉ dừng playback. Backend tiếp tục chạy và trạng thái mới tiếp tục được nhận/lưu. **Reset** về lượt 0 và tạm dừng; **Start (▶)** phát tiếp. Start ở cuối trận hoàn tất sẽ phát lại từ đầu.
 6. Dùng thanh tua và tốc độ 0.5×–4×. **⇩** tải replay JSON; **↗** sao chép link. **Xem trận đấu** mở live hoặc phát replay không chạy lại bot.
-7. **Chỉnh luật chơi** hiển thị schema riêng. Player xem; Organizer lưu/khôi phục luật hoặc đặt game mặc định. Luật mới áp dụng cho trận mới, trận hiện tại giữ snapshot.
-8. **Nộp bot** bắt buộc chọn game, nhận `.py`, `.cpp`, `.java`, hiển thị lỗi biên dịch và chỉ cho chọn submission `ready`.
+7. Để thay luật/game: đóng cuộc thi, chờ trận và bot cleanup hoàn tất, sửa rồi khóa mở lại. Replay cũ giữ snapshot.
+8. **Nộp bot** tự theo game ban tổ chức chọn, nhận `.py`, `.cpp`, `.java`, hiện lỗi biên dịch và chỉ dùng submission ready. Thư viện vẫn giữ bot các game trước.
 
 Bot có thể đấu với chính submission đó: backend vẫn khởi chạy **hai tiến trình riêng biệt**.
 
@@ -210,6 +218,7 @@ LTM/
 │   ├── main.py           # FastAPI REST, upload, static frontend, WebSocket
 │   ├── models.py         # Kiểm tra thông số và request
 │   ├── matches.py        # Vòng lặp trận, gọi bot, phát trạng thái
+│   ├── competition.py    # Một cuộc thi, admission lock và broadcast state
 │   ├── runner.py         # Toolchain, compile, subprocess, IO giới hạn
 │   ├── storage.py        # JSON atomic + khóa thread
 │   └── engine/
@@ -254,22 +263,27 @@ Storage tự nâng dữ liệu v1: bot cũ gắn game đã cài đầu tiên (Ro
 | GET | `/api/network` | Origin hiện tại, mode, URL IPv4 LAN gợi ý |
 | GET | `/lan` | Trang hướng dẫn LAN/firewall/HTTPS |
 | GET | `/api/games` | Registry: metadata, schema, luật đã lưu, preview thật và game đang chọn |
-| PUT | `/api/games/selected` | Organizer đặt game mặc định bằng `{game_id}`, không phải lựa chọn riêng của browser |
+| PUT | `/api/games/selected` | Organizer chọn game tổ chức `{game_id}`, chỉ khi SETUP |
+| GET | `/api/competition` | State đầy đủ: game, khóa, snapshot, phase, pending_matches |
+| POST | `/api/competition/open` | Organizer khóa game và luật đã lưu, mở nhận trận |
+| POST | `/api/competition/close` | Organizer chặn trận mới, chờ các task trước khi cho cấu hình |
+| WS | `/ws/competition` | Initial/latest state, revision và heartbeat cho mọi client |
 | GET | `/api/games/{game_id}` | Thông tin đầy đủ của một game |
-| GET / PUT | `/api/games/{game_id}/rules` | Mọi người đọc; Organizer validate/lưu luật |
-| POST | `/api/games/{game_id}/rules/reset` | Organizer khôi phục và lưu mặc định |
-| GET / PUT | `/api/rules` | Alias luật của game mặc định, PUT cần Organizer |
+| GET / PUT | `/api/games/{game_id}/rules` | Mọi người đọc; Organizer lưu chỉ khi SETUP |
+| POST | `/api/games/{game_id}/rules/reset` | Organizer reset chỉ khi SETUP |
+| GET / PUT | `/api/rules` | Alias luật của game đang tổ chức; PUT cần Organizer và SETUP |
 | GET / POST | `/api/bots` | Danh sách / multipart `file`, `name`, `game_id` bắt buộc |
 | GET | `/api/bots?game_id=ott_v2` | Lọc submission theo game |
 | GET / POST | `/api/games/{game_id}/samples/{language}` / `.../submit` | Tải/nộp mẫu của game, language python/cpp/java |
 | GET | `/api/samples/{python\|cpp\|java}` | Tải source bot mẫu |
 | POST | `/api/samples/{language}/submit` | Nộp bot mẫu có sẵn |
-| GET / POST | `/api/matches` | Lịch sử / tạo trận với `game_id`, `bot_a`, `bot_b`; override `rules` chỉ dành cho Organizer |
+| GET / POST | `/api/matches` | Lịch sử / tạo trận khi OPEN, đúng game; dùng snapshot server, không override rules |
+| POST | `/api/matches/{id}/cancel` | Organizer hủy task đang chạy/chờ; thu hồi bot, giữ replay/history |
 | GET | `/api/matches/{id}` | Metadata, luật, trạng thái, kết quả |
 | GET | `/api/matches/{id}/replay` | Metadata + mảng `frames` JSON |
 | WS | `/ws/matches/{id}?after=-1` | Subscribe từ sequence kế tiếp |
 
-POST submission trả `201`, gồm `status: "ready"` hoặc `"error"` và `logs` biên dịch; code biên dịch lỗi vẫn được lưu để xem nguyên nhân. Request thiếu/sai thông số trả `400`/`422`; ID không tồn tại trả `404`. Chi tiết tương tác ở **http://127.0.0.1:8000/docs**.
+POST submission trả `201`, gồm ready/error và compiler logs; source lỗi vẫn lưu để xem. `403` khi thiếu quyền; `409` khi chưa mở, sai game khóa, sửa cấu hình khóa/còn task, hoặc override snapshot. Bot pair không tương thích trả `400`; thiếu/sai schema `422`; ID không có `404`. Swagger ở `/docs`.
 
 ```text
 Browser -- HTTP upload --> FastAPI -- compiler --> uploads/<id>
@@ -328,7 +342,7 @@ Khi server đang chạy, thử trận **qua HTTP và WebSocket thật**:
 .\.venv\Scripts\python.exe scripts/demo_match.py --game ott_v2 --a python --b cpp --rounds 2
 ```
 
-Script in action từng lượt, kết quả và xác nhận các frame WebSocket giống replay lưu trên server. Flags `--max-turns`/`--rounds` gửi override nên cần đúng `ARENA_ADMIN_CODE` trong shell chạy script để xác minh quyền Organizer. Chạy các cặp theo luật đã lưu không cần mã.
+Các lệnh không cấu hình cần cuộc thi tương ứng đã mở. Dùng `--open-competition`, `--max-turns` hoặc `--rounds` để script xác minh Organizer bằng ARENA_ADMIN_CODE, đóng → chọn/lưu luật → khóa mở trước demo; không gửi per-match override nữa. Nếu còn trận chạy thì không đổi cấu hình. Script in action/kết quả và xác nhận WS khớp replay. Chạy theo cuộc thi đã mở không cần mã.
 
 Kiểm thử gồm cả hai game, adapter thứ ba, hiệu lực cấu hình, snapshot/replay, nộp bot theo game, các trận khác ngôn ngữ và hai spectator. Có test đối chiếu engine Python với module luật JavaScript đã lưu từ repository OTT. Node chỉ dùng cho test đối chiếu; không cần để chạy ứng dụng. Xem [báo cáo v2 cùng ảnh giao diện](docs/MULTIGAME_VERIFICATION.md); [báo cáo v1](docs/VERIFICATION.md) được giữ làm lịch sử.
 
@@ -340,7 +354,7 @@ QA giao diện tùy chọn, cần Chrome đã cài:
 .\.venv\Scripts\python.exe scripts/check_ui.py --spectator-url http://IP-HOST:8000
 ```
 
-Không cần `playwright install`: script dùng Chrome có sẵn và chạy headless. QA chỉnh luật cần đúng `ARENA_ADMIN_CODE` trong environment của script; không truyền mã trong CLI arguments. Script kiểm tra hai game, Organizer unlock/logout, schema đúng, luật thật, upload, live/replay, nhiều ván, defaults, hai contexts và bố cục 390px; lưu ảnh trong `docs/screenshots/v2/`. `check_multiclient_ui.py` dùng một Organizer fixture riêng và hai Player để kiểm tra lựa chọn game không ảnh hưởng nhau sau reload/đổi default. Cấu hình organizer được khôi phục sau QA. Đây không phải dependency để dùng ứng dụng.
+Không cần `playwright install`: dùng Chrome có sẵn/headless. QA chỉnh luật cần đúng ARENA_ADMIN_CODE trong environment, không truyền mã trong CLI. check_ui kiểm tra Organizer unlock/logout, schema, luật thật, khóa read-only, bỏ draft chưa Save, hai game/upload/live/replay, defaults, hai contexts, 390px. check_multiclient_ui dùng Organizer fixture riêng và hai Player, kiểm tra open/close/draining/setup qua WS không reload, API bypass, tiếp tục xem replay sau đổi game. QA khôi phục cấu hình ban đầu; không phải dependency runtime.
 
 ## Gợi ý thuyết trình 5 phút
 

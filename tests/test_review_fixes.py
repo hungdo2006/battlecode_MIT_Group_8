@@ -31,7 +31,7 @@ def bot(client):
     return response.json()
 
 
-def test_player_cannot_edit_rules_default_or_override_match(tmp_path, authorize_organizer):
+def test_player_cannot_edit_rules_default_or_override_match(tmp_path, authorize_organizer, open_competition):
     app = create_app(tmp_path, tick_seconds=0.001)
     with TestClient(app) as organizer:
         authorize_organizer(organizer)
@@ -51,6 +51,7 @@ def test_player_cannot_edit_rules_default_or_override_match(tmp_path, authorize_
             assert organizer.get("/api/games").json()["selected_game_id"] == "robot_battle"
             assert organizer.get("/api/games/robot_battle/rules").json()["max_turns"] == 3
             submission = bot(player)
+            open_competition(organizer)
             request = {"bot_a": submission["id"], "bot_b": submission["id"], "game_id": "robot_battle"}
             assert player.post("/api/matches", json={**request, "rules": {"max_turns": 1}}).status_code == 403
             response = player.post("/api/matches", json=request)
@@ -101,7 +102,7 @@ def test_admin_disabled_without_code_and_grants_revoked_on_restart(tmp_path, mon
         assert disabled.put("/api/games/selected", json={"game_id": "ott_v2"}).status_code == 403
 
 
-def test_global_default_does_not_redirect_implicit_bot_match(tmp_path, authorize_organizer):
+def test_locked_game_rejects_implicit_incompatible_bot_pair(tmp_path, authorize_organizer, open_competition):
     app = create_app(tmp_path, tick_seconds=0.001)
     with TestClient(app) as organizer:
         authorize_organizer(organizer)
@@ -111,10 +112,9 @@ def test_global_default_does_not_redirect_implicit_bot_match(tmp_path, authorize
         try:
             submission = bot(player)
             assert organizer.put("/api/games/selected", json={"game_id": "ott_v2"}).status_code == 200
+            open_competition(organizer, "ott_v2")
             response = player.post("/api/matches", json={"bot_a": submission["id"], "bot_b": submission["id"]})
-            assert response.status_code == 201
-            frames, match = watch(player, response.json()["id"])
-            assert match["game_id"] == "robot_battle" and len(frames) == 3
+            assert response.status_code == 400
         finally:
             player.close()
 
@@ -153,12 +153,12 @@ def test_legacy_replay_and_incomplete_final_record_survive_restart(tmp_path):
     assert (store.replays / "legacy.json").read_text(encoding="utf-8") == json.dumps(legacy)
 
 
-def test_long_match_saved_replay_equal_live_without_whole_history_rewrites(tmp_path, authorize_organizer):
+def test_long_match_saved_replay_equal_live_without_whole_history_rewrites(tmp_path, authorize_organizer, open_competition):
     with TestClient(create_app(tmp_path, tick_seconds=0)) as client:
         authorize_organizer(client)
         submission = bot(client)
-        match = client.post("/api/matches", json={"bot_a": submission["id"], "bot_b": submission["id"],
-                                                 "rules": {"max_turns": 120}}).json()
+        open_competition(client, rules={"max_turns": 120})
+        match = client.post("/api/matches", json={"bot_a": submission["id"], "bot_b": submission["id"]}).json()
         frames, metadata = watch(client, match["id"])
         assert len(frames) == 121 and metadata["result"]["reason"] == "turn_limit"
         assert client.get(f"/api/matches/{match['id']}/replay").json()["frames"] == frames
@@ -169,10 +169,11 @@ def test_long_match_saved_replay_equal_live_without_whole_history_rewrites(tmp_p
         assert restarted.get(f"/api/matches/{match['id']}/replay").json()["frames"] == frames
 
 
-def test_failed_replay_write_never_broadcasts_phantom_frame(tmp_path, monkeypatch, authorize_organizer):
+def test_failed_replay_write_never_broadcasts_phantom_frame(tmp_path, monkeypatch, authorize_organizer, open_competition):
     with TestClient(create_app(tmp_path, tick_seconds=0)) as client:
         authorize_organizer(client)
         submission = bot(client)
+        open_competition(client)
 
         def disk_error(*args):
             raise OSError("test disk full")

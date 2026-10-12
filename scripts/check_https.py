@@ -40,6 +40,14 @@ async def watch(base, match_id, context, cookie):
     raise AssertionError("WSS closed before complete")
 
 
+async def competition_state(base, context, cookie):
+    async with connect(base.replace("https://", "wss://") + "/ws/competition", ssl=context,
+                       origin=base, additional_headers={"Cookie": cookie}) as socket:
+        message = json.loads(await socket.recv())
+        assert message["type"] == "competition"
+        return message["state"]
+
+
 def main(args):
     openssl = shutil.which("openssl")
     if not openssl:
@@ -52,6 +60,7 @@ def main(args):
         data = temporary / "data"
         (data / "replays").mkdir(parents=True)
         (data / "matches.json").write_text(json.dumps({match["id"]: match}), encoding="utf-8")
+        shutil.copy2(ROOT / "data/rules.json", data / "rules.json")
         replay = ROOT / f"data/replays/{match['id']}.jsonl"
         if not replay.exists():
             replay = replay.with_suffix(".json")
@@ -89,15 +98,16 @@ def main(args):
             jar.add_cookie_header(cookie_request)
             frames = asyncio.run(watch(base, match["id"], context, cookie_request.get_header("Cookie")))
             assert frames == get(f"/api/matches/{match['id']}/replay")["frames"]
+            assert asyncio.run(competition_state(base, context, cookie_request.get_header("Cookie"))) == get("/api/competition")
             try:
                 opener.open(Request(base + "/api/bots", data=b"", method="POST"), timeout=10)
                 raise AssertionError("Read-only HTTPS accepted upload")
             except HTTPError as exc:
                 assert exc.code == 403
-            print(f"HTTPS/WSS PASS: verified local TLS; Secure cookie persists; {len(frames)} WSS frames equal real replay; upload blocked.")
+            print(f"HTTPS/WSS PASS: verified TLS; Secure cookie; {len(frames)} replay frames; competition WSS equals REST; read-only upload blocked.")
         finally:
             server.should_exit = True
-            thread.join(timeout=10)
+            thread.join(timeout=15)
             assert not thread.is_alive(), "Owned TLS server must stop."
 
 

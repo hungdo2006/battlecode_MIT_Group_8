@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import hmac
 import os
+import shutil
 from copy import deepcopy
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -11,6 +12,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.matches import MatchManager, timestamp
+from backend.competition import Competition, CompetitionConflict
 from pydantic import ValidationError
 from backend.engine import create_registry
 from backend.engine.registry import GameRegistry
@@ -36,11 +38,17 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
         app.state.store = Store((base_dir or PROJECT).resolve(), installed)
         app.state.sessions = Sessions(app.state.store.data / "sessions.json")
         app.state.manager = MatchManager(app.state.store, tick_seconds)
+        app.state.competition = Competition(app.state.store, app.state.manager)
+        app.state.manager.on_activity = app.state.competition.publish
         app.state.upload_lock = asyncio.Lock()
         yield
         await app.state.manager.shutdown()
 
-    app = FastAPI(title="NEON ARENA", version="2.2.0", lifespan=lifespan)
+    app = FastAPI(title="NEON ARENA", version="2.3.0", lifespan=lifespan)
+
+    @app.exception_handler(CompetitionConflict)
+    async def competition_conflict(request, exc):
+        return JSONResponse({"detail": str(exc)}, status_code=409)
 
     @app.middleware("http")
     async def trusted_demo_network(request, call_next):
@@ -131,10 +139,26 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
         return {"selected_game_id": app.state.store.selected_game_id,
                 "games": [describe_game(game_id) for game_id in installed.ids()]}
 
+    @app.get("/api/competition")
+    async def competition_state():
+        return app.state.competition.get_state()
+
+    @app.post("/api/competition/open", dependencies=[Depends(require_organizer)])
+    async def open_competition():
+        return await app.state.competition.open()
+
+    @app.post("/api/competition/close", dependencies=[Depends(require_organizer)])
+    async def close_competition():
+        return await app.state.competition.close()
+
     @app.put("/api/games/selected", dependencies=[Depends(require_organizer)])
     async def select_game(selection: GameSelection):
         game_or_404(selection.game_id)
-        await asyncio.to_thread(app.state.store.select_game, selection.game_id)
+        control = app.state.competition
+        async with control.lock:
+            control.require_editable()
+            await asyncio.to_thread(app.state.store.select_game, selection.game_id)
+            await control.publish()
         return {"selected_game_id": selection.game_id}
 
     @app.get("/api/games/{game_id}")
@@ -149,13 +173,18 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
 
     async def persist_rules(game_id, rules):
         adapter = game_or_404(game_id)
-        try:
-            values = adapter.validate_rules(rules)
-        except ValidationError as exc:
-            raise HTTPException(422, exc.errors(include_context=False)) from exc
-        except ValueError as exc:
-            raise HTTPException(422, str(exc)) from exc
-        return await asyncio.to_thread(app.state.store.set_rules, game_id, values)
+        control = app.state.competition
+        async with control.lock:
+            control.require_editable()
+            try:
+                values = adapter.validate_rules(rules)
+            except ValidationError as exc:
+                raise HTTPException(422, exc.errors(include_context=False)) from exc
+            except ValueError as exc:
+                raise HTTPException(422, str(exc)) from exc
+            saved = await asyncio.to_thread(app.state.store.set_rules, game_id, values)
+            await control.publish()
+            return saved
 
     @app.put("/api/games/{game_id}/rules", dependencies=[Depends(require_organizer)])
     async def update_game_rules(game_id: str, rules: dict = Body(...)):
@@ -184,6 +213,9 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
         game_or_404(game_id)
         async with app.state.upload_lock:
             store = app.state.store
+            control = app.state.competition
+            async with control.lock:
+                store.require_submission_game(game_id)
             if sample_key:
                 sample_key = f"{owner['id']}:{sample_key}"
                 existing = next((bot for bot in store.get_bots() if bot.get("sample_key") == sample_key and bot["status"] == "ready"), None)
@@ -200,7 +232,16 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
                    "status": status, "logs": logs, "command": command, "folder": str(folder),
                    "created_at": timestamp(), "sample_key": sample_key}
             bot.update(game_id=game_id, owner=deepcopy(owner))
-            await asyncio.to_thread(store.save_bot, bot)
+            try:
+                async with control.lock:
+                    # Re-check after compilation: the organizer may have switched games.
+                    store.require_submission_game(game_id)
+                    await asyncio.to_thread(store.save_bot, bot)
+            except CompetitionConflict:
+                # Only delete the newly generated submission folder under uploads.
+                if folder.resolve().parent == store.uploads.resolve():
+                    await asyncio.to_thread(shutil.rmtree, folder)
+                raise
             return public_bot(bot)
 
     @app.post("/api/bots", status_code=201)
@@ -252,13 +293,26 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
     async def start_match(request: MatchRequest, http_request: Request):
         # Protect the per-match override too, otherwise /api/matches bypasses Rules permissions.
         if request.rules is not None and http_request.state.role != "organizer":
-            raise HTTPException(403, "Player dùng luật đã lưu; chỉ Organizer được gửi rules riêng cho trận.")
+            raise HTTPException(403, "Player không được thay đổi luật. Trận dùng snapshot cuộc thi trên server.")
         try:
-            return await app.state.manager.start(request, created_by=http_request.state.participant)
+            async with app.state.competition.lock:
+                return await app.state.manager.start(request, created_by=http_request.state.participant)
+        except CompetitionConflict:
+            raise
         except ValidationError as exc:
             raise HTTPException(422, exc.errors(include_context=False)) from exc
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/api/matches/{match_id}/cancel", dependencies=[Depends(require_organizer)])
+    async def cancel_match(match_id: str):
+        if not app.state.manager.get_match(match_id):
+            raise HTTPException(404, "Không tìm thấy trận đấu.")
+        async with app.state.competition.lock:
+            try:
+                return await app.state.manager.cancel(match_id)
+            except ValueError as exc:
+                raise HTTPException(409, str(exc)) from exc
 
     @app.get("/api/matches/{match_id}")
     async def match_info(match_id: str):
@@ -319,6 +373,33 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
                     return
                 if heartbeat:
                     await websocket.send_json({"type": "ping"})
+        except (WebSocketDisconnect, RuntimeError, asyncio.TimeoutError):
+            return
+
+    @app.websocket("/ws/competition")
+    async def competition_socket(websocket: WebSocket):
+        host = websocket.headers.get("host", "")
+        if not settings.allows_host(host) or not same_origin(websocket.headers.get("origin"), host, websocket.scope["scheme"]):
+            await websocket.close(code=1008)
+            return
+        await websocket.accept()
+        control = app.state.competition
+        cursor = -1
+        try:
+            while True:
+                heartbeat = False
+                async with control.changed:
+                    if cursor == control.revision:
+                        try:
+                            await asyncio.wait_for(control.changed.wait(), timeout=10)
+                        except asyncio.TimeoutError:
+                            heartbeat = True
+                    state = control.get_state()
+                if heartbeat:
+                    await websocket.send_json({"type": "ping"})
+                else:
+                    await asyncio.wait_for(websocket.send_json({"type": "competition", "state": state}), timeout=3)
+                    cursor = state["revision"]
         except (WebSocketDisconnect, RuntimeError, asyncio.TimeoutError):
             return
 

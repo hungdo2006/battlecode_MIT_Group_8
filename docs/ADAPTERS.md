@@ -87,6 +87,8 @@ Round có thể kết thúc bằng goal, elimination, turn_limit hoặc stalemat
 
 Metadata trận lưu game ID, tên, phiên bản, luật đầy đủ khi bắt đầu. Renderer dựa trên game ID của frame/trận, không dựa trên game đang được organizer chọn. Pause/Reset/Start thuộc client; server tiếp tục chạy. URL `/?match=ID#home` tự mở trận ở browser mới.
 
+V2.3: Competition controller chỉ quản lý admission và snapshot, không chứa luật từng game. Để tạo trận, Organizer chọn game đã đăng ký, lưu rules_model tương ứng, mở cuộc thi rồi nộp bot. Manager nhận snapshot từ server; không nhận override mỗi trận. `rules`/`rules_snapshot` lưu trong metadata, frame vẫn dùng `rules` như trước. Đăng ký adapter thứ ba không cần sửa controller/core; test CounterAdapter đi qua cùng luồng khóa/API/WS.
+
 ## Nguồn OTT và giấy phép
 
 Nguồn: [hungdo2006/ottv2-playhtml](https://github.com/hungdo2006/ottv2-playhtml). Bản đọc ngày 12/10/2026 có các file js chuyển tiếp sang `src/engine`; bản chuẩn nằm trong `config/rules/standard-9x9.json`. Snapshot source + SHA-256 và MIT license được giữ tại `docs/reference/ottv2/`. Các file này chỉ là reference cho test, không được nạp vào backend runtime hoặc phục vụ như engine trên frontend. Không tích hợp playhtml, Express hoặc Socket.IO.

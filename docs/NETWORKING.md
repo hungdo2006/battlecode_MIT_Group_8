@@ -21,7 +21,7 @@ Frontend gọi `/api/...` bằng relative paths và mở `ws(s)://location.host/
 ## Hai laptop cùng Wi-Fi
 
 1. A chạy server, A/B đều mở URL LAN. Mỗi người nhập nickname khác nhau ở YOUR PLAYER SESSION.
-2. Cả hai chọn cùng game. Mỗi máy tải một source mẫu, sau đó upload qua form bằng phiên của chính mình; ví dụ A dùng Python, B dùng C++/Java. Chỉ máy chủ cần compiler.
+2. Organizer chọn game, lưu luật và LOCK GAME / OPEN COMPETITION. Hai Player tự nhận game/luật qua /ws/competition, không được đổi game. Mỗi máy upload source phù hợp bằng phiên riêng; compiler chỉ cần trên host.
 3. Thư viện chung tự cập nhật mỗi 2 giây, hiển thị owner nickname và mã phiên ngắn. Bot không bị khóa theo owner: mọi thành viên tin cậy có thể chọn bot của nhau để demo.
 4. A chọn bot A/B rồi Start Match. B vào Xem trận đấu; danh sách chung tự cập nhật, có ID/người tạo và Live/Replay. Có thể gửi deep-link `/?match=ID#home` bằng nút ↗. Nên mở website bằng URL LAN trước khi chia sẻ; link localhost chỉ có ý nghĩa trên máy chủ.
 5. Cả hai máy nhận cùng frame sequence/result. Playback là riêng từng máy, nên Canvas có thể đang ở các lượt khác nhau nếu Pause/tốc độ khác nhau. So sánh theo cùng sequence/timeline, không so theo đồng hồ.
@@ -33,9 +33,11 @@ Frontend gọi `/api/...` bằng relative paths và mở `ws(s)://location.host/
 
 Bot lưu `owner={id,name}`; trận lưu `created_by` và owner của hai bot. Đó là snapshot tên tại thời điểm upload/tạo trận: đổi nickname không đổi lịch sử. Sample compilation cache theo **phiên + game + ngôn ngữ + hash source**: cùng người nộp lại cùng mẫu dùng executable sẵn; hai người nộp cùng mẫu vẫn có submission/owner riêng. Dữ liệu v1/v2 cũ không có owner vẫn xem được, UI ghi rõ là submission/trận cũ.
 
-Nickname/cookie nhận diện browser, không phải tài khoản Internet hay sandbox. Có phân quyền **Player/Organizer**: chỉ phiên xác minh `ARENA_ADMIN_CODE` được sửa luật/game mặc định. `POST /api/session/organizer {"code":"..."}` mở quyền, DELETE cùng endpoint thu hồi. Quyền chỉ giữ trên server, mất khi restart; mã không lưu vào JSON/frontend, không truyền cho compiler/bot. Player dùng luật đã lưu, API chặn override rules. Xem README mục Organizer và Player để cấu hình biến môi trường.
+Nickname/cookie nhận diện browser, không phải tài khoản Internet hay sandbox. Organizer xác minh ARENA_ADMIN_CODE bằng POST /api/session/organizer, DELETE để thu hồi. Quyền mất khi restart; mã không lưu JSON/frontend hoặc chuyển vào compiler/bot. Chỉ Organizer mở/đóng cuộc thi. Mọi trận dùng snapshot đã khóa; không nhận rules override từ Player hay Organizer.
 
-Chọn game thường chỉ lưu localStorage của browser; không gọi API thay default. Chỉ nút **Đặt game mặc định** do Organizer bấm mới thay cấu hình chung. Hai browser giữ lựa chọn sau reload kể cả khi default thay đổi; trận/replay giữ game ID riêng. Cookie là host-scoped (các port cùng host dùng chung vùng cookie); đổi hostname/IP tạo vùng khác. Bootstrap thiết lập phiên trước khi fetch song song, tránh tạo nhiều identity cho một browser.
+Một cuộc thi chung: Organizer chọn game khi SETUP, lưu luật rồi POST /api/competition/open. Game/luật khóa read-only, mọi Player cùng game. POST /api/competition/close chặn trận mới ngay; nếu còn task thì DRAINING, không đổi game/luật cho đến khi hoàn tất hoặc Organizer cancel hợp lệ. Snapshot/lock ở data/rules.json giữ qua restart; /ws/competition initial/latest state cho client mới/reconnect, có revision/server_id. Frontend không dùng preference localStorage cũ để chọn game. Trận/replay dùng game ID/snapshot riêng, không bị chuyển game theo cuộc thi.
+
+Cookie là host-scoped (các port cùng host dùng chung vùng cookie); đổi hostname/IP tạo vùng khác. Bootstrap thiết lập phiên trước khi fetch song song để tránh nhiều identity. Hai client có thể đang ở lượt playback khác nhau; competition state thống nhất do server quyết định.
 
 ## IP và Windows Firewall
 
@@ -94,6 +96,6 @@ Cấu hình proxy dựa trên [FastAPI Behind a Proxy](https://fastapi.tiangolo.
 
 check_lan dùng **hai cookie jar**, đổi nickname, mỗi client upload một file bot (Python/C++), client B tìm trận A tạo, hai socket nhận trạng thái, reconnect và so với replay. Check UI dùng hai browser context độc lập: nickname/upload thực tế, tự thấy bot/trận, hai WebSocket, Pause riêng, same saved result. Test tự động trên host không chứng minh hai laptop vật lý; theo checklist trên để nghiệm thu hai thiết bị thật và ghi lại ID trận.
 
-check_lan không override luật theo mặc định nên hai client là Player; nếu dùng `--max-turns` thì client A cần `ARENA_ADMIN_CODE` để gửi override. Các QA browser chỉnh luật đọc cùng biến trong shell chạy script. check_multiclient_ui dùng Organizer fixture riêng và hai Player, còn kiểm tra game selection/default isolation. Replay mới ghi append-only JSONL, API vẫn xuất JSON và đọc archive `.json` cũ.
+check_lan chạy theo cuộc thi đã mở; nếu dùng --open-competition/--max-turns thì A cần ARENA_ADMIN_CODE để cấu hình/lưu snapshot trước demo. Các QA browser dùng cùng biến trong shell; check_multiclient_ui có Organizer fixture riêng và hai Player, kiểm tra cập nhật khóa và trạng thái chờ qua WS không reload. Replay append-only JSONL, API vẫn xuất JSON/read archive `.json` cũ.
 
 check_https cần OpenSSL trên PATH, tự tạo certificate self-signed tạm và xác thực bằng CA đó (không tắt certificate verification); kiểm tra cookie Secure giữ phiên, WSS replay và read-only. Không sửa trust store hệ thống, không chạy lại bot, xóa dữ liệu/cert tạm và dừng listener sau test. OpenSSL không phải dependency để chạy demo LAN.

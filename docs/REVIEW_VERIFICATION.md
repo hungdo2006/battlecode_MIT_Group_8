@@ -2,6 +2,8 @@
 
 Ngày **12/10/2026**, Windows, Asia/Saigon. Sửa repository hiện có, giữ kiến trúc FastAPI/JS/Canvas, không viết lại game, không thêm runtime dependency. Cyberpunk giữ nguyên; UI chỉ bổ sung nhãn role, hộp nhập mã và nút đặt game mặc định cần thiết cho phân quyền.
 
+Báo cáo này là lịch sử v2.2. V2.3 đã thay lựa chọn riêng/default bằng cuộc thi chung do Organizer khóa, và bỏ override luật từng trận. Xem [COMPETITION_VERIFICATION.md](COMPETITION_VERIFICATION.md) cho cơ chế và kiểm chứng hiện tại.
+
 ## Vấn đề đã xác nhận và sửa
 
 | Vấn đề | Bằng chứng trước sửa | Cách sửa |

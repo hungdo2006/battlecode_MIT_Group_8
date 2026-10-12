@@ -24,6 +24,7 @@ def main(args):
         page.on("pageerror", lambda error: errors.append(str(error)))
         catalog = page.request.get(args.url + "/api/games").json()
         original_game = catalog["selected_game_id"]
+        original_competition = page.request.get(args.url + "/api/competition").json()
         original_rules = {game["game_id"]: game["rules"] for game in catalog["games"]}
 
         def screenshot(name):
@@ -36,6 +37,16 @@ def main(args):
             page.locator(".nav-item[data-view=rules]").click()
             page.locator(f'.game-card[data-game-id="{game_id}"]').click()
             page.wait_for_function("id => app.selectedGameId === id && !app.switchingGame", arg=game_id)
+
+        def close_room():
+            assert page.request.post(args.url + "/api/competition/close").ok
+            page.wait_for_function("app.competition?.phase === 'setup'", timeout=45000)
+
+        def open_room():
+            page.locator("#competition-open").click()
+            page.wait_for_function("app.competition?.competition_locked && !app.competitionBusy")
+            assert page.locator("#rules-form [type=submit]").is_disabled()
+            assert page.locator("#workspace-game-select").is_disabled()
 
         def save_rules(values):
             for key, value in values.items():
@@ -76,6 +87,7 @@ def main(args):
             page.locator("#organizer-form [type=submit]").click()
             page.wait_for_function("app.role === 'organizer'")
             assert page.locator("#organizer-code").input_value() == ""
+            close_room()
             select_game("robot_battle")
             assert page.locator("#rules-fields [name=initial_hp]").count() == 1
             assert page.locator("#rules-fields [name=rounds]").count() == 0
@@ -83,6 +95,12 @@ def main(args):
             save_rules(robot_rules)
             screenshot("rules-robot.png")
             seed()
+            # Lock reads saved server configuration, not unsaved browser fields.
+            page.locator(".nav-item[data-view=rules]").click()
+            page.locator('#rules-form [name="initial_hp"]').fill("91")
+            open_room()
+            page.wait_for_function("document.querySelector('#rules-form [name=initial_hp]').value === '90'")
+            page.locator(".nav-item[data-view=home]").click()
             robot_match_id = launch("robot_battle")
             cursor = page.evaluate("app.cursor")
             page.wait_for_function("app.match.status === 'completed'", timeout=20000)
@@ -95,6 +113,7 @@ def main(args):
             screenshot("robot-victory.png")
             page.locator("#dismiss-victory").click()
 
+            close_room()
             select_game("ott_v2")
             assert page.locator("#rules-fields [name=initial_hp]").count() == 0
             assert page.locator("#rules-fields [name=map_size]").count() == 0
@@ -105,6 +124,7 @@ def main(args):
             save_rules(ott_rules)
             screenshot("rules-ott.png")
             seed()
+            open_room()
             assert "ROBOT" in page.locator("#arena-game").inner_text(), "Selecting OTT must not repaint the existing robot replay"
             ott_match_id = launch("ott_v2")
             cursor = page.evaluate("app.cursor")
@@ -144,6 +164,7 @@ def main(args):
             assert "ROBOT" in page.locator("#arena-game").inner_text()
             assert page.evaluate("app.frames") == robot["frames"]
             page.locator("#play-pause").click()
+            close_room()
             page.locator(".nav-item[data-view=rules]").click()
             page.locator("#default-rules").click()
             page.wait_for_function("app.rules.max_turns === 100 && app.rules.rounds === 1")
@@ -156,9 +177,13 @@ def main(args):
             assert not errors, errors
             print(f"UI PASS: dynamic schemas, both games, real rule effects, game-specific upload, live/replay, Pause/Reset/Start, defaults, 390px and two independent spectator contexts. Robot={robot_match_id}; OTT={ott_match_id}")
         finally:
+            if page.evaluate("app.role") == "organizer":
+                close_room()
             for game_id, rules in original_rules.items():
-                page.request.put(f"{args.url}/api/games/{game_id}/rules", data=rules)
-            page.request.put(args.url + "/api/games/selected", data={"game_id": original_game})
+                assert page.request.put(f"{args.url}/api/games/{game_id}/rules", data=rules).ok
+            assert page.request.put(args.url + "/api/games/selected", data={"game_id": original_game}).ok
+            if original_competition["competition_locked"]:
+                assert page.request.post(args.url + "/api/competition/open").ok
             if page.evaluate("app.role") == "organizer":
                 page.locator("#organizer-toggle").click()
                 page.wait_for_function("app.role === 'player'")

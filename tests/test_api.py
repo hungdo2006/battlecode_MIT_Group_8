@@ -34,9 +34,10 @@ def watch_to_end(client, match):
     raise AssertionError("No final websocket message")
 
 
-def test_rules_match_websocket_and_persisted_replay(client, tmp_path):
+def test_rules_match_websocket_and_persisted_replay(client, tmp_path, open_competition):
     rules = {"map_size": 7, "initial_hp": 60, "damage": 15, "max_turns": 3}
     assert client.put("/api/rules", json=rules).json() == rules
+    open_competition(client)
     a, b = upload(client, name="A"), upload(client, name="B")
     assert a["status"] == "ready" and "command" not in a
     response = client.post("/api/matches", json={"bot_a": a["id"], "bot_b": b["id"]})
@@ -63,7 +64,8 @@ def test_rules_match_websocket_and_persisted_replay(client, tmp_path):
     b"import sys,json\nfor line in sys.stdin:\n print(json.dumps({'type':'teleport'}),flush=True)\n",
     b"raise RuntimeError('crash')\n",
 ])
-def test_bot_fault_is_reported_in_match_and_replay(client, bad_bot):
+def test_bot_fault_is_reported_in_match_and_replay(client, bad_bot, open_competition):
+    open_competition(client)
     a, b = upload(client, name="good"), upload(client, bad_bot, "faulty")
     match = client.post("/api/matches", json={"bot_a": a["id"], "bot_b": b["id"]}).json()
     frames = watch_to_end(client, match)
@@ -72,12 +74,13 @@ def test_bot_fault_is_reported_in_match_and_replay(client, bad_bot):
     assert result["faults"]["B"]
 
 
-def test_invalid_requests_and_compile_error(client):
+def test_invalid_requests_and_compile_error(client, open_competition):
     assert client.put("/api/rules", json={"map_size": 2}).status_code == 422
     assert client.post("/api/bots", files={"file": ("x.txt", b"code")}, data={"game_id": "robot_battle"}).status_code == 400
     assert client.post("/api/bots", files={"file": ("x.py", b"x" * (256 * 1024 + 1))}, data={"game_id": "robot_battle"}).status_code == 400
     broken = upload(client, b"def broken(:", "broken")
     assert broken["status"] == "error" and "SyntaxError" in broken["logs"]
+    open_competition(client)
     assert client.post("/api/matches", json={"bot_a": broken["id"], "bot_b": broken["id"]}).status_code == 400
     assert client.get("/api/matches/unknown/replay").status_code == 404
     assert client.get("/api/matches/../../etc/passwd/replay").status_code == 404
@@ -96,11 +99,12 @@ def test_sample_submission_is_idempotent_and_downloadable(client):
     assert len(client.get("/api/bots").json()) == 1
 
 
-def test_rules_are_frozen_for_running_match(client):
+def test_rules_are_frozen_for_running_match(client, open_competition):
     a = upload(client)
     rules = {"map_size": 5, "initial_hp": 70, "damage": 11, "max_turns": 3}
-    match = client.post("/api/matches", json={"bot_a": a["id"], "bot_b": a["id"], "rules": rules}).json()
-    client.put("/api/rules", json={"map_size": 20, "initial_hp": 400, "damage": 100, "max_turns": 5})
+    open_competition(client, rules=rules)
+    match = client.post("/api/matches", json={"bot_a": a["id"], "bot_b": a["id"]}).json()
+    assert client.put("/api/rules", json={"map_size": 20, "initial_hp": 400, "damage": 100, "max_turns": 5}).status_code == 409
     frames = watch_to_end(client, match)
     assert all(frame["rules"] == rules for frame in frames)
 

@@ -29,7 +29,7 @@ def frames_until_complete(socket):
             return frames, message["match"]
 
 
-def test_two_players_upload_discover_watch_and_reconnect(tmp_path, authorize_organizer):
+def test_two_players_upload_discover_watch_and_reconnect(tmp_path, authorize_organizer, open_competition):
     app = create_app(tmp_path, tick_seconds=0.025)
     with TestClient(app, base_url="http://192.168.1.20:8000") as a:
         # B shares the running app but has an independent browser cookie jar.
@@ -45,8 +45,9 @@ def test_two_players_upload_discover_watch_and_reconnect(tmp_path, authorize_org
             assert {bot["id"] for bot in b.get("/api/bots").json()} == {bot_a["id"], bot_b["id"]}
             rules = {"map_size": 7, "initial_hp": 50, "damage": 10, "max_turns": 8}
             authorize_organizer(a)
+            open_competition(a, rules=rules)
             created = a.post("/api/matches", json={"bot_a": bot_a["id"], "bot_b": bot_b["id"],
-                                                    "game_id": "robot_battle", "rules": rules})
+                                                    "game_id": "robot_battle"})
             assert created.status_code == 201
             match = created.json()
             assert match["created_by"] == alice
@@ -117,11 +118,12 @@ def test_expired_session_is_replaced(tmp_path):
         assert client.get("/api/session").json()["participant"]["id"] != original["id"]
 
 
-def test_read_only_domain_replay_and_proxy_https(tmp_path, authorize_organizer):
+def test_read_only_domain_replay_and_proxy_https(tmp_path, authorize_organizer, open_competition):
     with TestClient(create_app(tmp_path, tick_seconds=0.001)) as lan:
         authorize_organizer(lan)
+        open_competition(lan, rules={"max_turns": 2})
         bot = upload(lan, "trusted")
-        match = lan.post("/api/matches", json={"bot_a": bot["id"], "bot_b": bot["id"], "rules": {"max_turns": 2}}).json()
+        match = lan.post("/api/matches", json={"bot_a": bot["id"], "bot_b": bot["id"]}).json()
         with lan.websocket_connect(f"/ws/matches/{match['id']}") as ws:
             ws.receive_json()
             frames, _ = frames_until_complete(ws)

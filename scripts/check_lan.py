@@ -8,6 +8,7 @@ import asyncio
 from http.cookiejar import CookieJar
 import json
 import os
+import time
 from urllib.request import HTTPCookieProcessor, ProxyHandler, Request, build_opener
 from uuid import uuid4
 
@@ -53,6 +54,21 @@ class Player:
             raise RuntimeError("This check changes rules; set ARENA_ADMIN_CODE in the shell running the check.")
         return self.request("/api/session/organizer", {"code": code})
 
+    def prepare_competition(self, game_id, rules=None):
+        self.organizer()
+        self.request("/api/competition/close", {})
+        state = self.request("/api/competition")
+        deadline = time.monotonic() + 5
+        while not state["can_edit"]:
+            if time.monotonic() > deadline:
+                raise RuntimeError("Existing matches must finish/cancel before configuring a competition.")
+            time.sleep(0.05)
+            state = self.request("/api/competition")
+        self.request("/api/games/selected", {"game_id": game_id}, "PUT")
+        if rules is not None:
+            self.request(f"/api/games/{game_id}/rules", rules, "PUT")
+        return self.request("/api/competition/open", {})
+
 
 async def watch(player, match_id, after=-1):
     endpoint = player.url.replace("http://", "ws://").replace("https://", "wss://")
@@ -81,6 +97,11 @@ async def check(args):
     assert identities[0]["id"] != identities[1]["id"]
     assert a.cookie_header() != b.cookie_header()
     game_id = args.game or (await asyncio.to_thread(a.request, "/api/games"))["selected_game_id"]
+    if args.max_turns is not None or args.open_competition:
+        rules = await asyncio.to_thread(a.request, f"/api/games/{game_id}/rules")
+        if args.max_turns is not None:
+            rules["max_turns"] = args.max_turns
+        await asyncio.to_thread(a.prepare_competition, game_id, rules)
     bots = []
     for index, (player, language) in enumerate(((a, "python"), (b, args.language_b))):
         bot = await asyncio.to_thread(player.upload, game_id, language, f"LAN {language.upper()} {identities[index]['id'][:4]}")
@@ -90,11 +111,6 @@ async def check(args):
     discovered = await asyncio.to_thread(b.request, "/api/bots")
     assert {bot["id"] for bot in bots} <= {bot["id"] for bot in discovered}
     payload = {"game_id": game_id, "bot_a": bots[0]["id"], "bot_b": bots[1]["id"]}
-    if args.max_turns is not None:
-        await asyncio.to_thread(a.organizer)
-        rules = await asyncio.to_thread(a.request, f"/api/games/{game_id}/rules")
-        rules["max_turns"] = args.max_turns
-        payload["rules"] = rules
     match = await asyncio.to_thread(a.request, "/api/matches", payload)
     assert match["created_by"] == identities[0]
     shared_list = await asyncio.to_thread(b.request, "/api/matches")
@@ -117,6 +133,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--url", required=True)
     parser.add_argument("--game")
+    parser.add_argument("--open-competition", action="store_true", help="Organizer setup/open before demo; requires ARENA_ADMIN_CODE")
     parser.add_argument("--language-b", choices=("cpp", "java"), default="cpp")
     parser.add_argument("--max-turns", type=int, help="Organizer-only override; reads ARENA_ADMIN_CODE from environment")
     asyncio.run(check(parser.parse_args()))

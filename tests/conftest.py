@@ -16,3 +16,18 @@ def authorize_organizer():
         assert response.status_code == 200, response.text
         assert response.json()["role"] == "organizer"
     return authorize
+
+
+@pytest.fixture
+def open_competition():
+    def open_room(client, game_id="robot_battle", rules=None):
+        state = client.get("/api/competition").json()
+        if state["competition_locked"]:
+            assert client.post("/api/competition/close").status_code == 200
+        assert client.put("/api/games/selected", json={"game_id": game_id}).status_code == 200
+        if rules is not None:
+            assert client.put(f"/api/games/{game_id}/rules", json=rules).status_code == 200
+        response = client.post("/api/competition/open")
+        assert response.status_code == 200, response.text
+        return response.json()
+    return open_room

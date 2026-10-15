@@ -1,3 +1,5 @@
+> Tài liệu Phase1 được lưu để tham khảo. Compose mặc định hiện dùng Phase2; xem [SANDBOX.md](SANDBOX.md). Để chạy kiến trúc trong tài liệu này, dùng `docker compose -f compose.legacy.yaml ...`.
+
 # NEON ARENA v4.0 — Phase 1 Docker infrastructure
 
 Giữ FastAPI, frontend Cyberpunk, GameRegistry/adapters, lobby và runner subprocess v3. Một Compose service `arena`, một Uvicorn worker. Không có database server, Docker socket, privileged mode hay container riêng cho bot. Phase2 sandbox không nằm trong thay đổi này.

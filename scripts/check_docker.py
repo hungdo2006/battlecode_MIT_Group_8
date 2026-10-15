@@ -28,6 +28,7 @@ class DockerCheck:
         self.host = lan_ip or "127.0.0.1"
         self.code = secrets.token_urlsafe(32)
         self.env = {**os.environ, "ARENA_ADMIN_CODE": self.code, "ARENA_PORT": "0",
+                    "ARENA_RUNNER_TOKEN": secrets.token_hex(32), "SANDBOX_NAMESPACE": self.project + "-test",
                     "ARENA_BIND_IP": "0.0.0.0", "ARENA_READ_ONLY": "0", "ARENA_ALLOWED_HOSTS": ""}
         self.volumes = []
 
@@ -57,6 +58,18 @@ class DockerCheck:
         assert {m["Destination"] for m in mounts} == {"/app/data", "/app/uploads"}
         assert all(m["Type"] == "volume" and m["RW"] for m in mounts)
         self.volumes = [m["Name"] for m in mounts]
+        cid = self.compose('ps', '-q', 'controller').stdout.strip()
+        controller = json.loads(subprocess.run(['docker', 'inspect', cid], env=self.env,
+            check=True, capture_output=True, text=True).stdout)[0]
+        assert controller['Config']['User'] == '10001:10001'
+        assert not controller['HostConfig']['PortBindings']
+        assert not controller['HostConfig']['Privileged']
+        networks = controller['NetworkSettings']['Networks']
+        assert len(networks) == 1
+        network_id = next(iter(networks.values()))['NetworkID']
+        network = json.loads(subprocess.run(['docker', 'network', 'inspect', network_id], env=self.env,
+            check=True, capture_output=True, text=True).stdout)[0]
+        assert network['Internal'] is True
         return record["Id"]
 
     def uploads(self):
@@ -114,6 +127,7 @@ async def matches(qa, org, a, b):
                 replay = await asyncio.to_thread(a.request, f"/api/matches/{match['id']}/replay")
                 assert streams[0] == streams[1] == streams[2]
                 assert streams[0][0] == replay["frames"]
+                assert replay["match"]["status"] == "completed", replay["match"]
                 assert replay["match"]["result"]["reason"] != "bot_error"
                 records.append({"game": game, "languages": languages, "id": match["id"],
                                 "frames": len(replay["frames"]), "result": replay["match"]["result"]})
@@ -155,6 +169,7 @@ async def reuse(org, a, b, bots):
         match = await invited_match(org, a, b, bots)
         streams = await asyncio.gather(*(watch(p, match["id"]) for p in (org, a, b)))
         assert streams[0] == streams[1] == streams[2]
+        assert streams[0][1]["status"] == "completed", streams[0][1]
         assert streams[0][1]["result"]["reason"] != "bot_error"
     return match["id"]
 
@@ -171,7 +186,8 @@ def main(args):
             p.request("/api/session", {"name": name}, "PUT")
         org.request("/api/session/organizer", {"code": qa.code})
         assert "LIVE ARENA" in a.request("/", raw=True).decode()
-        assert a.request("/api/health")["toolchains"]["cpp"]
+        assert a.request("/api/health")["runner"]["mode"] == "sandbox"
+        assert a.request("/api/health")["runner"]["ready"]
         assert a.request("/static/app.js", raw=True)
         denied(org, "/api/samples/python/submit", {})
         denied(a, "/api/invitations", {"player_a_id": "x", "player_b_id": "y"})
@@ -199,6 +215,12 @@ def main(args):
         reused_id = asyncio.run(reuse(org, a, b, bots))
         assert qa.uploads() == hashes
         expected["replays"][reused_id] = a.request(f"/api/matches/{reused_id}/replay")
+        qa.compose("restart", "controller")
+        qa.ready()
+        for p in (org, a, b): p.url = qa.url
+        controller_reuse = asyncio.run(reuse(org, a, b, bots))
+        expected["replays"][controller_reuse] = a.request(f"/api/matches/{controller_reuse}/replay")
+        print("PASS controller restart and artifact reuse", flush=True)
         # Restart metadata grant should be revoked again after container recreation.
         qa.compose("down", "--timeout", "30")
         qa.up()
@@ -217,11 +239,12 @@ def main(args):
                 assert any(n.startswith("uploads/") and n.endswith(".cpp") for n in names)
                 assert any(n.startswith("data/replays/") and n.endswith(".jsonl") for n in names)
                 assert not any(n.endswith(".env") for n in names)
+                assert any(n.startswith("artifacts/") and n.endswith(".tar") for n in names)
             print(f"PASS binary-safe volume backup: {archive.stat().st_size} bytes", flush=True)
         if args.browser:
             qa.ready()
             from check_multiplayer_ui import check
-            check(qa.url, qa.code, output_dir=ROOT / "docs/screenshots/docker")
+            check(qa.url, qa.code, output_dir=ROOT / "docs/screenshots/sandbox")
         print(json.dumps({"docker": "PASS", "project": qa.project, "matches": records,
                           "restart": True, "down_up": True, "artifact_reuse_match": reused_id,
                           "backup": True}, ensure_ascii=False, indent=2))

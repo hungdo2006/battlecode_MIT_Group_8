@@ -3,11 +3,11 @@ import logging
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from pathlib import Path
 
 from backend.engine.base import GameAdapter, InvalidAction
 from backend.models import MatchRequest
-from backend.runner import BotError, BotProcess
+from backend.runner import BotError
+from backend.execution import LegacyRunner, RunnerUnavailable, Session
 from backend.storage import Store
 
 logger = logging.getLogger(__name__)
@@ -27,7 +27,8 @@ class LiveMatch:
 
 
 class MatchManager:
-    def __init__(self, store: Store, tick_seconds: float = 0.18):
+    def __init__(self, store: Store, tick_seconds: float = 0.18, runner=None):
+        self.runner = runner or LegacyRunner()
         self.store = store
         self.registry = store.registry
         self.tick_seconds = tick_seconds
@@ -47,6 +48,8 @@ class MatchManager:
         adapter = self.registry.get(game_id)
         if any(bot["game_id"] != game_id for bot in bots.values()):
             raise ValueError("Cả hai submission phải thuộc game đã chọn.")
+        for bot in bots.values():
+            self.runner.compatible(bot)
         rules = adapter.validate_rules(rules)
         state = adapter.create_initial_state(rules)
         metadata = adapter.get_metadata()
@@ -119,15 +122,16 @@ class MatchManager:
             live.changed.notify_all()
 
     async def _run(self, live: LiveMatch, bots: dict):
-        processes: dict[str, BotProcess] = {}
+        processes: dict[str, Session] = {}
         try:
             live.meta["status"] = "running"
             await asyncio.to_thread(self.store.save_match, live.meta)
             faults = {}
-            # Launch is quick and synchronous so shutdown always owns every created process.
+            # Register the handle before remote startup: cancellation owns it even while Docker creates it.
             for player, bot in bots.items():
                 try:
-                    processes[player] = BotProcess(bot["command"], Path(bot["folder"]))
+                    processes[player] = self.runner.session(bot, f"r-{live.meta['id']}-{player}")
+                    await asyncio.to_thread(processes[player].start)
                 except BotError as exc:
                     faults[player] = str(exc)
             if faults:
@@ -140,8 +144,10 @@ class MatchManager:
                 ], return_exceptions=True)
                 actions, faults = {}, {}
                 for player, response in zip(players, responses):
-                    if isinstance(response, BaseException):
+                    if isinstance(response, BotError):
                         faults[player] = str(response)
+                    elif isinstance(response, BaseException):
+                        raise response
                     else:
                         try:
                             actions[player] = live.adapter.validate_action(live.state, player, response)
@@ -159,9 +165,9 @@ class MatchManager:
             async with live.changed:
                 live.changed.notify_all()
             raise
-        except Exception:
+        except Exception as exc:
             logger.exception("Match %s failed", live.meta["id"])
-            live.meta.update(status="interrupted", result={"winner": None, "reason": "server_error", "faults": {}})
+            live.meta.update(status="interrupted", result={"winner": None, "reason": "runner_unavailable" if isinstance(exc, RunnerUnavailable) else "server_error", "faults": {}})
             await asyncio.to_thread(self.store.save_match, live.meta)
             async with live.changed:
                 live.changed.notify_all()

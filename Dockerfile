@@ -46,6 +46,7 @@ RUN apt-get update \
     && python -m pip install --no-cache-dir -r requirements-dev.txt
 COPY tests/ ./tests/
 COPY pytest.ini ./
+COPY sandbox_controller/artifacts.py sandbox_controller/__init__.py ./sandbox_controller/
 COPY docs/reference/ottv2/ ./docs/reference/ottv2/
 RUN install -d -o arena -g arena /app/.pytest_cache
 USER arena:arena

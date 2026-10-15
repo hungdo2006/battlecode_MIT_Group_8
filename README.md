@@ -1,64 +1,43 @@
 # NEON ARENA
 
-Nền tảng thi đấu bot đa game dành cho bài tập nhóm môn Lập trình mạng. Hiện hỗ trợ **Robot Battle** và **OTT v2**, đăng ký qua **GameRegistry + GameAdapter**. Backend **Python FastAPI**, frontend **HTML/CSS/JavaScript thuần + Canvas**, giao tiếp **HTTP REST + WebSocket**, bot **subprocess**, dữ liệu **JSON**. Không cần Docker, Node.js hoặc database server để chạy ứng dụng.
+Nền tảng thi đấu bot đa game dành cho bài tập nhóm môn Lập trình mạng. Hiện hỗ trợ **Robot Battle** và **OTT v2**, đăng ký qua **GameRegistry + GameAdapter**. Backend **Python FastAPI**, frontend **HTML/CSS/JavaScript thuần + Canvas**, giao tiếp **HTTP REST + WebSocket**, bot **legacy subprocess hoặc Docker sandbox**, dữ liệu **JSON**. Chế độ native không cần Docker, Node.js hoặc database server.
 
 **v3.0: Organizer điều hành, Player nộp bot và Accept/Decline lời mời.** Presence qua WebSocket/heartbeat, một Active Bot riêng cho mỗi Player, tự chạy đúng một trận khi cả hai Accept và tự mở cùng Live Arena trên ba trình duyệt. Game Lock, Game Adapter, runner đa ngôn ngữ và replay JSONL được giữ. Xem [demo ba laptop](docs/MULTIPLAYER.md), [báo cáo kiểm thử v3](docs/MULTIPLAYER_VERIFICATION.md), [networking](docs/NETWORKING.md); hướng dẫn trong app ở `/lan`.
 
-> **Chỉ dùng local/LAN riêng với code tin cậy của nhóm.** Subprocess không phải sandbox. Bot có quyền của tài khoản chạy server, có thể đọc/ghi file, truy cập mạng hoặc tạo tiến trình khác. Giới hạn timeout/output không ngăn được các hành vi đó. Không công khai tính năng thực thi code lên Internet.
+> **Chỉ dùng local/LAN riêng.** Legacy runner (`start.bat`/Phase1) chỉ dành cho code tin cậy: subprocess có quyền của tài khoản server, không phải sandbox. Phase2 bổ sung cách ly Docker nhưng không bảo đảm an toàn tuyệt đối. Không công khai tính năng thực thi code lên Internet.
 
-## v4.0 Phase 1 — Docker trên Windows và Linux
+## v4.0 Phase 2 — Docker Bot Sandbox
 
-Một service Compose phục vụ FastAPI/frontend, lobby, WebSocket, hai game và subprocess bot như v3. Image có Python 3.13, G++ C++17, JDK 17; runtime dùng user `arena` UID/GID10001. Docker hóa ứng dụng **chưa phải sandbox riêng cho bot**. `start.bat` vẫn dùng được, không cần Docker.
+Compose mặc định chạy **sandbox runner**: backend phục vụ website, controller nội bộ có
+xác thực, compile container riêng và runtime container riêng cho mỗi bot suốt trận.
+Backend/bot không có Docker socket. Giữ nguyên giao diện, hai game, lobby và replay.
 
-Windows: cài/mở Docker Desktop, chọn **Linux containers** với WSL2; kiểm tra `docker version` có Server và `docker compose version`. Trong PowerShell ở folder dự án:
+Windows Docker Desktop dùng **Linux containers/WSL2**:
 
 ```powershell
-Copy-Item .env.example .env
-notepad .env
-# Điền ARENA_ADMIN_CODE do bạn tự chọn, lưu file rồi chạy:
-docker compose up --build
+py -3 scripts/configure_sandbox.py
+docker compose up --build -d --wait
+Invoke-RestMethod http://localhost:8000/api/health
 ```
 
-Linux: cài Docker Engine và Compose plugin theo [hướng dẫn Docker](https://docs.docker.com/engine/install/), chạy `cp .env.example .env`, sửa mã Organizer trong `.env`, rồi **`docker compose up --build`**. Không cần cài Python/G++/JDK trên host để chạy container. Không commit `.env`; nếu để mã trống, Organizer bị tắt. Compose tự đọc `.env`, ứng dụng Windows native vẫn đọc biến môi trường của shell như trước.
+Mở http://localhost:8000; LAN dùng IPv4 của máy server. Health phải trả
+`runner.mode=sandbox`, `runner.ready=true`. Mã Organizer và token riêng ở `.env`,
+không hardcode vào frontend hoặc commit. Linux dùng `python3` thay `py -3` và group
+socket phù hợp. `start.bat` vẫn chạy legacy cho bot tin cậy.
 
-Mở **http://localhost:8000** trên host. Các laptop Player cùng LAN mở **http://IP-WIFI-CUA-HOST:8000**; dùng `ipconfig`/`ip addr`, kiểm tra firewall và AP isolation theo [NETWORKING.md](docs/NETWORKING.md). Không dùng IP bridge/container hiển thị trong `/api/network` làm URL cho laptop khác. Frontend REST tương đối/WS theo hostname giữ nguyên.
+- [Cài đặt, kiến trúc, resource limits, kiểm tra sandbox, backup và rollback](docs/SANDBOX.md)
+- [Kết quả kiểm chứng Phase 2](docs/SANDBOX_VERIFICATION.md)
+- Phase1 được giữ trong `compose.legacy.yaml`; chuyển đổi có chủ đích sau khi đóng cuộc thi.
+- Không có fallback từ sandbox sang legacy khi lỗi. Submission cũ được giữ, cần nộp lại source khi đổi runner.
+- Controller có quyền Docker Engine rất mạnh; chỉ dùng trong mạng tin cậy. Container không bảo đảm cách ly tuyệt đối.
 
 ```powershell
-docker compose up -d --build         # Build/chạy nền
-docker compose ps                   # Chờ healthy
-docker compose logs -f --tail=100 arena
-docker compose exec -T arena python deploy/healthcheck.py
-docker compose stop arena
-docker compose start arena
+docker compose logs -f arena controller
 docker compose restart arena
-docker compose down                 # Xóa container/network, giữ named volumes
-docker compose up -d                 # Dùng lại dữ liệu
+docker compose down                 # giữ dữ liệu, không thêm -v
+docker compose up -d --wait
+py -3 scripts/check_docker.py --browser
 ```
-
-Health HTTP: PowerShell `Invoke-RestMethod http://localhost:8000/api/health`; Linux `curl -fsS http://localhost:8000/api/health`. Nếu port8000 bị chiếm, đổi `ARENA_PORT` trong `.env` (ví dụ8001), rồi `docker compose up -d`; port trong container luôn8000. `ARENA_BIND_IP=0.0.0.0` cho LAN, `127.0.0.1` cho chỉ host.
-
-Hai named volume `neon-arena_arena_data` → `/app/data` (metadata/session/settings/players/invitations/matches/replays) và `neon-arena_arena_uploads` → `/app/uploads` (source, executable C++, Java classes, Python bytecode) giữ qua restart/recreate/`down` thông thường. **Không dùng `down -v` hoặc prune volumes nếu cần giữ dữ liệu.** Đổi Compose project bằng `-p` tạo bộ volume riêng. Mặc định không import hay sửa `data/`/`uploads/` Windows cũ; xem [Docker guide](docs/DOCKER.md) trước khi chuyển dữ liệu giữa môi trường.
-
-Sao lưu khi đã dừng service, dùng script ghi binary an toàn trên cả PowerShell5 và Linux:
-
-```powershell
-docker compose stop arena
-py -3 scripts/backup_docker.py --output backups/neon-arena.tar.gz
-docker compose start arena
-```
-
-Linux dùng `python3` thay `py -3`. Script từ chối khi service đang chạy hoặc archive đã tồn tại; archive chứa cả hai volume, không chứa `.env`. Có cách không cần Python host trong [DOCKER.md](docs/DOCKER.md).
-
-Kiểm thử Linux và acceptance Docker (không đụng volume thường):
-
-```powershell
-docker build --target tests -t neon-arena:4.0-tests .
-docker run --rm --init neon-arena:4.0-tests
-docker run --rm --init neon-arena:4.0-tests node --test docs/reference/ottv2/tests/rules.test.js
-.\.venv\Scripts\python.exe scripts/check_docker.py --lan-ip IP-WIFI-CUA-HOST --browser
-```
-
-Checker cần Python dependencies hiện tại; `--browser` cần Playwright/Chrome và có thể bỏ. Nó tạo project/volume QA ngẫu nhiên, chạy sáu cặp ngôn ngữ trên hai game, so ba stream với replay, thử Decline/restart/`down`→`up`/dùng lại artifacts và backup, rồi chỉ xóa tài nguyên QA đã kiểm tra label. Xem [hướng dẫn Docker](docs/DOCKER.md) và [kết quả kiểm thử Phase 1](docs/DOCKER_VERIFICATION.md).
 
 ## Chạy nhanh trên Windows
 

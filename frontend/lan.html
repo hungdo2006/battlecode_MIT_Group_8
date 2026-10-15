@@ -1,13 +1,17 @@
 <!doctype html>
 <html lang="vi">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#080b12"><title>NEON ARENA / Hướng dẫn LAN</title><link rel="icon" href="/static/favicon.svg"><link rel="stylesheet" href="/static/styles.css"></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f6f8fc"><title>NEON ARENA · Hướng dẫn LAN</title><link rel="icon" href="/static/favicon.svg?v=0ab76a04fe4c"><link rel="stylesheet" href="/static/styles.css?v=24fe06cdf1f3"></head>
 <body><article class="protocol-document lan-guide">
 <a class="text-button" href="/">← Trở về đấu trường</a>
 <p class="eyebrow">NETWORK PROGRAMMING / MULTI-CLIENT</p>
-<h1>ONE SERVER.<br><em>MANY CHALLENGERS.</em></h1>
+<h1>Một máy chủ.<br><em>Kết nối cả nhóm.</em></h1>
 <p>Một laptop chạy FastAPI và các bot. Các laptop còn lại chỉ cần trình duyệt, cùng Wi-Fi và địa chỉ LAN của máy chủ; không cần cài compiler hay Docker trên máy người chơi.</p>
 <div class="network-status"><strong id="current-origin">Đang kiểm tra kết nối…</strong><p id="network-mode"></p><div id="lan-links"></div></div>
 <h2>01 / Khởi động máy chủ Windows</h2>
+<p>Với Docker Desktop (Linux containers), chạy theo hướng dẫn Phase 2 trong README:</p>
+<pre>py -3 scripts/configure_sandbox.py
+docker compose up --build -d --wait</pre>
+<p>Hoặc dùng chế độ legacy cho code tin cậy, không cần Docker:</p>
 <p>Cài Python, JDK và G++ theo README trong source. Trong thư mục LTM chạy:</p>
 <pre>start.bat
 # Hoặc khi môi trường đã cài:

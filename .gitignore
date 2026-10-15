@@ -6,3 +6,7 @@ data/
 uploads/
 *.log
 *.zip
+.env
+.env.*
+!.env.example
+backups/

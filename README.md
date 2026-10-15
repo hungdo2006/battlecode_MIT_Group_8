@@ -6,6 +6,60 @@ Nền tảng thi đấu bot đa game dành cho bài tập nhóm môn Lập trìn
 
 > **Chỉ dùng local/LAN riêng với code tin cậy của nhóm.** Subprocess không phải sandbox. Bot có quyền của tài khoản chạy server, có thể đọc/ghi file, truy cập mạng hoặc tạo tiến trình khác. Giới hạn timeout/output không ngăn được các hành vi đó. Không công khai tính năng thực thi code lên Internet.
 
+## v4.0 Phase 1 — Docker trên Windows và Linux
+
+Một service Compose phục vụ FastAPI/frontend, lobby, WebSocket, hai game và subprocess bot như v3. Image có Python 3.13, G++ C++17, JDK 17; runtime dùng user `arena` UID/GID10001. Docker hóa ứng dụng **chưa phải sandbox riêng cho bot**. `start.bat` vẫn dùng được, không cần Docker.
+
+Windows: cài/mở Docker Desktop, chọn **Linux containers** với WSL2; kiểm tra `docker version` có Server và `docker compose version`. Trong PowerShell ở folder dự án:
+
+```powershell
+Copy-Item .env.example .env
+notepad .env
+# Điền ARENA_ADMIN_CODE do bạn tự chọn, lưu file rồi chạy:
+docker compose up --build
+```
+
+Linux: cài Docker Engine và Compose plugin theo [hướng dẫn Docker](https://docs.docker.com/engine/install/), chạy `cp .env.example .env`, sửa mã Organizer trong `.env`, rồi **`docker compose up --build`**. Không cần cài Python/G++/JDK trên host để chạy container. Không commit `.env`; nếu để mã trống, Organizer bị tắt. Compose tự đọc `.env`, ứng dụng Windows native vẫn đọc biến môi trường của shell như trước.
+
+Mở **http://localhost:8000** trên host. Các laptop Player cùng LAN mở **http://IP-WIFI-CUA-HOST:8000**; dùng `ipconfig`/`ip addr`, kiểm tra firewall và AP isolation theo [NETWORKING.md](docs/NETWORKING.md). Không dùng IP bridge/container hiển thị trong `/api/network` làm URL cho laptop khác. Frontend REST tương đối/WS theo hostname giữ nguyên.
+
+```powershell
+docker compose up -d --build         # Build/chạy nền
+docker compose ps                   # Chờ healthy
+docker compose logs -f --tail=100 arena
+docker compose exec -T arena python deploy/healthcheck.py
+docker compose stop arena
+docker compose start arena
+docker compose restart arena
+docker compose down                 # Xóa container/network, giữ named volumes
+docker compose up -d                 # Dùng lại dữ liệu
+```
+
+Health HTTP: PowerShell `Invoke-RestMethod http://localhost:8000/api/health`; Linux `curl -fsS http://localhost:8000/api/health`. Nếu port8000 bị chiếm, đổi `ARENA_PORT` trong `.env` (ví dụ8001), rồi `docker compose up -d`; port trong container luôn8000. `ARENA_BIND_IP=0.0.0.0` cho LAN, `127.0.0.1` cho chỉ host.
+
+Hai named volume `neon-arena_arena_data` → `/app/data` (metadata/session/settings/players/invitations/matches/replays) và `neon-arena_arena_uploads` → `/app/uploads` (source, executable C++, Java classes, Python bytecode) giữ qua restart/recreate/`down` thông thường. **Không dùng `down -v` hoặc prune volumes nếu cần giữ dữ liệu.** Đổi Compose project bằng `-p` tạo bộ volume riêng. Mặc định không import hay sửa `data/`/`uploads/` Windows cũ; xem [Docker guide](docs/DOCKER.md) trước khi chuyển dữ liệu giữa môi trường.
+
+Sao lưu khi đã dừng service, dùng script ghi binary an toàn trên cả PowerShell5 và Linux:
+
+```powershell
+docker compose stop arena
+py -3 scripts/backup_docker.py --output backups/neon-arena.tar.gz
+docker compose start arena
+```
+
+Linux dùng `python3` thay `py -3`. Script từ chối khi service đang chạy hoặc archive đã tồn tại; archive chứa cả hai volume, không chứa `.env`. Có cách không cần Python host trong [DOCKER.md](docs/DOCKER.md).
+
+Kiểm thử Linux và acceptance Docker (không đụng volume thường):
+
+```powershell
+docker build --target tests -t neon-arena:4.0-tests .
+docker run --rm --init neon-arena:4.0-tests
+docker run --rm --init neon-arena:4.0-tests node --test docs/reference/ottv2/tests/rules.test.js
+.\.venv\Scripts\python.exe scripts/check_docker.py --lan-ip IP-WIFI-CUA-HOST --browser
+```
+
+Checker cần Python dependencies hiện tại; `--browser` cần Playwright/Chrome và có thể bỏ. Nó tạo project/volume QA ngẫu nhiên, chạy sáu cặp ngôn ngữ trên hai game, so ba stream với replay, thử Decline/restart/`down`→`up`/dùng lại artifacts và backup, rồi chỉ xóa tài nguyên QA đã kiểm tra label. Xem [hướng dẫn Docker](docs/DOCKER.md) và [kết quả kiểm thử Phase 1](docs/DOCKER_VERIFICATION.md).
+
 ## Chạy nhanh trên Windows
 
 Nếu Python đã cài, chạy **`start.bat`**, rồi mở **http://127.0.0.1:8000**. Script tạo `.venv` và cài thư viện khi cần; lần đầu cần Internet. Để mở cuộc thi mới, đặt `ARENA_ADMIN_CODE` trước khi chạy server theo mục Organizer bên dưới. Trạng thái ban đầu là đang cấu hình, chưa cho tạo trận.

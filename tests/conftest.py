@@ -5,6 +5,9 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def configured_admin_code(monkeypatch):
+    # Native regression suite deliberately exercises legacy; sandbox has separate
+    # real-Engine probes. Never inherit an operator's runner setting accidentally.
+    monkeypatch.setenv("ARENA_RUNNER", "legacy")
     # Test-only credential; production reads the user's environment, never this file.
     monkeypatch.setenv("ARENA_ADMIN_CODE", "neon-test-organizer-code")
 

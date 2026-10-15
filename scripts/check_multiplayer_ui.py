@@ -21,13 +21,13 @@ sys.path.insert(0, str(ROOT))
 from backend.network import lan_addresses
 
 
-def check(url, code, games=('robot_battle', 'ott_v2')):
+def check(url, code, games=('robot_battle', 'ott_v2'), output_dir=None):
     with sync_playwright() as p:
         browser = p.chromium.launch(channel='chrome', headless=True)
         contexts = [browser.new_context(viewport={'width': 1440, 'height': 1000}) for _ in range(3)]
         pages = [c.new_page() for c in contexts]
         errors, ws_urls = [], [[], [], []]
-        output = ROOT / 'docs/screenshots/multiplayer'
+        output = Path(output_dir) if output_dir else ROOT / 'docs/screenshots/multiplayer'
         output.mkdir(parents=True, exist_ok=True)
         for index, page in enumerate(pages):
             page.on('pageerror', lambda error: errors.append(str(error)))

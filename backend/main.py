@@ -12,6 +12,7 @@ from fastapi import Body, Depends, FastAPI, File, Form, HTTPException, Query, Re
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from backend.execution import RunnerUnavailable, configured_runner
 from backend.matches import MatchManager, timestamp
 from backend.competition import Competition, CompetitionConflict
 from backend.lobby import Lobby
@@ -39,17 +40,26 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
         app.state.registry = installed
         app.state.store = Store((base_dir or PROJECT).resolve(), installed)
         app.state.sessions = Sessions(app.state.store.data / "sessions.json")
-        app.state.manager = MatchManager(app.state.store, tick_seconds)
+        app.state.runner = configured_runner(lambda *args: prepare_submission(*args))
+        await asyncio.to_thread(app.state.runner.startup)
+        app.state.manager = MatchManager(app.state.store, tick_seconds, app.state.runner)
         app.state.competition = Competition(app.state.store, app.state.manager)
         app.state.lobby = Lobby(app.state.store, app.state.sessions, app.state.manager, app.state.competition)
         app.state.competition.lobby = app.state.lobby
         app.state.manager.on_activity = app.state.lobby.activity
         app.state.upload_lock = asyncio.Lock()
-        yield
-        await app.state.lobby.shutdown()
-        await app.state.manager.shutdown()
+        try:
+            yield
+        finally:
+            await app.state.lobby.shutdown()
+            await app.state.manager.shutdown()
+            await asyncio.to_thread(app.state.runner.shutdown)
 
     app = FastAPI(title="NEON ARENA", version="3.0.0", lifespan=lifespan)
+
+    @app.exception_handler(RunnerUnavailable)
+    async def runner_unavailable(request, exc):
+        return JSONResponse({"detail": str(exc)}, status_code=503)
 
     @app.exception_handler(CompetitionConflict)
     async def competition_conflict(request, exc):
@@ -85,7 +95,10 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
 
     @app.get("/api/health")
     async def health():
-        return {"status": "ok", "toolchains": toolchains(), "protocol": 1,
+        runner = await asyncio.to_thread(app.state.runner.health)
+        if not runner["ready"]:
+            raise RunnerUnavailable("Sandbox controller is unavailable")
+        return {"status": "ok", "runner": runner, "toolchains": runner["toolchains"], "protocol": 1,
                 "read_only": settings.read_only}
 
     def session_payload(request: Request):
@@ -300,18 +313,18 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
                 store.require_submission_game(game_id)
             if sample_key:
                 sample_key = f"{owner['id']}:{sample_key}"
-                existing = next((bot for bot in store.get_bots() if bot.get("sample_key") == sample_key and bot["status"] == "ready"), None)
+                existing = next((bot for bot in store.get_bots() if bot.get("sample_key") == sample_key and bot["status"] == "ready" and bot.get("execution_backend", "legacy") == app.state.runner.mode), None)
                 if existing:
                     return public_bot(existing)
             bot_id = store.new_id()
             folder = store.uploads / bot_id
             try:
-                status, logs, command = await asyncio.to_thread(prepare_submission, source, filename, folder)
+                prepared = await asyncio.to_thread(app.state.runner.prepare, source, filename, folder)
             except ValueError as exc:
                 raise HTTPException(400, str(exc)) from exc
             bot = {"id": bot_id, "name": name.strip()[:48] or Path(filename).stem[:48],
                    "filename": filename, "language": Path(filename).suffix.lower()[1:],
-                   "status": status, "logs": logs, "command": command, "folder": str(folder),
+                   **prepared, "folder": str(folder),
                    "created_at": timestamp(), "sample_key": sample_key}
             bot.update(game_id=game_id, owner=deepcopy(owner))
             try:
@@ -520,7 +533,7 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
 
 
 def public_bot(bot: dict) -> dict:
-    return {key: value for key, value in bot.items() if key not in {"command", "folder", "sample_key"}}
+    return {key: value for key, value in bot.items() if key not in {"command", "folder", "sample_key", "artifact_id", "artifact_digest"}}
 
 
 app = create_app()

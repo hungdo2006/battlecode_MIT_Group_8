@@ -1,10 +1,43 @@
 # NEON ARENA
 
-Nền tảng thi đấu bot đa game dành cho bài tập nhóm môn Lập trình mạng. Hiện hỗ trợ **Robot Battle** và **OTT v2**, đăng ký qua **GameRegistry + GameAdapter**. Backend **Python FastAPI**, frontend **HTML/CSS/JavaScript thuần + Canvas**, giao tiếp **HTTP REST + WebSocket**, bot **subprocess**, dữ liệu **JSON**. Không cần Docker, Node.js hoặc database server để chạy ứng dụng.
+Nền tảng thi đấu bot đa game dành cho bài tập nhóm môn Lập trình mạng. Hiện hỗ trợ **Robot Battle** và **OTT v2**, đăng ký qua **GameRegistry + GameAdapter**. Backend **Python FastAPI**, frontend **HTML/CSS/JavaScript thuần + Canvas**, giao tiếp **HTTP REST + WebSocket**, bot **legacy subprocess hoặc Docker sandbox**, dữ liệu **JSON**. Chế độ native không cần Docker, Node.js hoặc database server.
 
 **v3.0: Organizer điều hành, Player nộp bot và Accept/Decline lời mời.** Presence qua WebSocket/heartbeat, một Active Bot riêng cho mỗi Player, tự chạy đúng một trận khi cả hai Accept và tự mở cùng Live Arena trên ba trình duyệt. Game Lock, Game Adapter, runner đa ngôn ngữ và replay JSONL được giữ. Xem [demo ba laptop](docs/MULTIPLAYER.md), [báo cáo kiểm thử v3](docs/MULTIPLAYER_VERIFICATION.md), [networking](docs/NETWORKING.md); hướng dẫn trong app ở `/lan`.
 
-> **Chỉ dùng local/LAN riêng với code tin cậy của nhóm.** Subprocess không phải sandbox. Bot có quyền của tài khoản chạy server, có thể đọc/ghi file, truy cập mạng hoặc tạo tiến trình khác. Giới hạn timeout/output không ngăn được các hành vi đó. Không công khai tính năng thực thi code lên Internet.
+> **Chỉ dùng local/LAN riêng.** Legacy runner (`start.bat`/Phase1) chỉ dành cho code tin cậy: subprocess có quyền của tài khoản server, không phải sandbox. Phase2 bổ sung cách ly Docker nhưng không bảo đảm an toàn tuyệt đối. Không công khai tính năng thực thi code lên Internet.
+
+## v4.0 Phase 2 — Docker Bot Sandbox
+
+Compose mặc định chạy **sandbox runner**: backend phục vụ website, controller nội bộ có
+xác thực, compile container riêng và runtime container riêng cho mỗi bot suốt trận.
+Backend/bot không có Docker socket. Giữ nguyên giao diện, hai game, lobby và replay.
+
+Windows Docker Desktop dùng **Linux containers/WSL2**:
+
+```powershell
+py -3 scripts/configure_sandbox.py
+docker compose up --build -d --wait
+Invoke-RestMethod http://localhost:8000/api/health
+```
+
+Mở http://localhost:8000; LAN dùng IPv4 của máy server. Health phải trả
+`runner.mode=sandbox`, `runner.ready=true`. Mã Organizer và token riêng ở `.env`,
+không hardcode vào frontend hoặc commit. Linux dùng `python3` thay `py -3` và group
+socket phù hợp. `start.bat` vẫn chạy legacy cho bot tin cậy.
+
+- [Cài đặt, kiến trúc, resource limits, kiểm tra sandbox, backup và rollback](docs/SANDBOX.md)
+- [Kết quả kiểm chứng Phase 2](docs/SANDBOX_VERIFICATION.md)
+- Phase1 được giữ trong `compose.legacy.yaml`; chuyển đổi có chủ đích sau khi đóng cuộc thi.
+- Không có fallback từ sandbox sang legacy khi lỗi. Submission cũ được giữ, cần nộp lại source khi đổi runner.
+- Controller có quyền Docker Engine rất mạnh; chỉ dùng trong mạng tin cậy. Container không bảo đảm cách ly tuyệt đối.
+
+```powershell
+docker compose logs -f arena controller
+docker compose restart arena
+docker compose down                 # giữ dữ liệu, không thêm -v
+docker compose up -d --wait
+py -3 scripts/check_docker.py --browser
+```
 
 ## Chạy nhanh trên Windows
 

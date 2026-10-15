@@ -77,7 +77,8 @@ def direct_python_launch(command: list[str]) -> tuple[list[str], dict | None]:
     args = list(command)
     environment = os.environ.copy()
     # Compilers and bots do not need the server's Organizer credential.
-    environment.pop("ARENA_ADMIN_CODE", None)
+    for secret in ("ARENA_ADMIN_CODE", "ARENA_RUNNER_TOKEN"):
+        environment.pop(secret, None)
     environment["PYTHONIOENCODING"] = "utf-8"
     if (os.name == "nt" and sys.prefix != sys.base_prefix
             and Path(args[0]).resolve() == Path(sys.executable).resolve()):

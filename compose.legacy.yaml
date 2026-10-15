@@ -1,0 +1,32 @@
+name: neon-arena
+
+services:
+  arena:
+    build:
+      context: .
+      target: runtime
+    image: neon-arena:4.0
+    init: true
+    ports:
+      - "${ARENA_BIND_IP:-0.0.0.0}:${ARENA_PORT:-8000}:8000"
+    environment:
+      ARENA_RUNNER: legacy
+      # .env is consumed by Compose, never copied into the image.
+      # Empty code disables Organizer until the operator configures it.
+      ARENA_ADMIN_CODE: "${ARENA_ADMIN_CODE:-}"
+      ARENA_READ_ONLY: "${ARENA_READ_ONLY:-0}"
+      ARENA_ALLOWED_HOSTS: "${ARENA_ALLOWED_HOSTS:-}"
+    volumes:
+      - arena_data:/app/data
+      - arena_uploads:/app/uploads
+    restart: unless-stopped
+    stop_grace_period: 30s
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # Healthcheck is inherited from Dockerfile (/api/health + compiler paths).
+
+volumes:
+  arena_data:
+  arena_uploads:

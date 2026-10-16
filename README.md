@@ -6,6 +6,50 @@ Nền tảng thi đấu bot đa game dành cho bài tập nhóm môn Lập trìn
 
 > **Chỉ dùng local/LAN riêng.** Legacy runner (`start.bat`/Phase1) chỉ dành cho code tin cậy: subprocess có quyền của tài khoản server, không phải sandbox. Phase2 bổ sung cách ly Docker nhưng không bảo đảm an toàn tuyệt đối. Không công khai tính năng thực thi code lên Internet.
 
+## v4.0 Phase 3.1 — Premium Liquid Glass
+
+Tinh chỉnh trên Liquid Light theo [đặc tả được chủ dự án cung cấp](docs/NEON_ARENA_FIGMA_LIQUID_GLASS_BRIEF.md):
+sidebar/header nổi, ba mức kính, phản sáng mềm, dialog và thanh replay có chiều sâu.
+Form, compiler diagnostics, danh sách dữ liệu và bàn Canvas vẫn dễ đọc trên nền chắc.
+Không sửa backend, luật game, WebSocket hoặc sandbox. Phiên Codex này **không trực tiếp
+truy cập Figma MCP**; màu/blur/radius là thông số thiết kế cho dự án.
+
+```powershell
+docker compose up --build -d --wait
+# QA cô lập, cần Docker Desktop Linux containers, Playwright và Chrome:
+.\.venv\Scripts\python.exe scripts/check_liquid_glass.py
+```
+
+Docker tự gắn phiên bản theo SHA-256 vào URL CSS/JS/SVG khi build. Sau cập nhật,
+tải lại trang bình thường để nhận HTML mới; không cần xóa cache Chrome. Khi sửa
+frontend và chạy native, chạy `py -3 scripts/version_frontend.py` trước khi reload.
+Xem [thay đổi, kiểm thử và ảnh trước/sau](docs/LIQUID_GLASS.md).
+
+Lượt [Final visual refinement](docs/FINAL_GLASS_REFINEMENT.md) tăng độ trong suốt,
+reflection và chiều sâu; session có floating sheet riêng, Arena có frame kính và
+stage đặc. Các sheet nội dung không dùng blur để giảm chi phí trên laptop.
+QA và ảnh của lượt này được lưu riêng:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/check_liquid_glass.py --output-dir docs/screenshots/glass-refinement/after
+```
+
+## v4.0 Phase 3 — Liquid Light workspace
+
+Giao diện sáng với sidebar kính nổi, typography hệ thống, form/card mềm mại và
+Arena xanh/amber dễ theo dõi. Organizer, Player, submission, lobby, invitation,
+history và replay cùng dùng design system mới. Không thêm framework hoặc sửa
+backend/Docker sandbox. Có busy state chống gửi trùng, xác nhận thao tác và phản hồi
+khi mất kết nối. Xem [thiết kế và hướng dẫn](docs/LIQUID_LIGHT.md),
+[kiểm chứng Phase 3](docs/LIQUID_LIGHT_VERIFICATION.md) và
+[ảnh giao diện thật](docs/screenshots/liquid-light/overview.png).
+
+```powershell
+docker compose up --build -d --wait
+# QA trên project/volume riêng, cần Playwright + Chrome:
+py -3 scripts/check_liquid_ui.py
+```
+
 ## v4.0 Phase 2 — Docker Bot Sandbox
 
 Compose mặc định chạy **sandbox runner**: backend phục vụ website, controller nội bộ có

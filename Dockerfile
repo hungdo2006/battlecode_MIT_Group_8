@@ -23,6 +23,8 @@ RUN groupadd --gid 10001 arena \
 # Explicit copies keep host metadata, Windows artifacts and secrets out of image.
 COPY backend/ ./backend/
 COPY frontend/ ./frontend/
+COPY scripts/version_frontend.py ./scripts/version_frontend.py
+RUN python scripts/version_frontend.py
 COPY samples/ ./samples/
 COPY run.py ./
 COPY deploy/healthcheck.py ./deploy/healthcheck.py

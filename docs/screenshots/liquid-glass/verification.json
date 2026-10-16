@@ -1,0 +1,43 @@
+{
+  "project": "neon-arena-qa-bc031bab91",
+  "regression": {
+    "checks": [
+      "computed primary/button and body contrast",
+      "keyboard focus, dialog Escape and password clearing",
+      "dynamic rules, unsaved changes, Game Lock and close confirmation",
+      "reset confirmation cancellation preserves real rules",
+      "invalid file validation and genuine sandbox compiler diagnostics",
+      "drag-and-drop, real compile and no duplicate submit across polling",
+      "compiler diagnostics remain expanded during polling",
+      "real invitation Decline synchronizes across clients",
+      "real running match, DRAINING and configuration remains read-only",
+      "both light Canvas renderers, seek/reset/speed and genuine replay download",
+      "offline/reconnect feedback preserves replay frames",
+      "prefers-reduced-motion in CSS and Canvas",
+      "35 responsive route checks and matching LAN/protocol pages"
+    ],
+    "javascript_errors": [],
+    "screenshots": "D:\\LTM\\docs\\screenshots\\liquid-glass\\after"
+  },
+  "liquid_glass": {
+    "checks": [
+      "Docker HTML/CSS/JS/SVG hashes match current source; ETag returns 304",
+      "selective translucent materials/reflections; solid inputs/diagnostics/Canvas; floating transport",
+      "prefers-reduced-transparency uses opaque, blur-free surfaces",
+      "44 Organizer/Player/replay viewport checks at 1920, 1440x900, 1366x768, 768px"
+    ],
+    "assets": {
+      "favicon.svg": "0ab76a04fe4c",
+      "styles.css": "75cb05420f39",
+      "renderers.js": "c6d00dfb7370",
+      "app.js": "54c622eb3998"
+    },
+    "material": {
+      "background": "rgba(255, 255, 255, 0.68)",
+      "filter": "blur(18px) saturate(1.45)",
+      "image": "linear-gradient(125deg, rgba(255, 255, 255, 0.68), rgba(255, 255, 255, 0) 34%, rgba(255, 255, 255, 0.08) 65%, rgba(255, 255, 255, 0.5))",
+      "shadow": "rgba(49, 76, 128, 0.09) 0px 14px 38px 0px, rgba(49, 76, 128, 0.03) 0px 2px 6px 0px, rgba(255, 255, 255, 0.94) 0px 1px 0px 0px inset, rgba(78, 111, 166, 0.1) 0px -1px 0px 0px inset, rgba(69, 106, 163, 0.02) 0px 0px 0px 1px"
+    },
+    "javascript_errors": []
+  }
+}

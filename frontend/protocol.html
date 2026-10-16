@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>NEON ARENA / Bot protocol</title><link rel="stylesheet" href="/static/styles.css"></head>
+<html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f6f8fc"><title>NEON ARENA · Giao thức bot</title><link rel="icon" href="/static/favicon.svg?v=0ab76a04fe4c"><link rel="stylesheet" href="/static/styles.css?v=24fe06cdf1f3"></head>
 <body><article class="protocol-document">
 <a class="text-button" href="/#upload">← Trở về Nộp bot</a><h1>BOT PROTOCOL / JSON LINES v1</h1>
 <p>Bot chạy liên tục trong một subprocess. Mỗi request: đọc một dòng JSON UTF-8 trên stdin, trả đúng một dòng JSON trên stdout rồi flush. Chỉ ghi debug vào stderr. Mỗi submission chọn một game; server kiểm tra action theo game đó.</p>

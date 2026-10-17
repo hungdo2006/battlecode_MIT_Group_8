@@ -1,0 +1,105 @@
+name: neon-arena
+
+services:
+  # Builds the fixed toolchain image then exits; never runs uploaded code.
+  bot-image:
+    build:
+      context: .
+      dockerfile: Dockerfile.sandbox
+    image: neon-arena-bot:4.0
+    command: ["/bin/true"]
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 64m
+    pids_limit: 16
+
+  controller:
+    build:
+      context: .
+      dockerfile: Dockerfile.controller
+    image: neon-arena-controller:4.0
+    init: true
+    # No published ports; only backend and controller share this internal network.
+    networks: [runner_private]
+    depends_on:
+      bot-image:
+        condition: service_completed_successfully
+    environment:
+      ARENA_RUNNER_TOKEN: "${ARENA_RUNNER_TOKEN:?Set a random token of at least 32 characters in .env}"
+      SANDBOX_NAMESPACE: "${SANDBOX_NAMESPACE:-neon-arena}"
+      SANDBOX_IMAGE: neon-arena-bot:4.0
+    group_add:
+      # Desktop commonly uses 0. Linux: stat -c %g /var/run/docker.sock.
+      - "${DOCKER_SOCKET_GID:-0}"
+    volumes:
+      # TRUSTED controller ONLY. Powerful Docker Engine access, not a sandbox itself.
+      - /var/run/docker.sock:/var/run/docker.sock
+      - arena_artifacts:/artifacts
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=32m,uid=10001,gid=10001
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 512m
+    cpus: 2
+    pids_limit: 128
+    restart: unless-stopped
+    stop_grace_period: 30s
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    logging:
+      options:
+        max-size: 5m
+        max-file: "2"
+
+  arena:
+    build:
+      context: .
+      target: runtime
+    image: neon-arena:4.0
+    init: true
+    ports:
+      - "${ARENA_BIND_IP:-0.0.0.0}:${ARENA_PORT:-8000}:8000"
+    networks: [default, runner_private]
+    depends_on:
+      controller:
+        condition: service_healthy
+    environment:
+      ARENA_RUNNER: sandbox
+      ARENA_CONTROLLER_URL: http://controller:9000
+      ARENA_RUNNER_TOKEN: "${ARENA_RUNNER_TOKEN:?Set ARENA_RUNNER_TOKEN in .env}"
+      ARENA_ADMIN_CODE: "${ARENA_ADMIN_CODE:-}"
+      ARENA_READ_ONLY: "${ARENA_READ_ONLY:-0}"
+      ARENA_ALLOWED_HOSTS: "${ARENA_ALLOWED_HOSTS:-}"
+      ARENA_ACCOUNT_AUTH: "${ARENA_ACCOUNT_AUTH:-0}"
+      ARENA_ACCOUNT_ONLY: "${ARENA_ACCOUNT_ONLY:-0}"
+      ARENA_AUTH_ORIGINS: "${ARENA_AUTH_ORIGINS:-}"
+      ARENA_AUTH_ALLOW_HTTP: "${ARENA_AUTH_ALLOW_HTTP:-0}"
+    volumes:
+      - arena_data:/app/data
+      - arena_uploads:/app/uploads
+    restart: unless-stopped
+    stop_grace_period: 30s
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 512m
+    pids_limit: 128
+    logging:
+      options:
+        max-size: 5m
+        max-file: "2"
+
+networks:
+  runner_private:
+    internal: true
+
+volumes:
+  arena_data:
+  arena_uploads:
+  arena_artifacts:

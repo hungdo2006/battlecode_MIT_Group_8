@@ -1,10 +1,161 @@
 # NEON ARENA
 
-Nền tảng thi đấu bot đa game dành cho bài tập nhóm môn Lập trình mạng. Hiện hỗ trợ **Robot Battle** và **OTT v2**, đăng ký qua **GameRegistry + GameAdapter**. Backend **Python FastAPI**, frontend **HTML/CSS/JavaScript thuần + Canvas**, giao tiếp **HTTP REST + WebSocket**, bot **subprocess**, dữ liệu **JSON**. Không cần Docker, Node.js hoặc database server để chạy ứng dụng.
+Nền tảng thi đấu bot đa game dành cho bài tập nhóm môn Lập trình mạng. Hiện hỗ trợ **Robot Battle** và **OTT v2**, đăng ký qua **GameRegistry + GameAdapter**. Backend **Python FastAPI**, frontend **HTML/CSS/JavaScript thuần + Canvas**, giao tiếp **HTTP REST + WebSocket**, bot **legacy subprocess hoặc Docker sandbox**, dữ liệu **JSON**. Chế độ native không cần Docker, Node.js hoặc database server.
 
 **v3.0: Organizer điều hành, Player nộp bot và Accept/Decline lời mời.** Presence qua WebSocket/heartbeat, một Active Bot riêng cho mỗi Player, tự chạy đúng một trận khi cả hai Accept và tự mở cùng Live Arena trên ba trình duyệt. Game Lock, Game Adapter, runner đa ngôn ngữ và replay JSONL được giữ. Xem [demo ba laptop](docs/MULTIPLAYER.md), [báo cáo kiểm thử v3](docs/MULTIPLAYER_VERIFICATION.md), [networking](docs/NETWORKING.md); hướng dẫn trong app ở `/lan`.
 
-> **Chỉ dùng local/LAN riêng với code tin cậy của nhóm.** Subprocess không phải sandbox. Bot có quyền của tài khoản chạy server, có thể đọc/ghi file, truy cập mạng hoặc tạo tiến trình khác. Giới hạn timeout/output không ngăn được các hành vi đó. Không công khai tính năng thực thi code lên Internet.
+> **Chỉ dùng local/LAN riêng.** Legacy runner (`start.bat`/Phase1) chỉ dành cho code tin cậy: subprocess có quyền của tài khoản server, không phải sandbox. Phase2 bổ sung cách ly Docker nhưng không bảo đảm an toàn tuyệt đối. Không công khai tính năng thực thi code lên Internet.
+## Phase 4.2C — Team Management, Bot Ownership & Active Bot (review candidate)
+
+Nhánh feature đã có API Team Lifecycle (C1), SQLite submission journal/migration v4 và Bot Ownership (C2), Captain Active Bot + giao diện Team cơ bản (C3). **Chưa nghiệm thu**: cần chạy pytest, Docker sandbox, browser QA và fault-injection trên môi trường QA cô lập trước khi merge PR #5. Official Match (D) và Internet public (4.3) chưa triển khai. Không migrate volume đang dùng chỉ để kiểm thử.
+
+## Phase 4.2C1 — Team Lifecycle, Membership & RBAC
+
+Chế độ Account-Only đã được mở rộng hỗ trợ quản lý Team, tư cách thành viên, hệ thống lời mời và RBAC. Mỗi Player chỉ được tham gia tối đa 1 Team active toàn hệ thống (DRAFT hoặc ACTIVE); Player tạo Team sẽ tự động trở thành Captain đầu tiên một cách nguyên tử. Captain có quyền quản lý thông tin Team, kích hoạt (DRAFT -> ACTIVE), gửi/thu hồi lời mời, xóa thành viên, chuyển giao quyền Captain, hoặc lưu trữ Team (ARCHIVED giải tán thành viên và hủy lời mời pending). Admin có quyền kiểm tra và phục hồi Captain nếu Captain cũ bị vô hiệu hóa mà không nhận quyền thành viên.
+
+Migration v3 (`team_lifecycle_membership`) bổ sung ràng buộc toàn cục `membership_active_user_global` qua partial UNIQUE index trên SQLite. API mới được tích hợp dưới `/api/player/team*` và `/api/admin/teams*` với xác thực audience và CSRF. Các endpoint nộp bot của Team (Phase C2) và Active Bot (Phase C3) tiếp tục giữ mã bảo vệ 403. Xem [đặc tả, quy tắc vòng đời và hợp đồng API](docs/PHASE_4_2_DESIGN.md#15-phase-42c1--team-lifecycle-membership--rbac).
+
+## Phase 4.2B.3.2 — Account-Only cutover
+
+Chế độ Account-Only đã có Player/Admin login, activation, logout, CSRF, REST và
+WebSocket theo audience. Cookie host-only được tách ở `Path=/api/player` và
+`Path=/api/admin`; legacy `arena_session`, Organizer code, upload/Active Bot và
+match invitation không cấp quyền khi `ARENA_ACCOUNT_ONLY=1`. Admin có thể quản lý
+game/rules/competition và xem history/replay qua serializer an toàn. Player được
+xem game/rules/competition và tải sample; history legacy mặc định Admin-only.
+
+Ba chế độ cấu hình:
+
+| Chế độ | Cấu hình |
+| --- | --- |
+| Legacy | `ARENA_ACCOUNT_AUTH=0`, `ARENA_ACCOUNT_ONLY=0` |
+| Coexistence QA B.3.1 | `ARENA_ACCOUNT_AUTH=1`, `ARENA_ACCOUNT_ONLY=0` |
+| Account-Only | `ARENA_ACCOUNT_AUTH=1`, `ARENA_ACCOUNT_ONLY=1` |
+
+Account-Only vẫn chỉ hỗ trợ local/LAN và exact origins. HTTP chỉ dành cho QA có
+chủ đích với `ARENA_AUTH_ALLOW_HTTP=1`; không mở ra Internet. Team CRUD, Team bot
+ownership, Official Match và Scrimmage chưa có, nên submission/Active Bot tạm khóa.
+Xem [thiết kế, endpoint và runbook](docs/PHASE_4_2_DESIGN.md#14-b32--full-account-only-cutover).
+
+QA Docker phải dùng project/volumes mới và bind loopback. Chuẩn bị `.env` QA riêng
+với runner token ngẫu nhiên, `ARENA_BIND_IP=127.0.0.1`, exact origin
+`http://127.0.0.1:8000`, rồi migrate/bootstrap khi backend đang dừng:
+
+```powershell
+docker compose -p neon-arena-auth-qa build
+docker compose -p neon-arena-auth-qa run --rm --no-deps arena python -m backend.admin_cli --data-dir /app/data migrate
+docker compose -p neon-arena-auth-qa run --rm --no-deps arena python -m backend.admin_cli --data-dir /app/data create-admin --username qa.admin --display-name "QA Admin"
+docker compose -p neon-arena-auth-qa up -d --wait
+```
+
+Không dùng `docker compose down -v`. Sau restore, trước startup đầu tiên, chạy CLI
+offline `invalidate-restored-auth` trên volume mới để revoke toàn bộ session và
+one-time token có trong snapshot. Tài khoản, bot, replay và ownership không bị xóa.
+
+## Phase 4.2B.3.1 — HTTP authentication foundation (opt-in)
+
+Đã có activation, Player/Admin login/logout/me, Admin account invitations và HTTP
+security tests. `ARENA_ACCOUNT_AUTH` mặc định **OFF**; bật chỉ cho QA local/LAN với
+DB đã migrate offline và exact origin allowlist. **Login mới chỉ bảo vệ `/api/auth/*`**,
+chưa bảo vệ bot/match hoặc WebSocket legacy, chưa thay Organizer code và chưa cho
+phép public Internet. Xem [gate, endpoints, cookie/CSRF, rate limits và ma trận legacy](docs/PHASE_4_2_DESIGN.md#13-b31--http-authentication-foundation).
+
+## Phase 4.2B.1 — Account foundation (offline)
+
+SQLite schema, Argon2id và CLI tạo Admin offline đã có; **chưa bật web login/RBAC**
+và chưa thay legacy sessions/Organizer code. Xem [thiết kế đã chốt, phạm vi B.1,
+lệnh bootstrap, migration và rollback](docs/PHASE_4_2_DESIGN.md). CLI bắt buộc
+`--data-dir`, giữ cùng WriterLock với backend và chỉ hỏi password qua terminal;
+không tự khởi tạo database/Admin khi server chạy. B.1 không cho phép mở Internet.
+
+## Security Foundation — trước Phase 4.2
+
+Backend giữ OS lock trên data volume trước khi đọc/ghi Store và claim Controller.
+Controller dùng epoch/lease fencing, không cho owner mới chiếm lease còn sống,
+không tái dùng job ID sau cleanup. Cold backup kiểm tra cả ba volumes và lưu exact
+image IDs/images để khôi phục vào bộ volume mới. Không thay đổi game/UI và chưa
+triển khai Authentication/RBAC hoặc public gateway.
+
+Xem [runbook, giới hạn và lệnh kiểm thử](docs/SECURITY_FOUNDATION.md).
+Lượt [final review và Docker QA](docs/SECURITY_FOUNDATION_DOCKER_QA.md) đã kiểm
+chứng shared-volume lock, lifecycle và backup/restore bằng pinned images trên local.
+
+## v4.0 Phase 3.1 — Premium Liquid Glass
+
+Tinh chỉnh trên Liquid Light theo [đặc tả được chủ dự án cung cấp](docs/NEON_ARENA_FIGMA_LIQUID_GLASS_BRIEF.md):
+sidebar/header nổi, ba mức kính, phản sáng mềm, dialog và thanh replay có chiều sâu.
+Form, compiler diagnostics, danh sách dữ liệu và bàn Canvas vẫn dễ đọc trên nền chắc.
+Không sửa backend, luật game, WebSocket hoặc sandbox. Phiên Codex này **không trực tiếp
+truy cập Figma MCP**; màu/blur/radius là thông số thiết kế cho dự án.
+
+```powershell
+docker compose up --build -d --wait
+# QA cô lập, cần Docker Desktop Linux containers, Playwright và Chrome:
+.\.venv\Scripts\python.exe scripts/check_liquid_glass.py
+```
+
+Docker tự gắn phiên bản theo SHA-256 vào URL CSS/JS/SVG khi build. Sau cập nhật,
+tải lại trang bình thường để nhận HTML mới; không cần xóa cache Chrome. Khi sửa
+frontend và chạy native, chạy `py -3 scripts/version_frontend.py` trước khi reload.
+Xem [thay đổi, kiểm thử và ảnh trước/sau](docs/LIQUID_GLASS.md).
+
+Lượt [Final visual refinement](docs/FINAL_GLASS_REFINEMENT.md) tăng độ trong suốt,
+reflection và chiều sâu; session có floating sheet riêng, Arena có frame kính và
+stage đặc. Các sheet nội dung không dùng blur để giảm chi phí trên laptop.
+QA và ảnh của lượt này được lưu riêng:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/check_liquid_glass.py --output-dir docs/screenshots/glass-refinement/after
+```
+
+## v4.0 Phase 3 — Liquid Light workspace
+
+Giao diện sáng với sidebar kính nổi, typography hệ thống, form/card mềm mại và
+Arena xanh/amber dễ theo dõi. Organizer, Player, submission, lobby, invitation,
+history và replay cùng dùng design system mới. Không thêm framework hoặc sửa
+backend/Docker sandbox. Có busy state chống gửi trùng, xác nhận thao tác và phản hồi
+khi mất kết nối. Xem [thiết kế và hướng dẫn](docs/LIQUID_LIGHT.md),
+[kiểm chứng Phase 3](docs/LIQUID_LIGHT_VERIFICATION.md) và
+[ảnh giao diện thật](docs/screenshots/liquid-light/overview.png).
+
+```powershell
+docker compose up --build -d --wait
+# QA trên project/volume riêng, cần Playwright + Chrome:
+py -3 scripts/check_liquid_ui.py
+```
+
+## v4.0 Phase 2 — Docker Bot Sandbox
+
+Compose mặc định chạy **sandbox runner**: backend phục vụ website, controller nội bộ có
+xác thực, compile container riêng và runtime container riêng cho mỗi bot suốt trận.
+Backend/bot không có Docker socket. Giữ nguyên giao diện, hai game, lobby và replay.
+
+Windows Docker Desktop dùng **Linux containers/WSL2**:
+
+```powershell
+py -3 scripts/configure_sandbox.py
+docker compose up --build -d --wait
+Invoke-RestMethod http://localhost:8000/api/health
+```
+
+Mở http://localhost:8000; LAN dùng IPv4 của máy server. Health phải trả
+`runner.mode=sandbox`, `runner.ready=true`. Mã Organizer và token riêng ở `.env`,
+không hardcode vào frontend hoặc commit. Linux dùng `python3` thay `py -3` và group
+socket phù hợp. `start.bat` vẫn chạy legacy cho bot tin cậy.
+
+- [Cài đặt, kiến trúc, resource limits, kiểm tra sandbox, backup và rollback](docs/SANDBOX.md)
+- [Kết quả kiểm chứng Phase 2](docs/SANDBOX_VERIFICATION.md)
+- Phase1 được giữ trong `compose.legacy.yaml`; chuyển đổi có chủ đích sau khi đóng cuộc thi.
+- Không có fallback từ sandbox sang legacy khi lỗi. Submission cũ được giữ, cần nộp lại source khi đổi runner.
+- Controller có quyền Docker Engine rất mạnh; chỉ dùng trong mạng tin cậy. Container không bảo đảm cách ly tuyệt đối.
+
+```powershell
+docker compose logs -f arena controller
+docker compose restart arena
+docker compose down                 # giữ dữ liệu, không thêm -v
+docker compose up -d --wait
+py -3 scripts/check_docker.py --build --browser
+```
 
 ## Chạy nhanh trên Windows
 

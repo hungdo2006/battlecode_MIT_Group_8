@@ -1,0 +1,23 @@
+# syntax=docker/dockerfile:1
+FROM python:3.13-slim-bookworm AS application
+WORKDIR /app
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt 'docker==7.1.0' \
+    && groupadd --gid 10001 controller && useradd --uid 10001 --gid controller --no-create-home controller \
+    && install -d -o controller -g controller /artifacts
+# Only protocol constants and errors are shared. No application data or credentials.
+COPY backend/__init__.py backend/runner.py ./backend/
+COPY sandbox_controller/ ./sandbox_controller/
+USER 10001:10001
+CMD ["python", "-m", "uvicorn", "sandbox_controller.service:create_app", "--factory", "--host", "0.0.0.0", "--port", "9000", "--workers", "1", "--no-access-log"]
+
+FROM application AS tests
+USER root
+COPY requirements-dev.txt ./
+RUN pip install --no-cache-dir -r requirements-dev.txt
+COPY controller_tests/ ./controller_tests/
+COPY backend/sandbox_client.py backend/execution.py ./backend/
+USER 10001:10001
+CMD ["python", "-m", "pytest", "-p", "no:cacheprovider", "-q", "controller_tests"]
+
+FROM application AS runtime

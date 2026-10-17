@@ -9,9 +9,15 @@ const app = {
   victoryDismissed: false, displayedResult: false, reconnectTimer: null,
   participant: null, readOnly: false, refreshing: false,
   role: "player", organizerAvailable: false,
+  accountOnly: false, accountAuth: false, account: null, accountAudience: null, csrf: null,
+  team: null, activeTeamBot: null,
+  logoutBusy: false, logoutError: false,
   competition: null, competitionSocket: null, competitionTimer: null,
   competitionGeneration: 0, competitionBusy: false, shuttingDown: false,
   lobby: null, invitationBusy: false, seenStarts: new Set(), seenFinishes: new Set(), heartbeatTimer: null,
+  uploading: false, seeding: false, rulesBusy: false, rulesDirty: false,
+  sampleBusy: new Set(), activeBotBusy: new Set(), invitationCancelling: new Set(),
+  initialized: false, initializing: false, serverOnline: false, lobbyOnline: false, arenaOnline: false,
 };
 
 function el(tag, className, text) {
@@ -21,32 +27,113 @@ function el(tag, className, text) {
   return node;
 }
 
+function setText(selector, value) {
+  const node = $(selector);
+  if (node.textContent !== value) node.textContent = value;
+}
+
+// Presentation helpers never decide permissions or change server state.
+function busyButton(button, busy) {
+  button.classList.toggle("is-loading", busy);
+  button.setAttribute("aria-busy", String(busy));
+  if (busy) button.disabled = true;
+}
+
+function confirmAction(title, description, action) {
+  const dialog = $("#confirm-dialog");
+  if (dialog.open) return Promise.resolve(false);
+  $("#confirm-title").textContent = title;
+  $("#confirm-description").textContent = description;
+  $("#confirm-accept").textContent = action;
+  dialog.returnValue = "cancel";
+  return new Promise(resolve => {
+    dialog.addEventListener("close", () => resolve(dialog.returnValue === "confirm"), { once: true });
+    dialog.showModal();
+    $("#confirm-cancel").focus();
+  });
+}
+$("#confirm-cancel").onclick = () => $("#confirm-dialog").close("cancel");
+$("#confirm-accept").onclick = () => $("#confirm-dialog").close("confirm");
+
+const statusLabels = { READY: "Sẵn sàng", ONLINE: "Đang online", OFFLINE: "Offline", INVITED: "Được mời", IN_MATCH: "Đang đấu", PENDING: "Chờ phản hồi", PARTIALLY_ACCEPTED: "Chờ đối thủ", STARTED: "Đang thi đấu", FINISHED: "Đã kết thúc", DECLINED: "Đã từ chối", CANCELLED: "Đã hủy", EXPIRED: "Hết thời gian", completed: "Hoàn thành", running: "Đang đấu", queued: "Đang chờ", interrupted: "Gián đoạn" };
+function statusBadge(status) {
+  const badge = el("span", `match-status status-${status.toLowerCase()} ${["running", "queued", "interrupted"].includes(status) ? status : ""}`, statusLabels[status] || status);
+  badge.dataset.status = status;
+  return badge;
+}
+
+// Polling should not steal keyboard focus or collapse diagnostics being read.
+function preserveListState(target) {
+  const focused = target.contains(document.activeElement) ? document.activeElement : null;
+  const key = focused?.dataset.focusKey;
+  const open = new Set([...target.querySelectorAll("details[open]")].map(node => node.dataset.botId));
+  return () => {
+    target.querySelectorAll("details").forEach(node => { node.open = open.has(node.dataset.botId); });
+    if (key && document.activeElement === document.body) target.querySelector(`[data-focus-key="${CSS.escape(key)}"]`)?.focus({ preventScroll: true });
+  };
+}
+
 let toastTimer;
 function toast(message, error = false) {
   const node = $("#toast");
   node.textContent = message;
-  node.className = "toast" + (error ? " error" : "");
+  node.classList.remove("hidden");
+  node.classList.toggle("error", error);
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => node.classList.add("hidden"), error ? 8500 : 4000);
 }
 
 async function api(path, options = {}) {
-  const response = await fetch(path, options);
+  path = scopedApiPath(path);
+  const method = (options.method || "GET").toUpperCase();
+  if (app.accountOnly && !["GET", "HEAD", "OPTIONS"].includes(method) && !path.includes("/auth/login")
+      && !path.includes("/auth/activate")) {
+    const token = await accountCsrf();
+    options = { ...options, headers: { ...(options.headers || {}), "X-CSRF-Token": token } };
+    if (options.body === undefined) {
+      options.body = "{}";
+      options.headers["Content-Type"] = "application/json";
+    }
+  }
+  let response;
+  try { response = await fetch(path, options); }
+  catch { throw new Error("Mất kết nối với máy chủ. Kiểm tra mạng và thử lại."); }
   const raw = await response.text();
   let data;
-  try {
-    data = raw ? JSON.parse(raw) : {};
-  } catch {
+  try { data = raw ? JSON.parse(raw) : {}; }
+  catch {
     if (!response.ok) throw new Error(`HTTP ${response.status}: ${raw.slice(0, 240)}`);
-    throw new Error("Máy chủ trả về dữ liệu không hợp lệ.");
+    throw new Error(`Máy chủ chưa sẵn sàng (HTTP ${response.status}). Hãy thử lại.`);
   }
   if (!response.ok) {
     const detail = Array.isArray(data.detail)
       ? data.detail.map(item => `${item.loc?.join(".")}: ${item.msg}`).join("; ")
       : data.detail;
-    throw new Error(detail || `HTTP ${response.status}`);
+    const error = new Error(detail || `HTTP ${response.status}`);
+    error.status = response.status;
+    if (app.accountOnly && response.status === 401 && !path.includes("/auth/login")) accountExpired();
+    throw error;
   }
   return data;
+}
+
+function scopedApiPath(path) {
+  if (!app.accountOnly || !path.startsWith("/api/") || path === "/api/health"
+      || path.startsWith("/api/player/") || path.startsWith("/api/admin/")) return path;
+  return `/api/${app.accountAudience || "player"}${path.slice(4)}`;
+}
+
+async function accountCsrf() {
+  if (app.csrf) return app.csrf;
+  if (!app.accountAudience) throw new Error("Phiên tài khoản chưa sẵn sàng.");
+  const response = await fetch(`/api/${app.accountAudience}/auth/csrf`);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    if (response.status === 401) accountExpired();
+    throw Object.assign(new Error(data.detail || "Phiên đăng nhập đã hết hạn."), { status: response.status });
+  }
+  app.csrf = data.csrf_token;
+  return app.csrf;
 }
 
 function jsonOptions(method, body) {
@@ -81,7 +168,7 @@ function acceptLobby(lobby) {
     const row = el("div", "player-row");
     const info = el("div", "bot-description");
     info.append(el("strong", "", player.display_name), el("small", "", player.active_bot ? `${player.active_bot.name} / ${languageLabel(player.active_bot.language)}` : "Chưa có Active Bot tương thích"));
-    row.append(info, el("span", `match-status ${player.online ? "running" : "interrupted"}`, player.status));
+    row.append(info, statusBadge(player.status));
     if (player.current_match_id) {
       const live = el("button", "button ghost small", "LIVE ↗");
       live.onclick = () => loadMatch(player.current_match_id).catch(e => toast(e.message, true)); row.append(live);
@@ -113,7 +200,8 @@ function acceptLobby(lobby) {
   renderTournamentPlayerOptions();
 
   const me = lobby.me;
-  $("#player-status").textContent = me?.status || "OFFLINE";
+  $("#player-status").textContent = statusLabels[me?.status || "OFFLINE"];
+  $("#player-status").dataset.status = me?.status || "OFFLINE";
   $("#active-bot-name").textContent = me?.active_bot ? `${me.active_bot.name} / ${languageLabel(me.active_bot.language)}` : "Chưa chọn Active Bot";
   $("#player-match-note").textContent = me?.current_match_id ? "Bot đang thi đấu trên server. Bạn có thể reconnect để xem tiếp." : me?.invitation_id ? "Bạn đang có lời mời. Chọn Accept hoặc Decline." : "Chọn bot READY rồi chờ Organizer gửi lời mời. Giữ website mở.";
   $("#resume-match").classList.toggle("hidden", !me?.current_match_id);
@@ -176,10 +264,18 @@ function renderInvitations() {
     const names = inv.player_ids.map(pid => `${inv.players[pid].name} · ${pid.slice(0, 6).toUpperCase()} / ${languageLabel(inv.bots[pid].language)}`);
     info.append(el("strong", "", names.join(" VS ")), el("small", "", `${inv.game_name} / ${inv.id}`),
       el("small", "", inv.player_ids.map(pid => `${inv.players[pid].name}: ${inv.responses[pid]}`).join(" · ")));
-    row.append(info, el("span", "match-status", inv.finished ? "FINISHED" : inv.status));
+    row.append(info, statusBadge(inv.finished ? "FINISHED" : inv.status));
     if (app.role === "organizer" && ["PENDING", "PARTIALLY_ACCEPTED"].includes(inv.status)) {
-      const cancel = el("button", "button ghost small", "CANCEL");
-      cancel.onclick = async () => { try { await api(`/api/invitations/${inv.id}/cancel`, { method: "POST" }); } catch (error) { toast(error.message, true); } };
+      const cancel = el("button", "button ghost small", "Hủy lời mời");
+      cancel.disabled = app.invitationCancelling.has(inv.id);
+      cancel.onclick = async () => {
+        if (app.invitationCancelling.has(inv.id)) return;
+        if (!await confirmAction("Hủy lời mời này?", "Hai Player sẽ được giải phóng khỏi lời mời. Trận chưa bắt đầu sẽ không được tạo.", "Hủy lời mời")) return;
+        app.invitationCancelling.add(inv.id); busyButton(cancel, true);
+        try { await api(`/api/invitations/${inv.id}/cancel`, { method: "POST" }); }
+        catch (error) { toast(error.message, true); }
+        finally { app.invitationCancelling.delete(inv.id); renderInvitations(); }
+      };
       row.append(cancel);
     }
     target.append(row);
@@ -196,7 +292,7 @@ function renderInvitations() {
   }
   $("#invitation-game").textContent = `${pending.game_name} / Mời bởi Organizer ${pending.organizer.name}`;
   const accepted = pending.responses[app.participant.id] === "ACCEPTED";
-  $("#invitation-wait").textContent = accepted ? "WAITING FOR OPPONENT... Active Bot đã chốt." : "Chấp nhận để xác nhận Active Bot hiện tại của bạn.";
+  $("#invitation-wait").textContent = accepted ? "Đã chấp nhận · Đang chờ đối thủ. Active Bot đã chốt." : "Chấp nhận để xác nhận Active Bot hiện tại của bạn.";
   $("#invitation-accept").disabled = accepted || app.invitationBusy || app.readOnly;
   $("#invitation-decline").disabled = app.invitationBusy || app.readOnly;
   updateInvitationCountdown();
@@ -206,7 +302,7 @@ function renderInvitations() {
 function updateInvitationCountdown() {
   if (!app.currentInvitation) return;
   const left = Math.max(0, Math.ceil((app.currentInvitation.expires_at * 1000 - Date.now() - app.serverClockOffset) / 1000));
-  $("#invitation-countdown").textContent = `${left}s TO RESPOND`;
+  $("#invitation-countdown").textContent = `Còn ${left} giây để phản hồi`;
   if (!left) $("#invitation-accept").disabled = true;
 }
 setInterval(updateInvitationCountdown, 500);
@@ -226,6 +322,19 @@ for (const action of ["accept", "decline"]) $("#invitation-" + action).addEventL
 $("#resume-match").onclick = () => { if (app.lobby?.me?.current_match_id) loadMatch(app.lobby.me.current_match_id).catch(e => toast(e.message, true)); };
 
 function renderSession() {
+  if (app.accountOnly) {
+    $("#participant-name").textContent = app.account?.display_name || "Chưa đăng nhập";
+    $("#participant-id").textContent = app.account
+      ? `ACCOUNT / ${app.account.username} · ${app.account.system_role}`
+      : "Account-Only · cần xác thực";
+    $("#participant-role").textContent = app.account?.system_role || "SIGNED OUT";
+    $("#session-form").classList.add("hidden");
+    $("#organizer-toggle").textContent = app.logoutBusy ? "Đang đăng xuất…" : app.logoutError ? "Thử lại đăng xuất" : "Đăng xuất";
+    $("#organizer-toggle").disabled = !app.account || app.logoutBusy;
+    $("#organizer-toggle").title = app.logoutError ? "Chưa xác nhận thu hồi phiên trên server. Nhấn để thử lại." : "Thu hồi phiên tài khoản hiện tại";
+    applyPermissions();
+    return;
+  }
   $("#participant-name").textContent = app.participant.name;
   $("#participant-id").textContent = `ID / ${app.participant.id.toUpperCase()} · Phiên riêng của trình duyệt`;
   $("#session-name").value = app.participant.name;
@@ -239,34 +348,59 @@ function renderSession() {
 
 function applyPermissions() {
   const organizer = app.role === "organizer" && !app.readOnly;
-  const allowed = organizer && app.competition?.can_edit && !app.competitionBusy;
+  const accountPlayer = app.accountOnly && app.accountAudience === "player";
+  const allowed = organizer && app.competition?.can_edit && !app.competitionBusy && !app.rulesBusy;
   $$("#rules-form input, #rules-form textarea, #rules-form select, #rules-form [type=submit], #default-rules").forEach(node => {
     node.disabled = !allowed; node.title = allowed ? "" : "Cần quyền Organizer và cuộc thi đang ở trạng thái cấu hình";
   });
   $$(".game-select, .game-card").forEach(node => { node.disabled = !allowed || app.switchingGame; });
-  $("#competition-open").disabled = !allowed;
+  $("#competition-open").disabled = !allowed || app.rulesDirty;
+  $("#competition-open").title = app.rulesDirty ? "Lưu cấu hình trước khi mở cuộc thi" : allowed ? "Khóa game và luật đã lưu để bắt đầu nhận trận" : "Chờ quyền Organizer và trạng thái SETUP";
   $("#competition-close").disabled = !organizer || !app.competition?.competition_locked || app.competitionBusy;
-  $("#competition-open").classList.toggle("hidden", app.role !== "organizer");
-  $("#competition-close").classList.toggle("hidden", app.role !== "organizer");
-  $("#rules-access-note").textContent = app.competition?.competition_locked ? "LOCKED RULESET / Snapshot đã chốt. Đóng cuộc thi và chờ các trận kết thúc để cấu hình lại." : allowed ? "ORGANIZER / Chọn game, lưu luật rồi LOCK GAME / OPEN COMPETITION." : "PLAYER / Game và luật do ban tổ chức chốt. Chọn Active Bot rồi chờ lời mời.";
+  $("#competition-open").classList.toggle("hidden", app.role !== "organizer" || app.competition?.phase !== "setup");
+  $("#competition-close").classList.toggle("hidden", app.role !== "organizer" || !app.competition?.competition_locked);
+  $("#rules-access-note").textContent = app.competition?.competition_locked ? "Luật đã chốt. Đóng cuộc thi và chờ các trận kết thúc để cấu hình lại." : app.competition?.phase === "draining" ? "Cuộc thi đang đóng. Chờ các trận và tác vụ còn lại kết thúc để chỉnh cấu hình." : allowed ? app.rulesDirty ? "Có thay đổi chưa lưu. Lưu cấu hình trước khi mở cuộc thi." : "Chọn game, lưu cấu hình rồi nhấn Lock game & mở cuộc thi." : "Game và luật do Organizer quyết định. Chọn Active Bot để sẵn sàng nhận lời mời.";
   $$(".organizer-only").forEach(node => node.classList.toggle("hidden", !organizer));
   $$(".player-only, [data-go=upload], .nav-item[data-view=upload]").forEach(node => node.classList.toggle("hidden", organizer));
+  if (app.accountOnly) {
+    document.querySelectorAll(".player-only, [data-go=upload], .nav-item[data-view=upload], #quick-match, #create-match").forEach(node => node.classList.add("hidden"));
+    if (accountPlayer) {
+      document.querySelectorAll(".nav-item[data-view=upload], #view-upload .two-column, #view-upload .library-panel").forEach(node => node.classList.remove("hidden"));
+      $("#account-team-panel").classList.remove("hidden");
+      $("#account-team-panel").closest(".view").classList.remove("hidden");
+    } else {
+      $("#account-team-panel").classList.add("hidden");
+    }
+    if (location.hash === "#create" || (!accountPlayer && location.hash === "#upload")) location.hash = "home";
+  }
+  $('.nav-item[data-view="create"]').classList.toggle("hidden", app.accountOnly);
+  $('.nav-item[data-view="watch"]').classList.toggle("hidden", accountPlayer);
+  $(".docs-link").classList.toggle("hidden", app.accountOnly);
+  if (accountPlayer && location.hash === "#watch") location.hash = "home";
   $$("#rules-form [type=submit], #default-rules").forEach(node => node.classList.toggle("hidden", !organizer));
   if (organizer && location.hash === "#upload") location.hash = "create";
   $$("#quick-match [type=submit], #create-match [type=submit]").forEach(node => {
     node.disabled = !organizer || !app.competition?.competition_locked || app.launching || app.competitionBusy
       || (app.lobby?.players || []).filter(player => player.status === "READY").length < 2;
+    node.title = node.disabled ? app.competition?.phase !== "open" ? "Cuộc thi cần được mở trước khi gửi lời mời" : "Cần hai Player đang online, có Active Bot và sẵn sàng" : "Hai Player sẽ tự xác nhận lời mời";
   });
-  $$("#upload-form [type=submit], #seed-samples, [data-sample]").forEach(node => { node.disabled = organizer || app.readOnly; });
+  $("#upload-form [type=submit]").disabled = organizer || app.readOnly || app.uploading || !app.selectedGameId;
+  $("#seed-samples").disabled = app.accountOnly || organizer || app.readOnly || app.seeding || !app.selectedGameId;
+  $("#seed-samples").classList.toggle("hidden", app.accountOnly);
+  document.querySelectorAll('[data-sample]').forEach(node => { node.disabled = app.accountOnly || organizer || app.readOnly || app.seeding || app.sampleBusy.has(`${node.dataset.gameId}:${node.dataset.sample}`); });
+  $$(".game-select, .game-card").forEach(node => { node.title = allowed ? "Chọn game của cuộc thi" : app.competition?.competition_locked ? "Game đã khóa; đóng cuộc thi để cấu hình lại" : "Chỉ Organizer được chọn game"; });
   renderCompetitionBanner();
 }
 
 function renderCompetitionBanner() {
   const state = app.competition;
-  $("#competition-status").textContent = state?.phase === "open" ? "COMPETITION OPEN" : state?.phase === "draining" ? "CLOSING / WAITING" : "WAITING FOR ORGANIZER";
+  setText("#competition-status", state?.phase === "open" ? "OPEN · Cuộc thi đang mở" : state?.phase === "draining" ? "DRAINING · Chờ trận kết thúc" : "SETUP · Đang chuẩn bị");
+  $("#competition-banner").dataset.phase = state?.phase || "setup";
   $("#competition-banner").classList.toggle("competition-live", state?.competition_locked === true);
-  $("#competition-game").textContent = app.games.find(game => game.game_id === state?.selected_game_id)?.name || "Đang tải game…";
-  $("#competition-message").textContent = state?.phase === "open" ? "Game và luật đã khóa. Organizer mời hai Player READY; trận bắt đầu sau hai lượt ACCEPT." : state?.phase === "draining" ? `Đã chặn trận mới. Đang chờ ${state.pending_matches} trận/bot kết thúc trước khi mở khóa cấu hình.` : "Ban tổ chức đang chuẩn bị game và luật. Có thể nộp bot cho game hiện tại; chưa thể tạo trận.";
+  setText("#competition-game", app.games.find(game => game.game_id === state?.selected_game_id)?.name || "Đang tải game…");
+  const legacyMessage = state?.phase === "open" ? "Game và luật đã khóa. Organizer mời hai Player READY; trận bắt đầu sau hai lượt ACCEPT." : state?.phase === "draining" ? `Đã chặn trận mới. Đang chờ ${state.pending_matches} trận/bot kết thúc trước khi mở khóa cấu hình.` : "Ban tổ chức đang chuẩn bị game và luật. Có thể nộp bot cho game hiện tại; chưa thể tạo trận.";
+  const accountMessage = state?.phase === "open" ? "Game và luật đã khóa. Team có thể nộp bot, Captain chọn Active Bot; Official Match ở Phase 4.2D." : state?.phase === "draining" ? `Đã chặn trận mới. Đang chờ ${state.pending_matches} tác vụ hiện có kết thúc trước khi mở khóa cấu hình.` : "Admin đang chuẩn bị game và luật. Team có thể nộp bot cho game hiện tại; Official Match chưa mở.";
+  setText("#competition-message", app.accountOnly ? accountMessage : legacyMessage);
 }
 
 async function acceptCompetition(state) {
@@ -290,29 +424,38 @@ async function acceptCompetition(state) {
 }
 
 function connectCompetitionSocket() {
-  if (app.shuttingDown) return;
+  if (app.shuttingDown || (app.accountOnly && !app.account)) return;
   const scheme = location.protocol === "https:" ? "wss" : "ws";
-  const socket = new WebSocket(`${scheme}://${location.host}/ws/competition`);
+  const socketPath = app.accountOnly ? `/api/${app.accountAudience}/ws/competition` : "/ws/competition";
+  const socket = new WebSocket(`${scheme}://${location.host}${socketPath}`);
   app.competitionSocket = socket;
   socket.onopen = () => {
+    app.lobbyOnline = true; renderConnection();
     clearInterval(app.heartbeatTimer);
-    const beat = () => { if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "heartbeat" })); };
-    beat(); app.heartbeatTimer = setInterval(beat, 10000);
+    if (!app.accountOnly) {
+      const beat = () => { if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "heartbeat" })); };
+      beat(); app.heartbeatTimer = setInterval(beat, 10000);
+    }
   };
   socket.onmessage = event => {
     if (socket !== app.competitionSocket) return;
     let message; try { message = JSON.parse(event.data); } catch { return; }
     if (message.type === "competition") {
       const restarted = app.competition && app.competition.server_id !== message.state.server_id;
-      if (restarted) api("/api/session").then(acceptSession).catch(() => {});
+      if (restarted && !app.accountOnly) api("/api/session").then(acceptSession).catch(() => {});
       acceptCompetition(message.state).catch(error => toast(error.message, true));
-      if (message.role && message.role !== app.role) api("/api/session").then(acceptSession).catch(() => {});
+      if (!app.accountOnly && message.role && message.role !== app.role) api("/api/session").then(acceptSession).catch(() => {});
       if (message.lobby) acceptLobby(message.lobby);
     }
   };
-  socket.onclose = () => {
+  socket.onclose = event => {
+    if (socket === app.competitionSocket) { app.lobbyOnline = false; renderConnection(); }
     if (socket === app.competitionSocket) clearInterval(app.heartbeatTimer);
-    if (!app.shuttingDown && socket === app.competitionSocket) app.competitionTimer = setTimeout(connectCompetitionSocket, 1200);
+    if (app.accountOnly && [1008, 4401].includes(event.code)) {
+      accountExpired();
+      return;
+    }
+    if (!app.shuttingDown && socket === app.competitionSocket && (!app.accountOnly || app.account)) app.competitionTimer = setTimeout(connectCompetitionSocket, 1200);
   };
 }
 
@@ -322,6 +465,113 @@ function acceptSession(data) {
   renderSession();
   renderBots();
   renderInvitations();
+}
+
+function showAccountDialog(message = "Đăng nhập để tiếp tục vào workspace.") {
+  const dialog = $("#account-dialog");
+  $("#account-feedback").textContent = message;
+  $("#account-feedback").classList.remove("hidden", "error");
+  if (!dialog.open) dialog.showModal();
+  $("#account-username").focus();
+}
+
+function acceptAccount(data, audience) {
+  app.logoutError = false;
+  app.account = data.account;
+  app.accountAudience = audience;
+  app.csrf = null;
+  app.role = data.account.system_role === "ADMIN" ? "organizer" : "player";
+  app.participant = { id: data.account.id, name: data.account.display_name };
+  app.organizerAvailable = app.role === "organizer";
+  if ($("#account-dialog").open) $("#account-dialog").close();
+  renderSession();
+}
+
+$("#account-dialog").addEventListener("cancel", event => event.preventDefault());
+
+function accountExpired() {
+  if (!app.accountOnly || !app.account) return;
+  app.account = null; app.participant = null; app.accountAudience = null; app.csrf = null;
+  app.role = "player"; app.organizerAvailable = false; app.initialized = false;
+  app.competitionSocket?.close(); app.socket?.close();
+  clearTimeout(app.competitionTimer); clearTimeout(app.reconnectTimer);
+  renderSession();
+  showAccountDialog("Phiên đã hết hạn hoặc bị thu hồi. Hãy đăng nhập lại.");
+}
+
+async function restoreAccount() {
+  for (const audience of ["admin", "player"]) {
+    const response = await fetch(`/api/${audience}/auth/me`, { headers: { "Accept": "application/json" } });
+    if (response.ok) {
+      acceptAccount(await response.json(), audience);
+      return true;
+    }
+  }
+  return false;
+}
+
+$("#account-login-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const audience = form.elements.audience.value;
+  const button = form.querySelector("[type=submit]");
+  busyButton(button, true);
+  try {
+    const data = await api(`/api/${audience}/auth/login`, jsonOptions("POST", {
+      username: form.elements.username.value, password: form.elements.password.value
+    }));
+    form.elements.password.value = "";
+    acceptAccount(data, audience);
+    app.initialized = false;
+    await bootstrap();
+  } catch (error) {
+    feedback("#account-feedback", error.message, true);
+  } finally { busyButton(button, false); button.disabled = false; }
+});
+
+$("#account-activation-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector("[type=submit]");
+  busyButton(button, true);
+  try {
+    await api("/api/player/auth/activate", jsonOptions("POST", {
+      token: form.elements.token.value, password: form.elements.password.value
+    }));
+    form.reset();
+    $("#account-login-form [name=username]").focus();
+    feedback("#account-feedback", "Kích hoạt thành công. Hãy đăng nhập bằng tài khoản vừa tạo.");
+  } catch (error) { feedback("#account-feedback", error.message, true); }
+  finally { busyButton(button, false); button.disabled = false; }
+});
+
+async function accountLogout() {
+  if (!app.accountAudience || app.logoutBusy) return;
+  const audience = app.accountAudience;
+  app.logoutBusy = true; app.logoutError = false; renderSession();
+  try {
+    const result = await api(`/api/${audience}/auth/logout`, jsonOptions("POST", {}));
+    if (result.logged_out !== true) throw new Error("Server chưa xác nhận thu hồi phiên.");
+  } catch (error) {
+    if (error.status === 401) {
+      accountExpired();
+      showAccountDialog("Phiên đã hết hiệu lực. Hãy đăng nhập lại.");
+    } else {
+      // Keep the account and retry action: a lost response does not prove that
+      // the server revoked the session or removed the browser cookie.
+      app.logoutError = true;
+      toast(`Chưa xác nhận đăng xuất. ${error.message} Nhấn “Thử lại đăng xuất”.`, true);
+    }
+    return;
+  } finally {
+    app.logoutBusy = false; renderSession();
+  }
+  app.account = null; app.participant = null; app.accountAudience = null; app.csrf = null;
+  app.role = "player"; app.organizerAvailable = false; app.initialized = false;
+  app.competitionSocket?.close(); app.socket?.close();
+  clearTimeout(app.competitionTimer); clearTimeout(app.reconnectTimer);
+  renderSession();
+  showAccountDialog("Đã đăng xuất an toàn.");
 }
 
 $("#session-form").addEventListener("submit", async event => {
@@ -337,6 +587,7 @@ $("#session-form").addEventListener("submit", async event => {
 });
 
 $("#organizer-toggle").addEventListener("click", async () => {
+  if (app.accountOnly) { await accountLogout(); return; }
   if (app.role !== "organizer") { $("#organizer-dialog").showModal(); $("#organizer-code").focus(); return; }
   try { acceptSession(await api("/api/session/organizer", { method: "DELETE" })); toast("Đã trở về quyền Player."); }
   catch (error) { toast(error.message, true); }
@@ -353,22 +604,50 @@ $("#organizer-form").addEventListener("submit", async event => {
   finally { $("#organizer-code").value = ""; button.disabled = false; }
 });
 
-const labels = { home: "OVERVIEW", standings: "BẢNG XẾP HẠNG", upload: "BOT LABORATORY", create: "MATCH CONTROL", tournaments: "GIẢI ĐẤU", watch: "BATTLE ARCHIVE", rules: "GAME CONFIGURATION" };
+const labels = {
+  home: "Tổng quan",
+  standings: "Bảng xếp hạng",
+  upload: "Nộp bot",
+  create: "Phòng thi đấu",
+  tournaments: "Giải đấu",
+  watch: "Lịch sử & Replay",
+  rules: "Game & Luật chơi",
+};
 function navigate() {
   let view = location.hash.slice(1) || "home";
   if (!labels[view]) view = "home";
   $$(".view").forEach(node => node.classList.toggle("active", node.id === `view-${view}`));
   $$(".nav-item").forEach(node => node.classList.toggle("active", node.dataset.view === view));
   $("#page-label").textContent = labels[view];
+  document.body.dataset.view = view;
+  $$(".nav-item[data-view]").forEach(node => node.setAttribute("aria-current", node.dataset.view === view ? "page" : "false"));
+  document.title = `${labels[view]} · NEON ARENA`;
   window.scrollTo({ top: 0, behavior: "instant" });
 }
 window.addEventListener("hashchange", navigate);
+$(".skip-link").addEventListener("click", event => {
+  event.preventDefault();
+  $("#main-content").focus({ preventScroll: true });
+  $("#main-content").scrollIntoView({ block: "start", behavior: "instant" });
+});
 $$("[data-go]").forEach(button => button.addEventListener("click", () => { location.hash = button.dataset.go; }));
 navigate();
 
 function setConnection(online) {
-  $("#connection").replaceChildren(el("i", "status-dot"), document.createTextNode(online ? "SYSTEM ONLINE" : "SERVER OFFLINE"));
-  $("#connection .status-dot").style.background = online ? "var(--green)" : "var(--pink)";
+  app.serverOnline = online;
+  renderConnection();
+}
+
+function renderConnection() {
+  const ready = app.serverOnline && app.lobbyOnline;
+  const label = !app.serverOnline ? "Mất kết nối" : !app.lobbyOnline ? "Đang kết nối lại" : "Đã kết nối";
+  if ($("#connection").dataset.connection !== label) {
+    $("#connection").dataset.connection = label;
+    $("#connection").replaceChildren(el("i", "status-dot"), document.createTextNode(label));
+    $("#connection .status-dot").style.background = ready ? "var(--success)" : "var(--warning)";
+  }
+  $("#network-notice").classList.toggle("hidden", ready || !app.initialized && app.initializing);
+  setText("#network-message", !app.serverOnline ? "Chưa kết nối được máy chủ. Kiểm tra mạng; dữ liệu đã nhận vẫn được giữ trên màn hình." : "Kết nối cập nhật trực tiếp đang khôi phục. Bạn vẫn có thể xem các lượt đã nhận.");
 }
 
 function renderStats() {
@@ -376,7 +655,7 @@ function renderStats() {
   $("#stat-matches").textContent = String(app.matches.filter(m => m.status === "completed").length).padStart(2, "0");
   const running = app.matches.filter(m => ["running", "queued"].includes(m.status)).length;
   $("#stat-live").textContent = String(running).padStart(2, "0");
-  $("#live-note").textContent = running ? "BATTLE IN PROGRESS" : "SYSTEM STANDBY";
+  $("#live-note").textContent = running ? "Đang cập nhật trực tiếp" : "Chờ trận đấu tiếp theo";
 }
 
 function populateBotSelectors() {
@@ -401,29 +680,42 @@ $$(".player-select").forEach(select => select.addEventListener("change", () => {
 }));
 
 function renderBots() {
+  if (app.accountOnly && app.accountAudience === "player") {
+    renderAccountBotLibrary();
+    return;
+  }
   const target = $("#bot-library");
+  const restore = preserveListState(target);
   target.replaceChildren();
   const mine = app.bots.filter(bot => bot.owner?.id === app.participant?.id);
   if (!mine.length) target.append(el("div", "empty-state", "Chưa có submission. Tải code hoặc dùng bot mẫu ở trên."));
   mine.forEach(bot => {
-    const row = el("div", "bot-row");
+    const row = el("div", "bot-row"); row.dataset.botId = bot.id;
     row.append(el("span", `language-icon ${bot.language === "py" ? "python" : bot.language}`, bot.language.toUpperCase()));
     const description = el("div", "bot-description");
     description.append(el("strong", "", bot.name), el("small", "", bot.filename));
     description.append(el("small", "bot-owner", `NỘP BỞI / ${ownerLabel(bot.owner)}`));
     description.append(el("span", "tag", app.games.find(game => game.game_id === bot.game_id)?.name || bot.game_id));
-    row.append(description, el("span", `match-status ${bot.status === "error" ? "interrupted" : ""}`, bot.status.toUpperCase()));
+    const status = statusBadge(bot.status === "ready" ? "READY" : "interrupted");
+    status.textContent = bot.status === "ready" ? "Sẵn sàng" : "Biên dịch lỗi";
+    status.classList.toggle("bot-error", bot.status === "error");
+    row.append(description, status);
     const active = app.lobby?.me?.active_bot_id === bot.id;
-    const button = el("button", "button ghost small", active ? "ACTIVE BOT ✓" : "SET AS ACTIVE BOT");
-    button.disabled = app.role !== "player" || app.readOnly || bot.status !== "ready" || bot.game_id !== app.selectedGameId || active || activeFrozen();
+    const button = el("button", "button ghost small", active ? "Active Bot ✓" : "Chọn làm Active Bot");
+    button.dataset.action = "set-active"; button.dataset.focusKey = `active-${bot.id}`;
+    button.disabled = app.role !== "player" || app.readOnly || bot.status !== "ready" || bot.game_id !== app.selectedGameId || active || activeFrozen() || app.activeBotBusy.has(bot.id);
+    button.title = active ? "Bot đang đại diện cho bạn" : bot.status !== "ready" ? "Cần biên dịch thành công trước khi chọn" : bot.game_id !== app.selectedGameId ? "Bot thuộc game khác; chọn hoặc nộp bot cho game hiện tại" : activeFrozen() ? "Active Bot đã chốt trong lời mời hoặc trận đang chạy" : "Dùng bot này để nhận lời mời thi đấu";
     button.addEventListener("click", async () => {
-      button.disabled = true;
+      if (app.activeBotBusy.has(bot.id)) return;
+      app.activeBotBusy.add(bot.id); busyButton(button, true);
       try { await api("/api/players/active-bot", jsonOptions("PUT", { bot_id: bot.id })); toast("Đã chọn Active Bot. Chờ Organizer gửi lời mời."); }
       catch (error) { toast(error.message, true); }
+      finally { app.activeBotBusy.delete(bot.id); renderBots(); }
     });
     row.append(button);
     if (bot.logs) {
       const details = el("details");
+      details.dataset.botId = bot.id;
       details.append(el("summary", "", "Compiler log"), el("pre", "", bot.logs));
       row.append(details);
     }
@@ -431,6 +723,7 @@ function renderBots() {
   });
   populateBotSelectors();
   renderStats();
+  restore();
 }
 
 function selectedGame() { return app.games.find(game => game.game_id === app.selectedGameId); }
@@ -465,8 +758,9 @@ function renderRules(fillForm = false) {
   if (!game) return;
   $("#workspace-game-name").textContent = `${game.name} / ${game.turn_mode === "simultaneous" ? "ĐỒNG THỜI" : "LUÂN PHIÊN"}`;
   $("#game-name").textContent = game.name;
+  $("#hero-game-label").textContent = game.name;
   $("#game-description").textContent = game.description;
-  $("#rules-heading").textContent = `${game.name.toUpperCase()} / RULESET`;
+  $("#rules-heading").textContent = `${game.name} · Cấu hình luật`;
   $("#create-game-label").textContent = game.badge || game.name;
   $("#match-mode-hint").textContent = game.turn_mode === "simultaneous" ? "Hai bot nhận cùng trạng thái và hành động đồng thời." : "Hai bot đi luân phiên. Server chỉ hỏi bot đến lượt.";
   const source = $("#game-source");
@@ -475,7 +769,8 @@ function renderRules(fillForm = false) {
   const fixed = $("#game-fixed");
   fixed.replaceChildren(...Object.entries(game.fixed_rules || {}).map(([key, value]) => {
     const item = el("span", "fixed-rule");
-    item.append(el("small", "", key.toUpperCase()), document.createTextNode(String(value)));
+    const fixedLabels = { movement: "Di chuyển", attack_range: "Tầm tấn công", board_size: "Bàn chơi", capture: "Ăn quân", pieces: "Quân cờ", goals: "Đích đến" };
+    item.append(el("small", "", fixedLabels[key] || key.replaceAll("_", " ")), document.createTextNode(String(value)));
     return item;
   }));
   const library = $("#game-library");
@@ -484,19 +779,21 @@ function renderRules(fillForm = false) {
     button.type = "button"; button.dataset.gameId = installed.game_id;
     button.setAttribute("aria-pressed", String(installed.game_id === app.selectedGameId));
     const copy = el("div", "game-card-copy");
-    copy.append(el("h2", "", installed.name), el("p", "", installed.description), el("small", "", `INSTALLED / v${installed.version} / ${installed.turn_mode.toUpperCase()}`));
+    copy.append(el("h2", "", installed.name), el("p", "", installed.description), el("small", "", `Đã cài đặt · v${installed.version} · ${installed.turn_mode === "simultaneous" ? "Đồng thời" : "Luân phiên"}`));
     button.append(el("span", "game-card-icon", installed.name.slice(0, 2).toUpperCase()), copy);
     button.addEventListener("click", () => selectGame(installed.game_id));
     return button;
   }));
   $("#rules-guide").replaceChildren(...[...(game.guide || []), { title: "BOT FAULT", description: "Timeout, crash, JSON hoặc action không hợp lệ: bot bị xử thua. Game state chỉ do server cập nhật." }].map((item, index) => {
     const row = el("li"), copy = el("div");
-    copy.append(el("strong", "", item.title), el("p", "", item.description));
+    const guideLabels = { MOVE: "Di chuyển", ATTACK: "Tấn công", WIN: "Điều kiện thắng", "BOT FAULT": "Lỗi bot", MOVEMENT: "Di chuyển", CAPTURE: "Ăn quân", SERIES: "Nhiều ván đấu", GOAL: "Đích đến" };
+    copy.append(el("strong", "", guideLabels[item.title] || item.title), el("p", "", item.description));
     row.append(el("span", "", String(index + 1).padStart(2, "0")), copy);
     return row;
   }));
   const properties = game.rules_schema.properties || {};
   if (fillForm) {
+    app.rulesDirty = false;
     $("#rules-fields").replaceChildren(...Object.entries(properties).map(([key, schema]) => {
       const label = el("label", "", schema.title || key);
       if (schema.minimum !== undefined && schema.maximum !== undefined) label.append(el("span", "input-hint", `${schema.minimum}–${schema.maximum}`));
@@ -513,11 +810,17 @@ function renderRules(fillForm = false) {
         if (input.type === "number") input.step = schema.type === "integer" ? "1" : "any";
       }
       input.name = key;
+      input.id = `rule-${key}`;
       if (schema.type === "boolean") input.checked = Boolean(app.rules[key]);
       else input.value = ["object", "array"].includes(schema.type) ? JSON.stringify(app.rules[key], null, 2) : String(app.rules[key] ?? schema.default ?? "");
       input.required = schema.type !== "boolean";
       label.append(input);
-      if (schema.description) label.append(el("small", "field-description", schema.description));
+      if (schema.description) {
+        const description = el("small", "field-description", schema.description);
+        description.id = `rule-help-${key}`;
+        input.setAttribute("aria-describedby", description.id);
+        label.append(description);
+      }
       return label;
     }));
   }
@@ -539,15 +842,20 @@ function renderSamples() {
     const copy = el("div");
     copy.append(el("strong", "", sample.name), el("p", "", sample.description));
     const link = el("a", "icon-button", "⇩");
-    link.href = `/api/games/${game.game_id}/samples/${sample.language}`;
+    link.href = scopedApiPath(`/api/games/${game.game_id}/samples/${sample.language}`);
     link.title = `Tải bot ${sample.language}`;
+    link.setAttribute("aria-label", link.title);
     const button = el("button", "icon-button", "＋");
     button.dataset.sample = sample.language; button.title = `Nộp mẫu ${sample.language}`;
+    button.dataset.gameId = game.game_id;
+    button.setAttribute("aria-label", button.title);
     button.addEventListener("click", async () => {
-      button.disabled = true;
+      const key = `${game.game_id}:${sample.language}`;
+      if (app.sampleBusy.has(key)) return;
+      app.sampleBusy.add(key); busyButton(button, true);
       try { const bot = await addSample(sample.language, game.game_id); toast(`${bot.name} đã sẵn sàng.`); }
       catch (error) { toast(error.message, true); }
-      finally { button.disabled = false; await refreshBots().catch(() => {}); }
+      finally { app.sampleBusy.delete(key); busyButton(button, false); applyPermissions(); await refreshBots().catch(() => {}); }
     });
     row.append(el("span", `language-icon ${sample.language}`, sample.language === "python" ? "PY" : sample.language === "cpp" ? "C++" : "JAVA"), copy, link, button);
     return row;
@@ -559,10 +867,11 @@ function renderSamples() {
 function resultDescription(match) {
   if (match.status === "interrupted") return "Gián đoạn";
   if (!match.result) return "Đang thi đấu";
-  return match.result.winner ? `${fighterLabel(match, match.result.winner)} WINS` : "DRAW";
+  return match.result.winner ? `${fighterLabel(match, match.result.winner)} thắng` : "Hòa";
 }
 
 function renderMatchList(target, matches) {
+  const restore = preserveListState(target);
   target.replaceChildren();
   if (!matches.length) target.append(el("div", "empty-state", "Chưa có trận đấu. Organizer mời hai Player READY để thi đấu."));
   matches.forEach((match, index) => {
@@ -574,18 +883,21 @@ function renderMatchList(target, matches) {
     names.append(document.createTextNode(fighterLabel(match, "A")), el("span", "", "VS"), document.createTextNode(fighterLabel(match, "B")));
     names.append(el("small", "match-date", `${match.game_name || app.games.find(g => g.game_id === match.game_id)?.name || match.game_id} · ${new Date(match.created_at).toLocaleString("vi-VN")} · ${match.turn} lượt`));
     names.append(el("small", "match-date", `#${match.id} · TẠO BỞI / ${match.created_by ? ownerLabel(match.created_by) : "Trận cũ"}`));
-    row.append(names, el("span", `match-status ${match.status}`, match.status.toUpperCase()), el("span", "match-result", resultDescription(match)));
+    row.append(names, statusBadge(match.status), el("span", "match-result", resultDescription(match)));
     const button = el("button", "button ghost", ["running", "queued"].includes(match.status) ? "Live ↗" : "Replay ↗");
+    button.dataset.focusKey = `match-${match.id}`;
+    button.setAttribute("aria-label", `${["running", "queued"].includes(match.status) ? "Xem trực tiếp" : "Xem replay"} trận ${match.id}`);
     button.addEventListener("click", () => loadMatch(match.id).catch(error => toast(error.message, true)));
     row.append(button);
     target.append(row);
   });
+  restore();
 }
 
 function renderMatches() {
   renderMatchList($("#recent-matches"), app.matches.slice(0, 4));
   renderMatchList($("#all-matches"), app.matches);
-  $("#history-count").textContent = `${app.matches.length} MATCHES`;
+  $("#history-count").textContent = `${app.matches.length} trận`;
   renderStats();
 }
 
@@ -876,12 +1188,28 @@ async function refreshTournaments() {
   app.tournaments = await api("/api/tournaments");
   renderTournaments();
 }
+async function refreshBots() {
+  if (app.accountOnly) {
+    if (app.accountAudience !== "player") return;
+    // Account-Only returns {bots: [...]}, not the legacy bare array.
+    // Keep the current library intact on a failed or malformed response.
+    if (!app.team?.team) {
+      app.bots = [];
+    } else {
+      const response = await api("/api/player/bots");
+      if (!Array.isArray(response.bots)) throw new Error("Dữ liệu submission của Team không hợp lệ.");
+      app.bots = response.bots;
+    }
+  } else {
+    app.bots = await api("/api/bots");
+  }
+  renderBots();
+}
 async function refreshMatches() {
   const [matches] = await Promise.all([
     api("/api/matches"),
     refreshStandings(),
   ]);
-
   app.matches = matches;
   renderMatches();
 }
@@ -941,17 +1269,43 @@ $("#tournament-create-form").addEventListener("submit", async event => {
 
 $("#upload-form").addEventListener("submit", async event => {
   event.preventDefault();
+  if (app.uploading) return;
   const form = event.currentTarget;
   const button = form.querySelector("[type=submit]");
   const file = $("#bot-file").files[0];
-  if (!file || file.size > 256 * 1024 || !/\.(py|cpp|java)$/i.test(file.name)) {
-    feedback("#upload-feedback", "Chọn file .py, .cpp hoặc .java không vượt quá 256 KiB.", true);
+  if (!file || !file.size || file.size > 256 * 1024 || !/\.(py|cpp|java)$/i.test(file.name)) {
+    feedback("#upload-feedback", "Chọn file .py, .cpp hoặc .java có nội dung, không vượt quá 256 KiB.", true);
+    $("#bot-file").setAttribute("aria-invalid", "true");
     return;
   }
-  button.disabled = true;
+  app.uploading = true; busyButton(button, true);
+  form.setAttribute("aria-busy", "true");
   button.textContent = "Đang tải & biên dịch…";
+  feedback("#upload-feedback", "Đang gửi code và chờ kết quả biên dịch từ máy chủ…");
+  $("#upload-feedback").classList.add("pending");
   $("#compiler-log").classList.add("hidden");
   try {
+    if (app.accountOnly) {
+      if (!app.team?.team) throw new Error("Cần tham gia Team trước khi nộp bot.");
+      const source_base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error("Không thể đọc file bot."));
+        reader.onload = () => resolve(String(reader.result).split(",")[1]);
+        reader.readAsDataURL(file);
+      });
+      const response = await api("/api/player/bots", jsonOptions("POST", {
+        filename: file.name, name: form.elements.name.value,
+        game_id: app.competition.selected_game_id, source_base64
+      }));
+      const bot = response.bot;
+      feedback("#upload-feedback", bot.status === "ready" ? "Bot đã nộp cho Team." : "Biên dịch lỗi.", bot.status !== "ready");
+      if (bot.logs) {
+        $("#compiler-log").textContent = bot.logs;
+        $("#compiler-log").classList.remove("hidden");
+      }
+      await refreshAccountTeam();
+      return;
+    }
     const body = new FormData(form);
     // Disabled Player game selectors are omitted by FormData; use server state explicitly.
     body.set("game_id", app.competition.selected_game_id);
@@ -962,14 +1316,28 @@ $("#upload-form").addEventListener("submit", async event => {
       $("#compiler-log").classList.remove("hidden");
     }
     await refreshBots();
-    if (bot.status === "ready") { form.reset(); populateGameSelectors(); $("#file-label").textContent = "Chọn hoặc kéo file vào đây"; }
+    if (bot.status === "ready") { form.reset(); populateGameSelectors(); updateSelectedFile(); }
   } catch (error) { feedback("#upload-feedback", error.message, true); }
-  finally { button.disabled = false; button.textContent = "Upload & Compile ↗"; applyPermissions(); }
+  finally { app.uploading = false; busyButton(button, false); form.setAttribute("aria-busy", "false"); button.textContent = "Tải lên & biên dịch ↗"; applyPermissions(); }
 });
-$("#bot-file").addEventListener("change", () => { $("#file-label").textContent = $("#bot-file").files[0]?.name || "Chọn hoặc kéo file vào đây"; });
+function updateSelectedFile() {
+  const file = $("#bot-file").files[0];
+  $("#file-label").textContent = file?.name || "Thả code vào đây";
+  $("#file-language").classList.toggle("hidden", !file);
+  $("#file-language").textContent = file ? `${languageLabel(file.name.split(".").pop().toLowerCase())} · ${(file.size / 1024).toFixed(1)} KiB` : "";
+  $("#bot-file").removeAttribute("aria-invalid");
+}
+$("#bot-file").addEventListener("change", updateSelectedFile);
 const dropZone = $("#drop-zone");
-["dragenter", "dragover"].forEach(name => dropZone.addEventListener(name, () => dropZone.classList.add("dragover")));
+["dragenter", "dragover"].forEach(name => dropZone.addEventListener(name, event => { event.preventDefault(); dropZone.classList.add("dragover"); }));
 ["dragleave", "drop"].forEach(name => dropZone.addEventListener(name, () => dropZone.classList.remove("dragover")));
+dropZone.addEventListener("drop", event => {
+  event.preventDefault();
+  if (app.uploading || !event.dataTransfer?.files.length) return;
+  const transfer = new DataTransfer(); transfer.items.add(event.dataTransfer.files[0]);
+  $("#bot-file").files = transfer.files;
+  updateSelectedFile();
+});
 
 async function addSample(language, gameId = app.selectedGameId) {
   const bot = await api(`/api/games/${gameId}/samples/${language}/submit`, { method: "POST" });
@@ -977,8 +1345,9 @@ async function addSample(language, gameId = app.selectedGameId) {
   return bot;
 }
 $("#seed-samples").addEventListener("click", async event => {
+  if (app.seeding) return;
   const button = event.currentTarget;
-  button.disabled = true;
+  app.seeding = true; busyButton(button, true); applyPermissions();
   button.textContent = "Đang thêm…";
   const errors = [];
   const gameId = app.selectedGameId;
@@ -990,16 +1359,19 @@ $("#seed-samples").addEventListener("click", async event => {
     }
     await refreshBots();
     toast(errors.length ? errors.join("\n") : seeded.length ? `${seeded.length} bot mẫu đã sẵn sàng. Chọn SET AS ACTIVE BOT trong My Submissions.` : "Game này chưa có bot mẫu; hãy nộp code cho game đã chọn.", errors.length > 0);
-  } finally { button.disabled = false; button.textContent = "Thêm bot mẫu ↗"; applyPermissions(); }
+  } finally { app.seeding = false; busyButton(button, false); button.textContent = "Bắt đầu với bot mẫu ↗"; applyPermissions(); }
 });
+
+$("#rules-form").addEventListener("input", () => { app.rulesDirty = true; applyPermissions(); });
 
 $("#rules-form").addEventListener("submit", async event => {
   event.preventDefault();
+  if (app.rulesBusy) return;
   const form = event.currentTarget;
   const button = form.querySelector("[type=submit]");
   const game = selectedGame();
   if (!game) return;
-  button.disabled = true;
+  app.rulesBusy = true; busyButton(button, true);
   try {
     const rules = Object.fromEntries(Object.entries(game.rules_schema.properties).map(([key, schema]) => {
       const input = form.elements[key];
@@ -1007,25 +1379,31 @@ $("#rules-form").addEventListener("submit", async event => {
       return [key, value];
     }));
     await api(`/api/games/${game.game_id}/rules`, jsonOptions("PUT", rules));
+    app.rulesDirty = false;
     await acceptCompetition(await api("/api/competition"));
-    feedback("#rules-feedback", "Đã lưu. Bộ luật này áp dụng cho các trận bắt đầu từ bây giờ.");
+    feedback("#rules-feedback", "Đã lưu cấu hình. Mở cuộc thi để áp dụng cho các trận mới.");
   } catch (error) { feedback("#rules-feedback", error.message, true); }
-  finally { applyPermissions(); }
+  finally { app.rulesBusy = false; busyButton(button, false); applyPermissions(); }
 });
 $("#default-rules").addEventListener("click", async event => {
+  if (app.rulesBusy) return;
+  const button = event.currentTarget;
   const game = selectedGame();
   if (!game) return;
-  const button = event.currentTarget; button.disabled = true;
+  if (!await confirmAction("Khôi phục luật mặc định?", `Cấu hình hiện tại của ${game.name} sẽ được thay bằng luật mặc định và lưu lên máy chủ.`, "Khôi phục mặc định")) return;
+  app.rulesBusy = true; busyButton(button, true); applyPermissions();
   try {
     await api(`/api/games/${game.game_id}/rules/reset`, { method: "POST" });
     await acceptCompetition(await api("/api/competition"));
     feedback("#rules-feedback", `Đã khôi phục và lưu luật mặc định của ${game.name}.`);
   } catch (error) { feedback("#rules-feedback", error.message, true); }
-  finally { applyPermissions(); }
+  finally { app.rulesBusy = false; busyButton(button, false); applyPermissions(); }
 });
 
 for (const [selector, action] of [["#competition-open", "open"], ["#competition-close", "close"]]) {
   $(selector).addEventListener("click", async () => {
+    if (app.competitionBusy) return;
+    if (action === "close" && !await confirmAction("Đóng cuộc thi?", "Lời mời và trận mới sẽ bị chặn. Các trận đang chạy vẫn tiếp tục; chỉ được chỉnh game và luật sau khi chúng kết thúc.", "Đóng cuộc thi")) return;
     app.competitionBusy = true; applyPermissions();
     try {
       await acceptCompetition(await api(`/api/competition/${action}`, { method: "POST" }));
@@ -1066,6 +1444,7 @@ async function loadMatch(id) {
   app.displayedResult = false;
   app.nextFrameAt = performance.now() + 650;
   app.transition = null;
+  document.body.classList.add("has-match");
   $("#standby-overlay").classList.add("hidden");
   $("#victory-overlay").classList.add("hidden");
   location.hash = "home";
@@ -1079,10 +1458,13 @@ async function loadMatch(id) {
 }
 
 function connectSocket(id, generation) {
-  if (generation !== app.generation) return;
+  if (generation !== app.generation || (app.accountOnly && (!app.account || app.accountAudience !== "admin"))) return;
   const scheme = location.protocol === "https:" ? "wss" : "ws";
-  const socket = new WebSocket(`${scheme}://${location.host}/ws/matches/${id}?after=${app.frames.length - 1}`);
+  const socketPath = app.accountOnly ? `/api/admin/ws/matches/${id}` : `/ws/matches/${id}`;
+  const socket = new WebSocket(`${scheme}://${location.host}${socketPath}?after=${app.frames.length - 1}`);
   app.socket = socket;
+  app.arenaOnline = false;
+  socket.onopen = () => { if (generation === app.generation) { app.arenaOnline = true; updatePlayback(); } };
   socket.onmessage = event => {
     if (generation !== app.generation) return;
     let message;
@@ -1098,8 +1480,14 @@ function connectSocket(id, generation) {
     }
     updatePlayback();
   };
-  socket.onclose = () => {
-    if (generation !== app.generation || !["running", "queued"].includes(app.match?.status)) return;
+  socket.onclose = event => {
+    if (app.accountOnly && [1008, 4401].includes(event.code)) {
+      accountExpired();
+      return;
+    }
+    if (generation !== app.generation || !["running", "queued"].includes(app.match?.status)
+        || (app.accountOnly && !app.account)) return;
+    app.arenaOnline = false; updatePlayback();
     app.reconnectTimer = setTimeout(async () => {
       if (generation !== app.generation) return;
       try {
@@ -1115,7 +1503,7 @@ function connectSocket(id, generation) {
       }
     }, 1500);
   };
-  socket.onerror = () => { $("#feed-label").textContent = "RECONNECTING…"; };
+  socket.onerror = () => { if (generation === app.generation) { app.arenaOnline = false; updatePlayback(); } };
 }
 
 function currentFrame() { return app.frames[app.cursor] || selectedGame()?.preview_state || null; }
@@ -1131,7 +1519,7 @@ function updateHud(frame) {
   $("#turn-max").textContent = hud.turnMax;
   for (const player of ["A", "B"]) {
     const key = player.toLowerCase();
-    $("#fighter-" + key + "-name").textContent = app.match ? fighterLabel(app.match, player) : "CHƯA CHỌN BOT";
+    $("#fighter-" + key + "-name").textContent = app.match ? fighterLabel(app.match, player) : "Chưa có bot thi đấu";
     $("#hp-" + key + "-fill").style.width = `${Math.max(0, Math.min(100, 100 * hud.players[player].value / hud.players[player].max))}%`;
     $("#hp-" + key + "-text").textContent = hud.players[player].text;
   }
@@ -1143,12 +1531,19 @@ function updatePlayback() {
   timeline.value = app.cursor;
   $("#play-start").classList.toggle("selected", !app.paused && !!app.match);
   $("#play-pause").classList.toggle("selected", app.paused && !!app.match);
+  $("#play-start").setAttribute("aria-pressed", String(!app.paused && !!app.match));
+  $("#play-pause").setAttribute("aria-pressed", String(app.paused && !!app.match));
+  timeline.setAttribute("aria-valuetext", `Lượt ${currentFrame()?.turn || 0}, ${app.frames.length} trạng thái đã nhận`);
+  ["#play-pause", "#play-reset", "#play-speed", "#timeline", "#share-match", "#download-replay"].forEach(selector => {
+    $(selector).disabled = !app.match;
+    $(selector).title = !app.match ? "Chọn một trận để dùng playback" : $(selector).getAttribute("aria-label");
+  });
   const live = ["running", "queued"].includes(app.match?.status);
   const status = $("#arena-status");
   status.classList.toggle("running", live);
-  const label = !app.match ? "STANDBY" : app.paused ? "PAUSED" : live ? "LIVE" : "REPLAY";
+  const label = !app.match ? "Chờ trận đấu" : app.paused ? "Tạm dừng" : live ? app.arenaOnline ? "Trực tiếp" : "Đang kết nối lại" : "Replay";
   status.replaceChildren(el("i"), document.createTextNode(label));
-  $("#feed-label").textContent = !app.match ? "WAITING FOR MATCH" : app.paused ? "PLAYBACK PAUSED / BACKEND CONTINUES" : live ? "WEBSOCKET / LIVE FEED" : "REPLAY / SAVED JSON";
+  $("#feed-label").textContent = !app.match ? "Chưa chọn trận" : app.paused ? live ? "Tạm dừng hiển thị · Trận vẫn tiếp tục" : "Replay đang tạm dừng" : live ? app.arenaOnline ? "Cập nhật trực tiếp" : "Đang khôi phục luồng trận…" : "Replay từ dữ liệu đã lưu";
 }
 
 function setFrame(index, animate = true) {
@@ -1195,9 +1590,9 @@ function showResult(frame) {
   if (!result) return;
   app.displayedResult = true;
   $("#victory-overlay").classList.remove("hidden");
-  $("#victory-title").textContent = app.match?.status === "interrupted" ? "INTERRUPTED" : result.winner ? "VICTORY" : "DRAW";
-  $("#victory-winner").textContent = result.winner ? fighterLabel(app.match, result.winner) : "KHÔNG CÓ NGƯỜI THẮNG";
-  const reasons = { bot_error: "Lỗi bot: " + Object.entries(result.faults || {}).map(([p, error]) => `${p}: ${error}`).join(" · "), server_restart: "Máy chủ đã khởi động lại giữa trận.", server_shutdown: "Máy chủ dừng giữa trận.", server_error: "Máy chủ gặp lỗi khi xử lý trận đấu." };
+  $("#victory-title").textContent = app.match?.status === "interrupted" ? "Trận bị gián đoạn" : result.winner ? "Chiến thắng!" : "Trận đấu hòa";
+  $("#victory-winner").textContent = result.winner ? fighterLabel(app.match, result.winner) : "Không có người thắng";
+  const reasons = { bot_error: "Lỗi bot: " + Object.entries(result.faults || {}).map(([p, error]) => `${p}: ${error}`).join(" · "), server_restart: "Máy chủ đã khởi động lại giữa trận.", server_shutdown: "Máy chủ dừng giữa trận.", server_error: "Máy chủ gặp lỗi khi xử lý trận đấu.", runner_unavailable: "Hạ tầng chạy bot bị gián đoạn. Không xử thua Player.", organizer_cancelled: "Organizer đã hủy trận đấu." };
   $("#victory-reason").textContent = reasons[result.reason] || NeonRenderers.get(frameGameId(frame)).result(result);
 }
 
@@ -1252,7 +1647,9 @@ $("#download-replay").addEventListener("click", async () => {
 // organizer's current game selection: old replays retain the right renderer.
 const canvas = $("#arena");
 const ctx = canvas.getContext("2d");
-const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const motionPreference = window.matchMedia("(prefers-reduced-motion: reduce)");
+let reducedMotion = motionPreference.matches;
+motionPreference.addEventListener("change", event => { reducedMotion = event.matches; });
 function draw(time) {
   const frame = currentFrame();
   if (!frame) return;
@@ -1269,36 +1666,201 @@ requestAnimationFrame(animate);
 setInterval(() => { $("#clock").textContent = new Date().toLocaleTimeString("vi-VN", { hour12: false }); }, 1000);
 
 async function bootstrap() {
+  if (app.initializing) return;
+  app.initializing = true;
   try {
-    // Establish the cookie first; parallel startup requests then share one identity.
-    const session = await api("/api/session");
-    acceptSession(session);
-    const [health, bots, registry, matches, tournaments, competition] = await Promise.all([
-      api("/api/health"),
-      api("/api/bots"),
+    const health = await api("/api/health");
+    app.accountAuth = health.account_auth === true;
+    app.accountOnly = health.account_only === true;
+    if (app.accountOnly) {
+      $("#account-mode-note").classList.remove("hidden");
+      if (!app.account && !await restoreAccount()) {
+        setConnection(true); renderSession(); showAccountDialog(); return;
+      }
+    } else {
+      // Establish the legacy cookie first; parallel startup requests then share one identity.
+      acceptSession(await api("/api/session"));
+    }
+    const canInspectPrivate = !app.accountOnly || app.accountAudience === "admin";
+    const [bots, registry, matches, tournaments, competition] = await Promise.all([
+      canInspectPrivate ? api("/api/bots") : Promise.resolve([]),
       api("/api/games"),
-      api("/api/matches"),
-      api("/api/tournaments"),
-      api("/api/competition"),
+      canInspectPrivate ? api("/api/matches") : Promise.resolve([]),
+      canInspectPrivate ? api("/api/tournaments") : Promise.resolve([]),
+      api("/api/competition")
     ]);
     app.bots = bots; app.games = registry.games; app.matches = matches; app.tournaments = tournaments;
     await acceptCompetition(competition);
+    if (app.accountOnly && app.accountAudience === "player") await refreshAccountTeam();
     populateStandingsGameSelector();
-    await refreshStandings();
+    if (canInspectPrivate) await refreshStandings();
+    else app.standings = [];
     setConnection(health.status === "ok");
     renderBots(); renderRules(true); renderMatches(); renderStandings(); renderTournaments();
     applyPermissions();
+    app.initialized = true;
     connectCompetitionSocket();
+    updatePlayback();
     const matchId = new URL(location.href).searchParams.get("match");
     if (matchId) await loadMatch(matchId);
-  } catch (error) { setConnection(false); toast(`Không kết nối được backend: ${error.message}`, true); }
+  } catch (error) { setConnection(false); toast(`Chưa kết nối được workspace: ${error.message}`, true); }
+  finally { app.initializing = false; renderConnection(); }
 }
 bootstrap();
+$("#retry-connection").addEventListener("click", async event => {
+  const button = event.currentTarget; busyButton(button, true);
+  try {
+    if (!app.initialized) await bootstrap();
+    else {
+      setConnection((await api("/api/health")).status === "ok");
+      if (app.competitionSocket?.readyState !== WebSocket.OPEN) {
+        clearTimeout(app.competitionTimer); app.competitionSocket?.close(); connectCompetitionSocket();
+      }
+    }
+  } catch (error) { setConnection(false); toast(error.message, true); }
+  finally { busyButton(button, false); button.disabled = false; }
+});
 setInterval(async () => {
-  if (document.hidden || app.refreshing || !app.participant) return;
+  if (document.hidden || app.refreshing || !app.participant || (app.accountOnly && app.accountAudience !== "admin")) return;
+  if (!app.initialized) { bootstrap(); return; }
   app.refreshing = true;
   try { await Promise.all([refreshMatches(), refreshBots(), refreshTournaments()]); setConnection(true); }
   catch { setConnection(false); }
   finally { app.refreshing = false; }
 }, 2000);
 window.addEventListener("beforeunload", () => { app.shuttingDown = true; app.generation++; app.socket?.close(); clearTimeout(app.competitionTimer); clearInterval(app.heartbeatTimer); app.competitionSocket?.close(); });
+
+async function refreshAccountTeam() {
+  if (!app.accountOnly || app.accountAudience !== "player" || !app.account) return;
+  const [mine, invites] = await Promise.all([api("/api/player/team"), api("/api/player/team-invitations")]);
+  app.team = mine;
+  const team = mine.team, captain = mine.my_role === "CAPTAIN";
+  $("#account-team-create").classList.toggle("hidden", !!team);
+  $("#account-team-manage").classList.toggle("hidden", !team);
+  $("#account-team-status").textContent = team
+    ? `${team.display_name} · ${team.status} · ${mine.my_role} · ${team.member_count} thành viên`
+    : "Bạn chưa tham gia Team. Tạo Team mới hoặc nhận lời mời bên dưới.";
+  $("#account-team-invite").classList.toggle("hidden", !captain || team?.status === "ARCHIVED");
+  $("#account-team-activate").classList.toggle("hidden", !captain || team?.status !== "DRAFT");
+  $("#account-team-archive").classList.toggle("hidden", !captain);
+  $("#account-team-rename").classList.toggle("hidden", !captain);
+  $("#account-team-leave").classList.toggle("hidden", !team || captain);
+  const inbox = $("#account-team-inbox");
+  inbox.replaceChildren();
+  for (const inv of invites.invitations.filter(i => i.status === "PENDING")) {
+    const row = el("div", "bot-row"), label = el("span", "", `Lời mời: ${inv.team_display_name} · hết hạn ${new Date(inv.expires_at*1000).toLocaleString("vi-VN")}`);
+    row.append(label);
+    for (const action of ["accept","decline"]) {
+      const btn = el("button", "button ghost small", action === "accept" ? "Tham gia" : "Từ chối");
+      btn.disabled = !!team && action === "accept";
+      btn.onclick = async () => {
+        try {
+          await api(`/api/player/team-invitations/${encodeURIComponent(inv.id)}/${action}`, jsonOptions("POST", {}));
+          await refreshAccountTeam();
+        } catch (e) { toast(e.message, true); }
+      };
+      row.append(btn);
+    }
+    inbox.append(row);
+  }
+  if (team) {
+    const members = await api(`/api/player/teams/${encodeURIComponent(team.id)}/members`);
+    const target = $("#account-team-members");
+    target.replaceChildren();
+    target.append(el("strong", "", "Thành viên: "));
+    target.append(document.createTextNode(members.members.map(m => `${m.display_name} (${m.team_role})`).join(", ")));
+    const actions = $("#account-team-member-actions"); actions.replaceChildren();
+    if (captain) for (const member of members.members.filter(m => m.team_role === "MEMBER")) {
+      const row=el("div","bot-row");row.append(el("span","",member.display_name));
+      for(const action of ["captain-transfer","remove"]){
+        const btn=el("button","button ghost small",action==="remove"?"Xóa thành viên":"Chuyển Captain");
+        btn.onclick=async()=>{
+          if(!confirm(action==="remove"?"Xóa thành viên khỏi Team?":"Chuyển quyền Captain cho thành viên này?"))return;
+          const path=action==="remove" ? `/api/player/teams/${team.id}/members/${member.user_id}/remove`
+            : `/api/player/teams/${team.id}/captain-transfer`;
+          try{await api(path,jsonOptions("POST",action==="remove"?{}:{new_captain_user_id:member.user_id}));await refreshAccountTeam();}
+          catch(e){toast(e.message,true);}
+        };row.append(btn);
+      }actions.append(row);
+    }
+  }
+  const bots = team ? await api("/api/player/bots") : {bots:[]};
+  app.bots = bots.bots;
+  app.activeTeamBot = team ? (await api(`/api/player/active-bot?game_id=${encodeURIComponent(app.competition.selected_game_id)}`)).active : null;
+  renderBots();
+}
+function renderAccountBotLibrary() {
+  const target = $("#bot-library");
+  target.replaceChildren();
+  if (!app.bots.length) target.append(el("div","empty-state","Team chưa có submission."));
+  for (const bot of app.bots) {
+    const row=el("div","bot-row"), name=el("strong","",`${bot.name} · ${bot.language.toUpperCase()} · ${bot.status}`);
+    row.append(name,el("span","tag",bot.game_id));
+    const active=app.activeTeamBot?.bot?.id===bot.id;
+    const btn=el("button","button ghost small",active?"Active Bot ✓":"Chọn Active Bot");
+    btn.disabled=app.team?.my_role!=="CAPTAIN" || app.team?.team?.status!=="ACTIVE" || bot.status!=="ready" || active;
+    btn.onclick=async()=>{
+      try { await api("/api/player/active-bot",jsonOptions("PUT",{bot_id:bot.id,game_id:bot.game_id})); await refreshAccountTeam(); }
+      catch(e){toast(e.message,true);}
+    };
+    row.append(btn);
+    const view=el("button","button ghost small","Xem source");
+    view.onclick=async()=>{
+      try{const src=await api(`/api/player/bots/${bot.id}/source`);
+        const details=el("details");details.open=true;
+        details.append(el("summary","","Source · "+src.filename),el("pre","",src.source));
+        row.append(details);view.disabled=true;
+      }catch(e){toast(e.message,true);}
+    };row.append(view);
+    if(bot.logs) {const details=el("details"); details.append(el("summary","","Compiler log"),el("pre","",bot.logs));row.append(details);}
+    target.append(row);
+  }
+}
+$("#account-team-create").addEventListener("submit",async event=>{
+  event.preventDefault(); const form=event.currentTarget,btn=form.querySelector("button");btn.disabled=true;
+  try { await api("/api/player/teams",jsonOptions("POST",{
+    slug:form.elements.slug.value,display_name:form.elements.display_name.value
+  })); await refreshAccountTeam();toast("Đã tạo Team.");}
+  catch(e){toast(e.message,true);}finally{btn.disabled=false;}
+});
+$("#account-team-invite").addEventListener("submit",async event=>{
+  event.preventDefault();const form=event.currentTarget,btn=form.querySelector("button");btn.disabled=true;
+  try {await api(`/api/player/teams/${app.team.team.id}/invitations`,jsonOptions("POST",{username:form.elements.username.value}));
+    form.reset();toast("Đã gửi lời mời.");await refreshAccountTeam();}
+  catch(e){toast(e.message,true);}finally{btn.disabled=false;}
+});
+$("#account-team-activate").addEventListener("click",async()=>{
+  try {await api(`/api/player/teams/${app.team.team.id}/activate`,jsonOptions("POST",{}));await refreshAccountTeam();}
+  catch(e){toast(e.message,true);}
+});
+$("#account-team-archive").addEventListener("click",async()=>{
+  if(!confirm("Lưu trữ Team sẽ kết thúc tất cả memberships và hủy lời mời. Tiếp tục?"))return;
+  try{await api(`/api/player/teams/${app.team.team.id}/archive`,jsonOptions("POST",{}));await refreshAccountTeam();}
+  catch(e){toast(e.message,true);}
+});
+
+$("#account-team-rename").addEventListener("submit", async event => {
+  event.preventDefault();
+  // currentTarget is only available while the browser dispatches the event,
+  // not after the first await. Keep a stable reference for subsequent updates.
+  const form = event.currentTarget;
+  const button = form.querySelector("[type=submit]");
+  button.disabled = true;
+  try {
+    await api(`/api/player/teams/${app.team.team.id}`, jsonOptions("PATCH", {
+      display_name: form.elements.display_name.value
+    }));
+    form.reset();
+    await refreshAccountTeam();
+    toast("Đã đổi tên Team.");
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    button.disabled = false;
+  }
+});
+$("#account-team-leave").addEventListener("click",async()=>{
+  if(!confirm("Bạn muốn rời Team?"))return;
+  try{await api(`/api/player/teams/${app.team.team.id}/leave`,jsonOptions("POST",{}));await refreshAccountTeam();}
+  catch(e){toast(e.message,true);}
+});

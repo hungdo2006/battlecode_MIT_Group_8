@@ -21,13 +21,13 @@ sys.path.insert(0, str(ROOT))
 from backend.network import lan_addresses
 
 
-def check(url, code, games=('robot_battle', 'ott_v2')):
+def check(url, code, games=('robot_battle', 'ott_v2'), output_dir=None):
     with sync_playwright() as p:
         browser = p.chromium.launch(channel='chrome', headless=True)
         contexts = [browser.new_context(viewport={'width': 1440, 'height': 1000}) for _ in range(3)]
         pages = [c.new_page() for c in contexts]
         errors, ws_urls = [], [[], [], []]
-        output = ROOT / 'docs/screenshots/multiplayer'
+        output = Path(output_dir) if output_dir else ROOT / 'docs/screenshots/liquid-light'
         output.mkdir(parents=True, exist_ok=True)
         for index, page in enumerate(pages):
             page.on('pageerror', lambda error: errors.append(str(error)))
@@ -52,9 +52,14 @@ def check(url, code, games=('robot_battle', 'ott_v2')):
         records = []
         baseline_count = len(org.request.get(url + '/api/matches').json())
 
+        def close_competition():
+            org.locator('#competition-close').click()
+            org.locator('#confirm-dialog').wait_for(state='visible')
+            org.locator('#confirm-accept').click()
+
         def setup(game):
             if org.evaluate('app.competition.competition_locked'):
-                org.locator('#competition-close').click()
+                close_competition()
             org.wait_for_function('app.competition.can_edit')
             org.locator('.nav-item[data-view=rules]').click()
             org.locator('#workspace-game-select').select_option(game)
@@ -90,7 +95,7 @@ def check(url, code, games=('robot_battle', 'ott_v2')):
             assert bot['status'] == 'ready', bot.get('logs')
             row = page.locator('.bot-row').filter(has_text=bot['name']).filter(has_text=bot['filename'])
             # A later submission with the same label remains a distinct immutable row.
-            row.first.get_by_role('button', name='SET AS ACTIVE BOT', exact=True).click()
+            row.first.locator('[data-action=set-active]').click()
             page.wait_for_function('id => app.lobby.me.active_bot_id === id', arg=bot['id'])
             return bot
 
@@ -109,12 +114,13 @@ def check(url, code, games=('robot_battle', 'ott_v2')):
                 page.locator('#invitation-dialog').wait_for(state='visible')
                 assert 'Hoang' in page.locator('#invitation-fighters').inner_text()
                 assert 'Minh' in page.locator('#invitation-fighters').inner_text()
-            a.screenshot(path=str(output / f'{game}-invitation.png'), full_page=True)
-            org.screenshot(path=str(output / f'{game}-organizer.png'), full_page=True)
+            a.screenshot(path=str(output / f'{game}-invitation.png'), animations='disabled')
+            org.evaluate('window.scrollTo({top:0,behavior:"instant"})')
+            org.screenshot(path=str(output / f'{game}-organizer.png'), full_page=True, animations='disabled')
             a.locator('#invitation-accept').click()
             a.wait_for_function('app.currentInvitation?.responses[app.participant.id] === "ACCEPTED"')
             assert a.locator('#invitation-accept').is_disabled()
-            assert 'WAITING FOR OPPONENT' in a.locator('#invitation-wait').inner_text()
+            assert 'Đang chờ đối thủ' in a.locator('#invitation-wait').inner_text()
             before = org.request.get(url + '/api/matches').json()
             assert len(before) == baseline_count + len(records)
             b.locator('#invitation-accept').click()
@@ -147,11 +153,13 @@ def check(url, code, games=('robot_battle', 'ott_v2')):
             for page in pages:
                 page.locator('#play-speed').select_option('4')
                 page.locator('#victory-overlay').wait_for(state='visible', timeout=60000)
-            b.screenshot(path=str(output / f'{game}-result.png'), full_page=True)
+            b.evaluate('window.scrollTo({top:0,behavior:"instant"})')
+            b.screenshot(path=str(output / f'{game}-result.png'), full_page=True, animations='disabled')
             records.append({'game': game, 'match_id': mid, 'frames': len(replay['frames']), 'result': replay['match']['result']})
 
-        org.locator('#competition-close').click()
+        close_competition()
         org.wait_for_function('app.competition.can_edit')
+        org.locator('.nav-item[data-view=rules]').click()
         new_game = 'robot_battle' if records[-1]['game'] == 'ott_v2' else 'ott_v2'
         org.locator('#workspace-game-select').select_option(new_game)
         org.wait_for_function('game => app.selectedGameId === game', arg=new_game)
@@ -163,7 +171,8 @@ def check(url, code, games=('robot_battle', 'ott_v2')):
         a.set_viewport_size({'width': 390, 'height': 844})
         a.locator('.nav-item[data-view=create]').click()
         assert a.evaluate('document.documentElement.scrollWidth <= innerWidth')
-        a.screenshot(path=str(output / 'mobile-lobby.png'), full_page=True)
+        a.evaluate('window.scrollTo({top:0,behavior:"instant"})')
+        a.screenshot(path=str(output / 'mobile-lobby.png'), full_page=True, animations='disabled')
         assert not errors, errors
         assert all(any('/ws/matches/' in u for u in urls) for urls in ws_urls)
         print(json.dumps({'url': url, 'sessions': 3, 'matches': records, 'javascript_errors': errors,

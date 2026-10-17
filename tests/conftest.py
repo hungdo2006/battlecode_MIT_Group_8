@@ -5,6 +5,12 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def configured_admin_code(monkeypatch):
+    # Account HTTP is opt-in. Native regression must not inherit an operator's gate.
+    monkeypatch.setenv("ARENA_ACCOUNT_AUTH", "0")
+    monkeypatch.setenv("ARENA_ACCOUNT_ONLY", "0")
+    # Native regression suite deliberately exercises legacy; sandbox has separate
+    # real-Engine probes. Never inherit an operator's runner setting accidentally.
+    monkeypatch.setenv("ARENA_RUNNER", "legacy")
     # Test-only credential; production reads the user's environment, never this file.
     monkeypatch.setenv("ARENA_ADMIN_CODE", "neon-test-organizer-code")
 
@@ -32,3 +38,15 @@ def open_competition():
         assert response.status_code == 200, response.text
         return response.json()
     return open_room
+
+
+@pytest.fixture
+def stop_backend():
+    def stop(client):
+        # Real restart: close sockets and the first lifespan BEFORE opening the
+        # replacement. Fixture ExitStacks are idempotent at final teardown.
+        sockets = getattr(client, '_test_socket_stack', None)
+        if sockets is not None:
+            sockets.close()
+        client.__exit__(None, None, None)
+    return stop

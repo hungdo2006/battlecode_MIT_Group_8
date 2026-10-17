@@ -134,7 +134,7 @@ def test_close_blocks_new_matches_but_waits_for_running_and_cancel(room, open_co
     assert canceled.json()["game_id"] == "robot_battle"
 
 
-def test_two_ws_clients_late_join_and_restart_persistence(tmp_path, room, open_competition):
+def test_two_ws_clients_late_join_and_restart_persistence(tmp_path, room, open_competition, stop_backend):
     organizer, player = room
     with organizer.websocket_connect("/ws/competition") as a, player.websocket_connect("/ws/competition") as b:
         initial_a = a.receive_json()["state"]
@@ -145,6 +145,7 @@ def test_two_ws_clients_late_join_and_restart_persistence(tmp_path, room, open_c
         assert next_state(b, lambda s: s["phase"] == "open") == opened
         with player.websocket_connect("/ws/competition") as late:
             assert late.receive_json()["state"] == opened
+    stop_backend(organizer)
     with TestClient(create_app(tmp_path)) as restarted:
         state = restarted.get("/api/competition").json()
         assert state["competition_locked"] is True and state["selected_game_id"] == "ott_v2"

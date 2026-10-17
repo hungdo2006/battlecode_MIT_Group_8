@@ -1,13 +1,17 @@
 <!doctype html>
 <html lang="vi">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#080b12"><title>NEON ARENA / Hướng dẫn LAN</title><link rel="icon" href="/static/favicon.svg"><link rel="stylesheet" href="/static/styles.css"></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f6f8fc"><title>NEON ARENA · Hướng dẫn LAN</title><link rel="icon" href="/static/favicon.svg?v=0ab76a04fe4c"><link rel="stylesheet" href="/static/styles.css?v=695af9c02684"></head>
 <body><article class="protocol-document lan-guide">
 <a class="text-button" href="/">← Trở về đấu trường</a>
 <p class="eyebrow">NETWORK PROGRAMMING / MULTI-CLIENT</p>
-<h1>ONE SERVER.<br><em>MANY CHALLENGERS.</em></h1>
+<h1>Một máy chủ.<br><em>Kết nối cả nhóm.</em></h1>
 <p>Một laptop chạy FastAPI và các bot. Các laptop còn lại chỉ cần trình duyệt, cùng Wi-Fi và địa chỉ LAN của máy chủ; không cần cài compiler hay Docker trên máy người chơi.</p>
 <div class="network-status"><strong id="current-origin">Đang kiểm tra kết nối…</strong><p id="network-mode"></p><div id="lan-links"></div></div>
 <h2>01 / Khởi động máy chủ Windows</h2>
+<p>Với Docker Desktop (Linux containers), chạy theo hướng dẫn Phase 2 trong README:</p>
+<pre>py -3 scripts/configure_sandbox.py
+docker compose up --build -d --wait</pre>
+<p>Hoặc dùng chế độ legacy cho code tin cậy, không cần Docker:</p>
 <p>Cài Python, JDK và G++ theo README trong source. Trong thư mục LTM chạy:</p>
 <pre>start.bat
 # Hoặc khi môi trường đã cài:
@@ -19,8 +23,9 @@ Get-NetConnectionProfile</pre>
 <p>Lấy <strong>IPv4 Address</strong> của card <strong>Wireless LAN adapter Wi-Fi</strong>, ví dụ <code>192.168.2.16</code>. Không chọn địa chỉ adapter VPN/WSL/VirtualBox. Laptop B mở <code>http://IP-MAY-CHU:8000</code>. Cả hai máy nên mở bằng cùng URL LAN để link chia sẻ và cookie phiên ổn định.</p>
 <p>Không dùng localhost trên laptop B: đó là địa chỉ của chính laptop B. IP có thể thay đổi sau khi kết nối Wi-Fi lại; chạy ipconfig để xem IP mới. Muốn ổn định, dùng DHCP reservation trên router theo MAC của card Wi-Fi; không tự chọn một IP trùng thiết bị khác.</p>
 <h2>03 / Demo ba laptop</h2>
+<p><strong>Account-Only:</strong> đăng nhập bằng tài khoản Admin/Player; mã Organizer và cookie legacy không cấp quyền. Team submission và Captain Active Bot đã có trong Account-Only Phase 4.2C; Official Match vẫn chưa mở cho đến Phase 4.2D. Quy trình dưới đây chỉ áp dụng khi <code>ARENA_ACCOUNT_ONLY=0</code>.</p>
 <ol>
-<li>Laptop 1 chạy server. Đặt <code>ARENA_ADMIN_CODE</code> trong PowerShell trước <code>start.bat</code>; mở quyền Organizer, chọn Robot Battle/OTT v2, lưu luật rồi <strong>LOCK GAME / OPEN COMPETITION</strong>.</li>
+<li>Laptop 1 chạy server legacy. Đặt <code>ARENA_ADMIN_CODE</code> trong PowerShell trước <code>start.bat</code>; mở quyền Organizer, chọn Robot Battle/OTT v2, lưu luật rồi <strong>LOCK GAME / OPEN COMPETITION</strong>.</li>
 <li>Laptop 2/3 mở URL LAN, đặt nickname Hoang/Minh, upload bot Python/C++/Java theo game hiện tại. Trong <strong>MY SUBMISSIONS</strong>, mỗi người nhấn <strong>SET AS ACTIVE BOT</strong>; giữ website mở để READY.</li>
 <li>Organizer mở <strong>Phòng thi đấu</strong>, thấy Player online và bot/ngôn ngữ. Chọn hai người READY, nhấn <strong>INVITE TO MATCH</strong>. Organizer không nộp bot hoặc tự tham gia.</li>
 <li>Hai Player nhận popup cùng lời mời, mỗi người chọn Accept/Decline. Một Accept chưa chạy trận; hai Accept tự tạo đúng một trận và cả ba tự mở cùng <strong>LIVE ARENA</strong>.</li>
@@ -46,7 +51,18 @@ Invoke-RestMethod http://IP-MAY-CHU:8000/api/health</pre>
 <p>Khi dùng domain/VPS, cấu hình <code>ARENA_READ_ONLY=1</code> và <code>ARENA_ALLOWED_HOSTS=arena.example.com</code>. Chạy backend trên loopback phía sau proxy tin cậy. Chế độ này vẫn cho xem live/replay, nhưng server chặn upload, chạy trận và chỉnh luật. Demo LAN không cần proxy hay TLS.</p>
 <div class="safety-note">TRUSTED GROUP ONLY<br><span>Chỉ chạy code bot do nhóm tin cậy viết. Subprocess không phải sandbox. Không port-forward router hay công khai tính năng thực thi code lên Internet khi chưa có sandbox an toàn.</span></div>
 </article><script>
-fetch('/api/network').then(response => { if (!response.ok) throw new Error(); return response.json(); }).then(info => {
+(async () => {
+  const health = await fetch('/api/health').then(response => response.json());
+  let path = '/api/network';
+  if (health.account_only) {
+    const account = await fetch('/api/admin/auth/me');
+    if (!account.ok) throw new Error('Admin authentication required');
+    path = '/api/admin/network';
+  }
+  const response = await fetch(path);
+  if (!response.ok) throw new Error('Network information unavailable');
+  return response.json();
+})().then(info => {
   document.querySelector('#current-origin').textContent = 'WEBSITE / ' + info.origin;
   document.querySelector('#network-mode').textContent = info.read_only ? 'READ ONLY — chỉ xem live/replay.' : 'TRUSTED LAN — nộp bot và tạo trận trong nhóm.';
   const target = document.querySelector('#lan-links');

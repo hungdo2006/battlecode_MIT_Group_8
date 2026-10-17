@@ -1,4 +1,5 @@
 .venv/
+.vscode/
 __pycache__/
 .pytest_cache/
 *.pyc
@@ -6,3 +7,12 @@ data/
 uploads/
 *.log
 *.zip
+.env
+.env.*
+!.env.example
+backups/
+*.tar.gz
+*.images.tar
+*.receipt.json
+
+docs/screenshots/sandbox/

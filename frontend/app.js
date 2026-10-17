@@ -1936,6 +1936,13 @@ $("#account-team-leave").addEventListener("click",async()=>{
 });
 
 
+// A Team's Official calendar refreshes without requiring a manual click.
+setInterval(() => {
+  if (document.hidden || !app.accountOnly || !app.initialized ||
+      app.accountAudience !== "player" || !app.account) return;
+  refreshOfficialMatches().catch(() => {});
+}, 5000);
+
 // Phase 4.2D3: Account-Only Official Match workspace.
 // Uses the same authenticated API wrapper as Team management.
 function officialDateTime(seconds) {

@@ -31,11 +31,13 @@
     <div class="sidebar-caption">Không gian thi đấu <span>v4.0</span></div>
     <nav aria-label="Điều hướng chính">
       <a class="nav-item active" href="#home" data-view="home"><svg class="nav-icon"><use href="#i-home"/></svg>Tổng quan<span class="nav-number">01</span></a>
-      <a class="nav-item" href="#upload" data-view="upload"><svg class="nav-icon"><use href="#i-upload"/></svg>Nộp bot<span class="nav-number">02</span></a>
-      <a class="nav-item" href="#create" data-view="create"><svg class="nav-icon"><use href="#i-players"/></svg>Phòng thi đấu<span class="nav-number">03</span></a>
-      <a class="nav-item" href="#watch" data-view="watch"><svg class="nav-icon"><use href="#i-play"/></svg>Lịch sử & Replay<span class="nav-number">04</span></a>
-      <a class="nav-item" href="#rules" data-view="rules"><svg class="nav-icon"><use href="#i-sliders"/></svg>Game & Luật chơi<span class="nav-number">05</span></a>
-      <a class="nav-item" href="/lan"><svg class="nav-icon"><use href="#i-network"/></svg>Hướng dẫn LAN<span class="nav-number">06</span></a>
+      <a class="nav-item" href="#standings" data-view="standings"><svg class="nav-icon"><use href="#i-trophy"/></svg>Bảng xếp hạng<span class="nav-number">02</span></a>
+      <a class="nav-item" href="#upload" data-view="upload"><svg class="nav-icon"><use href="#i-upload"/></svg>Nộp bot<span class="nav-number">03</span></a>
+      <a class="nav-item" href="#create" data-view="create"><svg class="nav-icon"><use href="#i-players"/></svg>Phòng thi đấu<span class="nav-number">04</span></a>
+      <a class="nav-item" href="#tournaments" data-view="tournaments"><svg class="nav-icon"><use href="#i-trophy"/></svg>Giải đấu<span class="nav-number">05</span></a>
+      <a class="nav-item" href="#watch" data-view="watch"><svg class="nav-icon"><use href="#i-play"/></svg>Lịch sử & Replay<span class="nav-number">06</span></a>
+      <a class="nav-item" href="#rules" data-view="rules"><svg class="nav-icon"><use href="#i-sliders"/></svg>Game & Luật chơi<span class="nav-number">07</span></a>
+      <a class="nav-item" href="/lan"><svg class="nav-icon"><use href="#i-network"/></svg>Hướng dẫn LAN<span class="nav-number">08</span></a>
     </nav>
     <div class="sidebar-bottom">
       <div class="sidebar-help"><svg class="nav-icon"><use href="#i-network"/></svg><strong>Cùng một mạng.<br>Cùng một đấu trường.</strong><p>Mở workspace trên các máy trong LAN để cùng thi đấu.</p><a href="/lan" class="text-button">Hướng dẫn kết nối <span>↗</span></a></div>
@@ -117,7 +119,11 @@
         <section class="panel history-panel"><div class="panel-heading"><h2>Trận gần đây <span class="tag" id="history-count">Đang tải…</span></h2><button class="text-button" data-go="watch">Xem tất cả <span>↗</span></button></div><div id="recent-matches" class="match-list"><div class="empty-state">Đang tải lịch sử trận đấu…</div></div></section>
       </section>
 
-      <section class="view" id="view-upload" aria-label="Nộp bot">
+        <section class="view" id="view-standings" aria-label="Bảng xếp hạng"><div class="page-intro"><div class="eyebrow">FREE PLAY RANKINGS</div><h1>Bảng xếp hạng<br><em>đấu tự do</em></h1><p>Kết quả được tổng hợp từ các trận free-play đã hoàn tất.</p></div><section class="panel standings-panel"><div class="panel-heading"><h2>Bảng xếp hạng</h2><label class="standings-game-filter">Game<select id="standings-game-select" aria-label="Chọn game để xem bảng xếp hạng"></select></label></div><div class="standings-table-wrap"><table class="standings-table"><thead><tr><th>Hạng</th><th>Người chơi</th><th>Đã đấu</th><th>Thắng</th><th>Hòa</th><th>Thua</th></tr></thead><tbody id="standings-body"><tr><td colspan="6" class="empty-state">Đang tải bảng xếp hạng…</td></tr></tbody></table></div></section></section>
+
+        <section class="view" id="view-tournaments" aria-label="Giải đấu"><div class="page-intro"><div class="eyebrow">TOURNAMENT CONTROL</div><h1>Giải đấu<br><em>& nhánh đấu</em></h1><p>Organizer tạo giải, chọn thể thức và theo dõi tiến trình ghép trận.</p></div><section class="panel organizer-only tournament-create-panel"><div class="panel-heading"><h2>Tạo giải đấu</h2><span class="tag">Organizer</span></div><form id="tournament-create-form" class="padded-form"><label>Tên giải<input name="name" type="text" maxlength="64" required></label><label>Thể thức<select name="format" required><option value="single_elimination">Loại trực tiếp</option><option value="double_elimination">Double elimination</option><option value="round_robin">Vòng tròn tính điểm</option></select></label><div><span>Chọn người chơi</span><div id="tournament-player-options" class="match-list"><div class="empty-state">Đang tải danh sách người chơi…</div></div></div><p id="tournament-feedback" class="feedback"></p><button class="button primary" type="submit">Tạo giải <span>↗</span></button></form></section><section class="panel tournament-list-panel"><div class="panel-heading"><h2>Các giải đấu</h2><button class="button ghost small" id="refresh-tournaments" type="button">Làm mới</button></div><div id="tournaments-list" class="match-list"><div class="empty-state">Đang tải danh sách giải đấu…</div></div></section></section>
+
+        <section class="view" id="view-upload" aria-label="Nộp bot">
         <section class="panel hidden" id="account-team-panel"><div class="panel-heading"><h2>Team workspace</h2><span class="tag">Team vs Team</span></div>
           <div class="padded-form">
             <p class="form-note" id="account-team-status">Đang tải Team…</p>

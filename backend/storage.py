@@ -21,6 +21,7 @@ class Store:
         self.lock = threading.RLock()
         self.bots: dict = self._read(self.data / "bots.json", {})
         self.matches: dict = self._read(self.data / "matches.json", {})
+        self.tournaments: dict = self._read(self.data / "tournaments.json", {})
         if not registry.ids():
             raise ValueError("Cần cài ít nhất một game adapter.")
         fallback = registry.ids()[0]
@@ -170,12 +171,14 @@ class Store:
         with self.lock:
             return deepcopy(list(reversed(self.matches.values())))
 
-    def get_standings(self) -> list[dict]:
+    def get_standings(self, game_id: str | None = None) -> list[dict]:
         with self.lock:
             players = {}
 
             for match in self.matches.values():
                 if match.get("status") != "completed":
+                    continue
+                if game_id is not None and match.get("game_id") != game_id:
                     continue
 
                 player_ids = {
@@ -247,6 +250,32 @@ class Store:
     def get_match(self, match_id: str) -> dict | None:
         with self.lock:
             return deepcopy(self.matches.get(match_id))
+
+    def get_tournaments(self) -> list[dict]:
+        with self.lock:
+            return deepcopy(list(reversed(self.tournaments.values())))
+
+    def get_tournament(self, tournament_id: str) -> dict | None:
+        with self.lock:
+            return deepcopy(self.tournaments.get(tournament_id))
+
+    def save_tournament(self, tournament: dict):
+        with self.lock:
+            self.tournaments[tournament["id"]] = deepcopy(tournament)
+            self._write(self.data / "tournaments.json", self.tournaments)
+
+    def delete_tournament(self, tournament_id: str) -> bool:
+        with self.lock:
+            if tournament_id not in self.tournaments:
+                return False
+            previous = deepcopy(self.tournaments)
+            del self.tournaments[tournament_id]
+            try:
+                self._write(self.data / "tournaments.json", self.tournaments)
+            except Exception:
+                self.tournaments = previous
+                raise
+            return True
 
     def start_replay(self, match_id: str, initial_frame: dict):
         with self.lock:

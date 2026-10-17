@@ -13,6 +13,7 @@ from fastapi import HTTPException
 
 from backend.models import MatchRequest
 from backend.storage import Store
+from backend.tournament_draws import apply_match_result, current_round_for_scheduling
 
 PENDING = {"PENDING", "PARTIALLY_ACCEPTED"}
 TERMINAL_MATCH = {"completed", "interrupted"}
@@ -99,6 +100,54 @@ class Lobby:
                 "current_match_id": reserved.get("match_id") if reserved else None,
                 "last_match_id": self.players.get(player_id, {}).get("last_match_id")}
 
+    def delete_player(self, player_id):
+        if player_id not in self.players or self.role(player_id) != "player":
+            return False
+        if any(tournament.get("status") in {"registration", "active"}
+               and any(player.get("player_id") == player_id
+                       for player in tournament.get("participants", []))
+               for tournament in self.store.get_tournaments()):
+            raise HTTPException(409, "Không thể xóa Player đang tham gia một giải chưa kết thúc.")
+        if self.reservation(player_id) or any(
+            match.meta.get("player_a_id") == player_id or match.meta.get("player_b_id") == player_id
+            for match in self.manager.live.values()
+        ):
+            raise HTTPException(409, "Không thể xóa Player đang có lời mời hoặc trận đấu chưa kết thúc.")
+
+        # Revoke every browser session for this identity and remove its lobby
+        # profile together. Historical matches keep their saved name snapshots.
+        with self.sessions.lock:
+            previous_players = deepcopy(self.players)
+            previous_sessions = deepcopy(self.sessions.records)
+            previous_organizers = set(self.sessions.organizers)
+            previous_connections = deepcopy(self.connections.get(player_id, {}))
+            session_keys = [
+                key for key, record in self.sessions.records.items()
+                if record["participant"]["id"] == player_id
+            ]
+            self.players.pop(player_id, None)
+            self.sessions.records = {
+                key: record for key, record in self.sessions.records.items()
+                if key not in session_keys
+            }
+            self.sessions.organizers.difference_update(session_keys)
+            self.connections.pop(player_id, None)
+            try:
+                Store._write(self.player_path, self.players)
+                Store._write(self.sessions.path, self.sessions.records)
+            except Exception:
+                self.players = previous_players
+                self.sessions.records = previous_sessions
+                self.sessions.organizers = previous_organizers
+                self.connections[player_id] = previous_connections
+                try:
+                    Store._write(self.player_path, self.players)
+                    Store._write(self.sessions.path, self.sessions.records)
+                except Exception:
+                    logger.exception("Failed to roll back player deletion for %s", player_id)
+                raise
+        return True
+
     def snapshot(self, participant, role):
         player_id = participant["id"] if participant else None
         players = [self.player(pid) for pid in self.players if self.role(pid) == "player"]
@@ -171,7 +220,7 @@ class Lobby:
                 self.invitations[invitation["id"]] = previous
             raise
 
-    def create_invitation(self, organizer, player_a, player_b):
+    def create_invitation(self, organizer, player_a, player_b, tournament_id=None, tournament_match_id=None):
         if not self.store.competition_locked:
             raise HTTPException(409, "Cuộc thi chưa OPEN.")
         if player_a == player_b:
@@ -188,7 +237,8 @@ class Lobby:
                       "game_name": self.store.registry.get(game_id).get_metadata()["name"],
                       "rules_snapshot": deepcopy(self.store.active_rules_snapshot),
                       "created_at": time.time(), "expires_at": time.time() + self.invitation_seconds,
-                      "match_id": None}
+                      "match_id": None, "tournament_id": tournament_id,
+                      "tournament_match_id": tournament_match_id}
         self.save_invitation(invitation)
         return deepcopy(invitation)
 
@@ -248,7 +298,8 @@ class Lobby:
             match = await self.manager.start(
                 MatchRequest(bot_a=inv["bots"][a]["id"], bot_b=inv["bots"][b]["id"], game_id=inv["game_id"]),
                 created_by=inv["organizer"], participants={"A": self.identity(a), "B": self.identity(b)},
-                invitation_id=inv["id"])
+                invitation_id=inv["id"], tournament_id=inv.get("tournament_id"),
+                tournament_match_id=inv.get("tournament_match_id"))
         except Exception as exc:
             inv.update(status="CANCELLED", reason="match_start_failed")
             self.save_invitation(inv)
@@ -304,12 +355,37 @@ class Lobby:
                                 connections.pop(cid)
                             changed = changed or bool(stale)
                         for inv in list(self.invitations.values()):
+                            bracket_match = None
+                            if inv.get("tournament_id") and inv.get("tournament_match_id"):
+                                tournament = self.store.get_tournament(inv["tournament_id"])
+                                if tournament and tournament.get("status") == "active":
+                                    bracket_match = next((m for r in tournament.get("rounds", [])
+                                                          for m in r.get("matches", [])
+                                                          if m["id"] == inv["tournament_match_id"]), None)
+                                    if bracket_match and inv["status"] in {"DECLINED", "EXPIRED", "CANCELLED"} \
+                                            and bracket_match.get("status") == "invited":
+                                        bracket_match.update(status="needs_attention",
+                                                             attention_reason=inv.get("reason", inv["status"].lower()))
+                                        await asyncio.to_thread(self.store.save_tournament, tournament)
+                                        changed = True
+                                    if bracket_match and inv["status"] == "STARTED" \
+                                            and bracket_match.get("status") == "invited":
+                                        bracket_match.update(status="playing", match_id=inv.get("match_id"))
+                                        await asyncio.to_thread(self.store.save_tournament, tournament)
+                                        changed = True
+                                    if bracket_match and inv["status"] == "STARTED" and not bracket_match.get("result"):
+                                        played_match = self.manager.get_match(inv.get("match_id"))
+                                        if played_match and played_match.get("status") in TERMINAL_MATCH:
+                                            apply_match_result(tournament, inv["tournament_match_id"], played_match)
+                                            await asyncio.to_thread(self.store.save_tournament, tournament)
+                                            changed = True
                             if inv["status"] == "STARTED" and not inv.get("finished"):
                                 match = self.manager.get_match(inv["match_id"])
                                 if inv["match_id"] not in self.manager.live and match and match["status"] in TERMINAL_MATCH:
                                     self.save_invitation({**inv, "finished": True,
                                                           "result": match["result"], "match_status": match["status"]})
                                     changed = True
+                        changed = await self._schedule_tournament_matches() or changed
                         if changed:
                             await self.control.publish()
                 except Exception:
@@ -317,6 +393,56 @@ class Lobby:
                     logger.exception("Lobby maintenance failed; retrying on next tick")
         except asyncio.CancelledError:
             pass
+
+    async def _schedule_tournament_matches(self):
+        """Create invitations for ready tournament pairings without starting games directly."""
+        if not self.store.competition_locked:
+            return False
+        changed = False
+        active_invites = sum(1 for inv in self.invitations.values()
+                             if inv.get("status") in PENDING | {"STARTED"}
+                             and (inv.get("status") != "STARTED" or inv.get("match_id") in self.manager.live))
+        if len(self.manager.live) + sum(1 for inv in self.invitations.values()
+                                        if inv.get("status") in PENDING) >= 2:
+            return False
+        organizer_fallback = next((deepcopy(record["participant"]) for key, record in self.sessions.records.items()
+                                   if self.sessions.role(key) == "organizer"), None)
+        for tournament in self.store.get_tournaments():
+            if tournament.get("status") != "active":
+                continue
+            organizer = tournament.get("organizer") or organizer_fallback
+            if not organizer:
+                continue
+            if tournament.get("format") == "round_robin":
+                current_round = current_round_for_scheduling(tournament)
+                round_data_to_schedule = [current_round] if current_round else []
+            else:
+                round_data_to_schedule = tournament.get("rounds", [])
+            for round_data in round_data_to_schedule:
+                for match in round_data.get("matches", []):
+                    if active_invites >= 2:
+                        return changed
+                    if match.get("status") != "pending" or not match.get("player_a") or not match.get("player_b"):
+                        continue
+                    a_id = match["player_a"].get("player_id")
+                    b_id = match["player_b"].get("player_id")
+                    if not a_id or not b_id:
+                        continue
+                    a, b = self.player(a_id), self.player(b_id)
+                    if not a or not b or a.get("status") != "READY" or b.get("status") != "READY":
+                        continue
+                    try:
+                        invitation = self.create_invitation(organizer, a_id, b_id,
+                                                            tournament["id"], match["id"])
+                    except HTTPException as exc:
+                        if exc.status_code == 409:
+                            continue
+                        raise
+                    match.update(status="invited", invitation_id=invitation["id"])
+                    await asyncio.to_thread(self.store.save_tournament, tournament)
+                    active_invites += 1
+                    changed = True
+        return changed
 
     async def shutdown(self):
         self.stopping = True

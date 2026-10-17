@@ -3,7 +3,7 @@
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const app = {
-  bots: [], matches: [], standings: [], games: [], selectedGameId: null, rules: {}, match: null, frames: [],
+  bots: [], matches: [], standings: [], standingsGameId: null, tournaments: [], games: [], selectedGameId: null, rules: {}, match: null, frames: [],
   cursor: 0, paused: false, speed: 1, socket: null, generation: 0,
   switchingGame: false, launching: false, transition: null, nextFrameAt: 0,
   victoryDismissed: false, displayedResult: false, reconnectTimer: null,
@@ -32,7 +32,14 @@ function toast(message, error = false) {
 
 async function api(path, options = {}) {
   const response = await fetch(path, options);
-  const data = await response.json();
+  const raw = await response.text();
+  let data;
+  try {
+    data = raw ? JSON.parse(raw) : {};
+  } catch {
+    if (!response.ok) throw new Error(`HTTP ${response.status}: ${raw.slice(0, 240)}`);
+    throw new Error("Máy chủ trả về dữ liệu không hợp lệ.");
+  }
   if (!response.ok) {
     const detail = Array.isArray(data.detail)
       ? data.detail.map(item => `${item.loc?.join(".")}: ${item.msg}`).join("; ")
@@ -79,8 +86,32 @@ function acceptLobby(lobby) {
       const live = el("button", "button ghost small", "LIVE ↗");
       live.onclick = () => loadMatch(player.current_match_id).catch(e => toast(e.message, true)); row.append(live);
     }
+    if (app.role === "organizer" && !app.readOnly) {
+      const remove = el("button", "button ghost small player-delete", "XÓA PLAYER");
+      remove.type = "button";
+      remove.title = "Xóa Player khỏi danh sách hoạt động";
+      remove.addEventListener("click", async () => {
+        if (!window.confirm(
+          `Xóa ${player.display_name} khỏi danh sách Player? Lịch sử trận và bảng xếp hạng đã lưu sẽ được giữ lại.`
+        )) return;
+        remove.disabled = true;
+        try {
+          await api(`/api/players/${player.player_id}`, { method: "DELETE" });
+          app.lobby.players = await api("/api/players");
+          acceptLobby(app.lobby);
+          toast(`${player.nickname} đã được xóa khỏi danh sách Player.`);
+        } catch (error) {
+          toast(error.message, true);
+          remove.disabled = false;
+        }
+      });
+      row.append(remove);
+    }
     players.append(row);
   }
+
+  renderTournamentPlayerOptions();
+
   const me = lobby.me;
   $("#player-status").textContent = me?.status || "OFFLINE";
   $("#active-bot-name").textContent = me?.active_bot ? `${me.active_bot.name} / ${languageLabel(me.active_bot.language)}` : "Chưa chọn Active Bot";
@@ -99,6 +130,40 @@ function acceptLobby(lobby) {
       app.seenFinishes.add(inv.id);
       if (app.match?.id === inv.match_id) toast("MATCH FINISHED / Kết quả đã lưu. Player sẵn sàng cho lời mời tiếp theo.");
     }
+  }
+}
+
+function renderTournamentPlayerOptions() {
+  const target = $("#tournament-player-options");
+  if (!target) return;
+
+  const previouslySelected = new Set(
+    [...target.querySelectorAll('input[name="tournament_player_id"]:checked')]
+      .map(input => input.value)
+  );
+
+  target.replaceChildren();
+
+  const players = app.lobby?.players || [];
+  if (!players.length) {
+    target.append(el("div", "empty-state", "Chưa có Player nào."));
+    return;
+  }
+
+  for (const player of players) {
+    const label = el("label", "tournament-player-option");
+    const checkbox = document.createElement("input");
+
+    checkbox.type = "checkbox";
+    checkbox.name = "tournament_player_id";
+    checkbox.value = player.player_id;
+    checkbox.checked = previouslySelected.has(player.player_id);
+
+    label.append(
+      checkbox,
+      el("span", "", `${player.nickname} · ${player.status}`)
+    );
+    target.append(label);
   }
 }
 
@@ -288,7 +353,7 @@ $("#organizer-form").addEventListener("submit", async event => {
   finally { $("#organizer-code").value = ""; button.disabled = false; }
 });
 
-const labels = { home: "OVERVIEW", upload: "BOT LABORATORY", create: "MATCH CONTROL", watch: "BATTLE ARCHIVE", rules: "GAME CONFIGURATION" };
+const labels = { home: "OVERVIEW", standings: "BẢNG XẾP HẠNG", upload: "BOT LABORATORY", create: "MATCH CONTROL", tournaments: "GIẢI ĐẤU", watch: "BATTLE ARCHIVE", rules: "GAME CONFIGURATION" };
 function navigate() {
   let view = location.hash.slice(1) || "home";
   if (!labels[view]) view = "home";
@@ -530,7 +595,7 @@ function renderStandings() {
 
   if (!app.standings.length) {
     const row = el("tr");
-    const cell = el("td", "empty-state", "Chưa có kết quả để xếp hạng.");
+    const cell = el("td", "empty-state", "Game này chưa có kết quả trận đấu tự do.");
     cell.colSpan = 6;
     row.append(cell);
     tbody.append(row);
@@ -555,26 +620,324 @@ function renderStandings() {
   }
 }
 
+function renderTournaments() {
+  const target = $("#tournaments-list");
+  const expanded = new Set(
+    [...target.querySelectorAll(".tournament-details[open]")]
+      .map(node => node.dataset.tournamentId)
+  );
+  target.replaceChildren();
+
+  if (!app.tournaments.length) {
+    target.append(el("div", "empty-state", "Chưa có giải đấu nào."));
+    return;
+  }
+
+  const formatNames = {
+    single_elimination: "Loại trực tiếp",
+    double_elimination: "Double elimination",
+    round_robin: "Vòng tròn tính điểm",
+  };
+  const statusNames = {
+    registration: "ĐANG ĐĂNG KÝ",
+    active: "ĐANG DIỄN RA",
+    completed: "ĐÃ KẾT THÚC",
+  };
+  const bracketNames = {
+    main: "NHÁNH LOẠI TRỰC TIẾP",
+    winners: "NHÁNH THẮNG",
+    losers: "NHÁNH THUA",
+    final: "CHUNG KẾT",
+  };
+  const matchStatusNames = {
+    pending: "CHỜ NGƯỜI CHƠI SẴN SÀNG", waiting: "CHỜ VÒNG TRƯỚC", bye: "MIỄN ĐẤU",
+    invited: "ĐÃ GỬI LỜI MỜI", playing: "ĐANG THI ĐẤU", completed: "ĐÃ CÓ KẾT QUẢ",
+    needs_attention: "CẦN ORGANIZER XỬ LÝ", skipped: "KHÔNG CẦN THI ĐẤU",
+  };
+  const retryTournamentMatch = (tournament, match, button) => {
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      try {
+        await api(`/api/tournaments/${tournament.id}/matches/${match.id}/retry`, { method: "POST" });
+        await refreshTournaments();
+        toast("Đã đưa cặp đấu trở lại hàng chờ tự động ghép trận.");
+      } catch (error) {
+        button.disabled = false;
+        toast(error.message, true);
+      }
+    });
+  };
+
+  for (const tournament of app.tournaments) {
+    const row = el("article", "tournament-card");
+    const heading = el("div", "tournament-card-heading");
+    const titleBlock = el("div", "tournament-card-title");
+    const status = tournament.status || "registration";
+    const players = tournament.participants || [];
+
+    titleBlock.append(
+      el("span", "tournament-id", `TOURNAMENT / ${(tournament.id || "").slice(0, 8).toUpperCase()}`),
+      el("h3", "", tournament.name)
+    );
+    heading.append(
+      titleBlock,
+      el("span", `tournament-status ${status}`, statusNames[status] || status.toUpperCase())
+    );
+
+    const details = el("div", "tournament-meta");
+    details.append(
+      el("span", "tournament-meta-item", formatNames[tournament.format] || tournament.format),
+      el("span", "tournament-meta-item", `${players.length} người chơi`)
+    );
+
+    const participants = el("div", "tournament-players");
+    participants.append(el("span", "tournament-players-label", "NGƯỜI CHƠI"));
+    const playerList = el("div", "tournament-player-chips");
+    for (const player of players) {
+      playerList.append(el("span", "tournament-player-chip", player.nickname));
+    }
+    if (!players.length) playerList.append(el("span", "tournament-player-chip muted", "Chưa có người chơi"));
+    participants.append(playerList);
+
+    const actions = el("div", "tournament-actions");
+    if (app.role === "organizer" && status === "registration") {
+      const startButton = el("button", "button primary small", "BẮT ĐẦU & TẠO NHÁNH");
+      startButton.type = "button";
+      startButton.addEventListener("click", async () => {
+        startButton.disabled = true;
+        try {
+          const started = await api(`/api/tournaments/${tournament.id}/start`, { method: "POST" });
+          app.tournaments = app.tournaments.map(item => item.id === started.id ? started : item);
+          renderTournaments();
+        } catch (error) {
+          toast(error.message, true);
+          startButton.disabled = false;
+        }
+      });
+      actions.append(startButton);
+    }
+    if (app.role === "organizer") {
+      const deleteButton = el("button", "button ghost small tournament-delete", "XÓA GIẢI");
+      deleteButton.type = "button";
+      deleteButton.addEventListener("click", async () => {
+        if (!window.confirm(`Bạn có chắc muốn xóa giải "${tournament.name}"? Thao tác này không thể hoàn tác.`)) return;
+        deleteButton.disabled = true;
+        try {
+          await api(`/api/tournaments/${tournament.id}`, { method: "DELETE" });
+          app.tournaments = app.tournaments.filter(item => item.id !== tournament.id);
+          renderTournaments();
+          toast(`Đã xóa giải "${tournament.name}".`);
+        } catch (error) {
+          toast(error.message, true);
+          deleteButton.disabled = false;
+        }
+      });
+      actions.append(deleteButton);
+    }
+
+    const disclosure = el("details", "tournament-details");
+    disclosure.dataset.tournamentId = tournament.id;
+    disclosure.open = expanded.has(tournament.id);
+    const summary = el("summary", "", tournament.rounds?.length ? "XEM NHÁNH / LỊCH ĐẤU" : "XEM THỂ LỆ GIẢI");
+    disclosure.append(summary);
+
+    if (!tournament.rounds?.length) {
+      disclosure.append(el("p", "tournament-draw-note", "Organizer bắt đầu giải để tạo nhánh hoặc lịch thi đấu."));
+    } else if (tournament.format === "round_robin") {
+      if (tournament.standings?.length) {
+        const table = el("div", "tournament-standings");
+        table.append(el("div", "tournament-standing-row heading", "HẠNG · NGƯỜI CHƠI · TRẬN · THẮNG · HÒA · THUA · ĐIỂM · ĐIỂM ĐỐI ĐẦU · HIỆU SỐ"));
+        tournament.standings.forEach((player, index) => {
+          table.append(el("div", "tournament-standing-row",
+            `${player.rank ?? index + 1}. ${player.nickname} · ${player.played} · ${player.wins} · ${player.draws} · ${player.losses} · ${player.points} · ${player.head_to_head} · ${player.score_difference > 0 ? "+" : ""}${player.score_difference}`));
+        });
+        disclosure.append(table);
+      }
+      const schedule = el("div", "tournament-schedule");
+      const currentRoundIndex = tournament.rounds.findIndex(round =>
+        (round.matches || []).some(match => !["completed", "skipped"].includes(match.status))
+      );
+      tournament.rounds.forEach((round, roundIndex) => {
+        const roundCard = el("section", "tournament-round tournament-schedule-round");
+        const roundHeading = el("div", "tournament-round-heading");
+        roundHeading.append(el("h4", "", round.name));
+        if (roundIndex === currentRoundIndex) {
+          roundHeading.append(el("span", "tournament-round-state active", "VÒNG ĐANG MỞ"));
+        } else if (currentRoundIndex >= 0 && roundIndex > currentRoundIndex) {
+          roundHeading.append(el("span", "tournament-round-state waiting", "CHỜ VÒNG TRƯỚC"));
+        } else if (currentRoundIndex >= 0 && roundIndex < currentRoundIndex) {
+          roundHeading.append(el("span", "tournament-round-state done", "ĐÃ HOÀN TẤT"));
+        } else {
+          roundHeading.append(el("span", "tournament-round-state done", "ĐÃ HOÀN TẤT"));
+        }
+        roundCard.append(roundHeading);
+        for (const match of round.matches || []) {
+          const matchCard = el("div", "tournament-schedule-match");
+          const a = match.player_a?.nickname || "Chưa xác định";
+          const b = match.player_b?.nickname || "Chưa xác định";
+          matchCard.append(el("span", "", a), el("span", "tournament-versus", "VS"), el("span", "", b));
+          const winner = players.find(player => player.player_id === match.winner_id);
+          const resultLabel = roundIndex > currentRoundIndex && currentRoundIndex >= 0
+            ? "CHỜ VÒNG TRƯỚC"
+            : match.status === "completed"
+            ? (winner ? `THẮNG: ${winner.nickname}` : "HÒA")
+            : matchStatusNames[match.status] || (match.status || "").toUpperCase();
+          matchCard.append(el("small", `tournament-match-state ${match.status || ""}`, resultLabel));
+          if (app.role === "organizer" && match.status === "needs_attention") {
+            const retry = el("button", "button ghost small", "GỬI LẠI LỜI MỜI");
+            retry.type = "button";
+            retryTournamentMatch(tournament, match, retry);
+            matchCard.append(retry);
+          }
+          roundCard.append(matchCard);
+        }
+        if (round.bye_player) {
+          roundCard.append(el("p", "tournament-bye-note", `${round.bye_player.nickname} được nghỉ vòng này.`));
+        }
+        schedule.append(roundCard);
+      });
+      disclosure.append(schedule);
+    } else {
+      const bracket = el("div", "tournament-bracket");
+      const lanes = tournament.format === "double_elimination"
+        ? ["winners", "losers", "final"]
+        : ["main"];
+      for (const laneName of lanes) {
+        const laneRounds = (tournament.rounds || []).filter(round => round.bracket === laneName);
+        if (!laneRounds.length) continue;
+        const lane = el("section", "tournament-bracket-lane");
+        lane.append(el("h4", "", bracketNames[laneName]));
+        const board = el("div", "tournament-bracket-board");
+        for (const round of laneRounds) {
+          const roundColumn = el("div", "tournament-bracket-round");
+          roundColumn.append(el("h5", "", round.name));
+          for (const match of round.matches || []) {
+            const matchCard = el("div", `tournament-bracket-match ${match.status || "waiting"}`);
+            const sideName = (player, source) => player?.nickname || source || "Chờ người thắng vòng trước";
+            matchCard.append(
+              el("span", "tournament-bracket-player", sideName(match.player_a, match.source_a)),
+              el("span", "tournament-bracket-player", sideName(match.player_b, match.source_b)),
+              el("small", "", matchStatusNames[match.status] || (match.status || "").toUpperCase())
+            );
+            if (match.winner_id) {
+              const winner = players.find(player => player.player_id === match.winner_id);
+              if (winner) matchCard.append(el("small", "tournament-match-winner", `THẮNG · ${winner.nickname}`));
+            }
+            if (app.role === "organizer" && match.status === "needs_attention") {
+              const retry = el("button", "button ghost small", "GỬI LẠI LỜI MỜI");
+              retry.type = "button";
+              retryTournamentMatch(tournament, match, retry);
+              matchCard.append(retry);
+            }
+            roundColumn.append(matchCard);
+          }
+          board.append(roundColumn);
+        }
+        lane.append(board);
+        bracket.append(lane);
+      }
+      disclosure.append(bracket);
+    }
+
+    row.append(heading, details, participants);
+    if (actions.childElementCount) row.append(actions);
+    row.append(disclosure);
+    target.append(row);
+  }
+}
+
 async function refreshBots() { app.bots = await api("/api/bots"); renderBots(); }
+function populateStandingsGameSelector() {
+  const select = $("#standings-game-select");
+  if (!select) return;
+  select.replaceChildren(...app.games.map(game => {
+    const option = el("option", "", game.name);
+    option.value = game.game_id;
+    return option;
+  }));
+
+  const preferred = app.competition?.selected_game_id;
+  app.standingsGameId = app.games.some(game => game.game_id === preferred)
+    ? preferred
+    : app.games[0]?.game_id || null;
+  select.value = app.standingsGameId || "";
+  select.disabled = !app.games.length;
+}
+
+async function refreshStandings() {
+  const query = app.standingsGameId
+    ? `?game_id=${encodeURIComponent(app.standingsGameId)}`
+    : "";
+  app.standings = await api(`/api/standings${query}`);
+  renderStandings();
+}
+
+async function refreshTournaments() {
+  app.tournaments = await api("/api/tournaments");
+  renderTournaments();
+}
 async function refreshMatches() {
-  const [matches, standings] = await Promise.all([
+  const [matches] = await Promise.all([
     api("/api/matches"),
-    api("/api/standings"),
+    refreshStandings(),
   ]);
 
   app.matches = matches;
-  app.standings = standings;
   renderMatches();
-  renderStandings();
 }
 $("#refresh-bots").addEventListener("click", () => refreshBots().catch(e => toast(e.message, true)));
 $("#refresh-matches").addEventListener("click", () => refreshMatches().catch(e => toast(e.message, true)));
+$("#refresh-tournaments").addEventListener("click", () => refreshTournaments().catch(e => toast(e.message, true)));
+$("#standings-game-select").addEventListener("change", event => {
+  app.standingsGameId = event.currentTarget.value || null;
+  refreshStandings().catch(error => toast(error.message, true));
+});
 
 function feedback(selector, message, error = false) {
   const target = $(selector);
   target.textContent = message;
   target.className = "feedback" + (error ? " error" : "");
 }
+
+$("#tournament-create-form").addEventListener("submit", async event => {
+  event.preventDefault();
+
+  const form = event.currentTarget;
+  const button = form.querySelector('[type="submit"]');
+  const formData = new FormData(form);
+
+  const player_ids = [
+    ...form.querySelectorAll('input[name="tournament_player_id"]:checked')
+  ].map(input => input.value);
+
+  const payload = {
+    name: formData.get("name"),
+    format: formData.get("format"),
+    player_ids,
+  };
+
+  button.disabled = true;
+
+  try {
+    const tournament = await api(
+      "/api/tournaments",
+      jsonOptions("POST", payload)
+    );
+
+    feedback(
+      "#tournament-feedback",
+      `Đã tạo giải "${tournament.name}".`
+    );
+    app.tournaments.unshift(tournament);
+    renderTournaments();
+    form.reset();
+    renderTournamentPlayerOptions();
+  } catch (error) {
+    feedback("#tournament-feedback", error.message, true);
+  } finally {
+    button.disabled = false;
+  }
+});
 
 $("#upload-form").addEventListener("submit", async event => {
   event.preventDefault();
@@ -910,18 +1273,20 @@ async function bootstrap() {
     // Establish the cookie first; parallel startup requests then share one identity.
     const session = await api("/api/session");
     acceptSession(session);
-    const [health, bots, registry, matches, standings, competition] = await Promise.all([
+    const [health, bots, registry, matches, tournaments, competition] = await Promise.all([
       api("/api/health"),
       api("/api/bots"),
       api("/api/games"),
       api("/api/matches"),
-      api("/api/standings"),
+      api("/api/tournaments"),
       api("/api/competition"),
     ]);
-    app.bots = bots; app.games = registry.games; app.matches = matches; app.standings = standings;
+    app.bots = bots; app.games = registry.games; app.matches = matches; app.tournaments = tournaments;
     await acceptCompetition(competition);
+    populateStandingsGameSelector();
+    await refreshStandings();
     setConnection(health.status === "ok");
-    renderBots(); renderRules(true); renderMatches(); renderStandings();
+    renderBots(); renderRules(true); renderMatches(); renderStandings(); renderTournaments();
     applyPermissions();
     connectCompetitionSocket();
     const matchId = new URL(location.href).searchParams.get("match");
@@ -932,7 +1297,7 @@ bootstrap();
 setInterval(async () => {
   if (document.hidden || app.refreshing || !app.participant) return;
   app.refreshing = true;
-  try { await Promise.all([refreshMatches(), refreshBots()]); setConnection(true); }
+  try { await Promise.all([refreshMatches(), refreshBots(), refreshTournaments()]); setConnection(true); }
   catch { setConnection(false); }
   finally { app.refreshing = false; }
 }, 2000);

@@ -105,6 +105,10 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
                     app.state.competition.lobby = lobby
                     manager.on_activity = lobby.activity
                 app.state.upload_lock = asyncio.Lock()
+                if account_settings.account_only:
+                    from backend.bot_service import TeamBots
+                    await auth_runtime.run(lambda auth, conn: TeamBots(
+                        auth, conn, writer, app.state.store, installed).reconcile())
                 await asyncio.to_thread(Store._write, app.state.store.data / MODE_FILE,
                                         {"version": 1, "mode": "account_only" if account_settings.account_only else "legacy"})
                 yield

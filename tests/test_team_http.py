@@ -262,15 +262,12 @@ def test_admin_team_endpoints(room):
 
 # --- C1 Boundaries: 403 Team Bot / Active Bot placeholders ---
 
-def test_c1_bot_placeholders_remain_403(room):
+def test_team_bots_require_membership(room):
     login(room, "player", "alice")
     h_alice = csrf(room, "player")
-    res = room.client.get("/api/player/bots")
-    assert res.status_code == 403
-    res = room.client.post("/api/player/bots", json={}, headers=h_alice)
-    assert res.status_code == 403
-    res = room.client.put("/api/player/active-bot", json={}, headers=h_alice)
-    assert res.status_code == 403
+    assert room.client.get("/api/player/bots").status_code == 403
+    assert room.client.get("/api/player/active-bot?game_id=robot_battle").status_code == 403
+    assert room.client.put("/api/player/active-bot", json={"game_id":"robot_battle","bot_id":"unknown"}, headers=h_alice).status_code == 403
 
 
 # --- Gate OFF Compatibility ---

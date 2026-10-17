@@ -54,7 +54,7 @@ class TeamBots:
             return {"bot_id":bot_id,"team_id":member["id"],"user_id":user["id"],"created_at":now}
 
     def check_upload(self, actor, ticket):
-        self._ready_upload = True
+        require_writer(self.writer, self.writer.path.parent)
         user, member = self._member(actor, int(time.time()))
         if user["id"] != ticket["user_id"] or member["id"] != ticket["team_id"]:
             raise TeamConflict("Team membership changed during compilation")

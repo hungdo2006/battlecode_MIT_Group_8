@@ -60,7 +60,7 @@ def install_bot_http(app):
             source = base64.b64decode(body.source_base64, validate=True)
         except (ValueError, binascii.Error):
             raise HTTPException(422, "Invalid encoded bot source") from None
-        if not source or len(source)>MAX_SOURCE_BYTES or Path(body.filename).name != body.filename:
+        if not source or len(source)>MAX_SOURCE_BYTES or Path(body.filename).name != body.filename or body.filename in (".", ".."):
             raise HTTPException(422, "Invalid bot source length or filename")
         if Path(body.filename).suffix.lower() not in (".py",".cpp",".java"):
             raise HTTPException(422, "Unsupported bot language")

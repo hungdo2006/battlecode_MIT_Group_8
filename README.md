@@ -6,6 +6,14 @@ Nền tảng thi đấu bot đa game dành cho bài tập nhóm môn Lập trìn
 
 > **Chỉ dùng local/LAN riêng.** Legacy runner (`start.bat`/Phase1) chỉ dành cho code tin cậy: subprocess có quyền của tài khoản server, không phải sandbox. Phase2 bổ sung cách ly Docker nhưng không bảo đảm an toàn tuyệt đối. Không công khai tính năng thực thi code lên Internet.
 
+## Phase 4.2B.1 — Account foundation (offline)
+
+SQLite schema, Argon2id và CLI tạo Admin offline đã có; **chưa bật web login/RBAC**
+và chưa thay legacy sessions/Organizer code. Xem [thiết kế đã chốt, phạm vi B.1,
+lệnh bootstrap, migration và rollback](docs/PHASE_4_2_DESIGN.md). CLI bắt buộc
+`--data-dir`, giữ cùng WriterLock với backend và chỉ hỏi password qua terminal;
+không tự khởi tạo database/Admin khi server chạy. B.1 không cho phép mở Internet.
+
 ## Security Foundation — trước Phase 4.2
 
 Backend giữ OS lock trên data volume trước khi đọc/ghi Store và claim Controller.

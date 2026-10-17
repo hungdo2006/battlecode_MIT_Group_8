@@ -19,7 +19,7 @@ chính; các đề xuất kỹ thuật bên dưới không có nghĩa API tươn
 | Account invitation/activation, credential verify, opaque sessions | Đã triển khai B.2 ở service Python độc lập; xem mục 12 |
 | SQLite migration v2: idle timeout lưu theo session | Đã triển khai B.2; v1 giữ nguyên, chỉ migrate offline |
 | HTTP Account Auth, cookie/CSRF/Origin, limiter thực tế dưới `/api/auth/*` | Đã triển khai B.3.1; feature gate mặc định OFF; xem mục 13 |
-| Account RBAC trên toàn bộ REST/WebSocket | Chưa triển khai; B.3.2 và C/E |
+| Account-Only policy trên REST/WebSocket đã phân loại | Đã triển khai B.3.2; Team ownership và Official resource policy vẫn khóa chờ C/E |
 | Public HTTPS, private Admin qua Tailscale | Chỉ thiết kế; gateway Phase 4.3 |
 
 B.1 **không** tích hợp database vào lifespan FastAPI, không tự tạo Admin khi
@@ -863,3 +863,129 @@ bị guard từ chối đúng; sửa test thành wss, không nới guard legacy.
 Tests chỉ dùng temporary data directories. Không migrate/đọc credentials từ data
 thật, không sửa Docker volumes/AWS/.vscode, không commit/push/merge. Dừng tại B.3.1
 để review trước cutover B.3.2.
+
+## 14. B.3.2 — Full Account-Only cutover
+
+### 14.1 Trạng thái triển khai và mode
+
+`ARENA_ACCOUNT_ONLY` mặc định `0` và chỉ hợp lệ khi `ARENA_ACCOUNT_AUTH=1`.
+`OFF/OFF` giữ nguyên legacy; `ON/OFF` giữ coexistence B.3.1; `OFF/ON` từ chối cấu
+hình; `ON/ON` dùng Account làm authority duy nhất. Compose sandbox và legacy đều
+chuyển bốn biến Account Auth vào backend; không có secret trong image/repository.
+
+Khi chuyển lần đầu từ legacy, backend giữ WriterLock và đọc trạng thái bền vững
+trước Store/Controller. Competition còn mở, invitation legacy pending hoặc match/
+job queued/running làm startup bị từ chối; operator phải drain bằng legacy mode.
+Không có auto-cancel/xóa. `data/access_mode.json` chỉ ghi sau khi Store, runner và
+dependency tương ứng khởi tạo thành công, nên restart Account-Only bình thường
+không bị hiểu nhầm thành lần cutover mới. Pending invitation/match persisted luôn
+fail closed. Claim Controller vẫn cleanup orphan theo lease/fencing hiện có.
+
+Account-Only không tạo/resolve `Sessions`, không khởi tạo `Lobby`/presence worker,
+không đọc cookie legacy để authorize. `/api/*` legacy ngoài health trả 410 và hai
+WS `/ws/*` đóng trước khi gửi frame. `/api/health` giữ schema cũ và bổ sung
+`account_auth`, `account_only` để frontend chọn mode; Docker healthcheck không đổi.
+
+### 14.2 Namespace, cookie và auth
+
+| Audience | Auth/REST/WS prefix | Cookie Path |
+| --- | --- | --- |
+| Player | `/api/player/auth/*`, `/api/player/*`, `/api/player/ws/*` | `/api/player` |
+| Admin | `/api/admin/auth/*`, `/api/admin/*`, `/api/admin/ws/*` | `/api/admin` |
+
+Cookie v2 khác tên B.3.1, host-only, HttpOnly, SameSite=Strict và Secure khi HTTPS.
+Login xóa cookie B.3.1 đúng old Path; không migrate token. Duplicate Cookie header
+hoặc trùng đúng cookie name bị từ chối. Role lấy từ route literal và DB, không từ
+body/query. Login/activation không cần CSRF nhưng bắt buộc exact Origin; logout và
+mọi mutation nghiệp vụ yêu cầu CSRF HMAC gắn cookie/audience. Token không được nhận
+qua URL, localStorage hay WebSocket subprotocol.
+
+AuthService, Argon2id, limiter, password semaphore, per-worker SQLite connection và
+WriterLock lifecycle giữ nguyên. GET nghiệp vụ và WS gọi session validation với
+`touch=False`; polling/ping/frame không kéo dài idle timeout. Login, `/me`, CSRF và
+mutation là hoạt động có chủ đích và có thể touch session.
+
+### 14.3 REST Account-Only
+
+Player được dùng catalog game, game detail/rules, competition state và sample
+download. Bot list/upload, Active Bot và match list/detail/replay trả 403 vì chưa có
+Team ownership/publication policy. Không suy ownership từ participant, nickname,
+legacy owner hoặc bot ID.
+
+Admin có cùng catalog cùng network info, quản lý selected game/rules/open/close,
+cancel match và đọc bot/history/replay. Serializer chỉ allowlist metadata cần thiết;
+không trả source, compiler logs, command/folder, artifact ID/digest, legacy owner,
+created_by hoặc runner token. Legacy match mặc định Admin-only. `/api/matches` POST
+không được thay bằng Official; Official scheduling/deadline thuộc D/E.
+
+OpenAPI/docs bị tắt trong Account-Only. Static UI và `/lan` vẫn phục vụ local/LAN.
+Unknown Account routes 404, endpoint legacy 410, thiếu/invalid session 401, sai role/
+resource policy hoặc CSRF 403. Không fallback khi SQLite/auth unavailable.
+
+### 14.4 WebSocket
+
+Competition stream tồn tại cho Player/Admin nhưng chỉ phát competition state đã
+lọc, account display snapshot và ping; không phát lobby/presence/invitations legacy.
+Live/replay match stream hiện chỉ Admin vì chưa có Player publication policy.
+
+Trước `accept`, server kiểm tra exact Host/Origin, local/LAN peer, không tin proxy
+headers, cookie đúng audience, session DB, query allowlist và từ chối subprotocol.
+Giới hạn 128 account sockets/backend và 8/session. Competition poll DB mỗi 2 giây;
+stream replay/live kiểm tra lại theo thời gian và timeout gửi để cửa sổ tối đa không
+quá 5 giây. Mọi validation dùng `touch=False`. Logout phát notification theo session
+để đóng nhanh; DB polling xử lý disable, revoke-all, auth_version và expiry. Auth
+failure đóng 4401; không tiếp tục bằng quyền cache.
+
+### 14.5 Frontend
+
+Frontend đọc `/api/health` trước. Account-Only không gọi `/api/session`; dialog kính
+cung cấp Player/Admin login và activation bằng body. Current Account hiển thị trong
+identity bar, logout revoke session, 401 dừng WS/reconnect và mở login lại. CSRF chỉ
+giữ trong biến JavaScript. URL/submission không chứa credential.
+
+Admin giữ Rules/Competition/History/Replay. Player xem thông tin cuộc thi; Upload,
+Active Bot và legacy pairing được ẩn với thông báo chờ Phase C. Khi mode OFF, selector,
+Organizer code, lobby/invitation, Canvas, hai game và replay dùng nguyên workflow cũ.
+
+### 14.6 Backup, restore và rollback
+
+SQLite ở `arena_data` nên cold snapshot ba volume lưu cùng JSON/JSONL/uploads và
+artifacts/pinned images. Restore chỉ vào project/volumes mới như Security Foundation.
+Trước lần startup đầu tiên của bản restore, khi mọi writer dừng, chạy:
+
+```powershell
+docker compose -p neon-arena-restore-qa run --rm --no-deps arena python -m backend.admin_cli --data-dir /app/data invalidate-restored-auth
+```
+
+Lệnh giữ WriterLock, revoke mọi auth session và one-time token chưa consume, tăng
+`auth_version` của Active User và ghi audit. Cách này ngăn snapshot làm sống lại
+quyền đã bị revoke sau thời điểm backup. Không xóa User/Team/submission/replay;
+Admin cấp lại invitation cần thiết. Không tự chạy fence trong restore script vì
+operator phải review đúng volume đích trước mutation.
+
+Rollback: stop backend/controller writer; giữ nguyên ba volumes; đặt
+`ARENA_ACCOUNT_ONLY=0` (và `ARENA_ACCOUNT_AUTH=0` nếu quay hẳn legacy), rồi restart
+trong mạng tin cậy. Không downgrade schema, xóa SQLite hoặc dùng `down -v`. Cookie v2
+không cấp quyền legacy. Muốn quay lại Account-Only phải drain legacy và qua preflight.
+
+### 14.7 Phần để lại cho Phase C/D/E/4.3
+
+Phase C triển khai Team CRUD/membership, binding submission_ownership, upload journal
+và Captain Active Bot. D/E mới có Official request, per-match bot deadline/snapshot,
+dispatch/recovery. Scrimmage vẫn ở Phase 5. Caddy/Tailscale, trusted proxy và public/
+private host allowlist vẫn thuộc 4.3; Account-Only hiện không cho phép Internet/public
+peer và không làm Docker Sandbox an toàn tuyệt đối trước code không tin cậy.
+
+### 14.8 Kết quả QA B.3.2 (2026-10-17)
+
+- `python -m pytest tests controller_tests -ra --tb=short`: 360 passed, 0 failed,
+  0 skipped trong 142.40 giây; một warning deprecation của Starlette TestClient.
+- Browser QA Chrome headless 1440x900: Admin login/logout, Player login, legacy 410,
+  Team feature lock và Player session revocation qua WS đều pass.
+- `python -m pip check`, AST parse 71 Python files, `node --check frontend/app.js`,
+  frontend asset version check và `git diff --check`: pass.
+- `docker compose ... config --quiet` cho sandbox và legacy: exit 0. Máy QA từ chối
+  đọc Docker client config ngoài workspace nên có warning; không chạy build/Engine QA
+  trong lượt này.
+- Backup/restore test dùng archive I/O và dữ liệu tạm thật (SQLite + JSON/JSONL +
+  uploads + artifacts), nhưng dùng Docker CLI double; không chạm volume thật.

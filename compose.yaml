@@ -77,6 +77,10 @@ services:
       ARENA_ADMIN_CODE: "${ARENA_ADMIN_CODE:-}"
       ARENA_READ_ONLY: "${ARENA_READ_ONLY:-0}"
       ARENA_ALLOWED_HOSTS: "${ARENA_ALLOWED_HOSTS:-}"
+      ARENA_ACCOUNT_AUTH: "${ARENA_ACCOUNT_AUTH:-0}"
+      ARENA_ACCOUNT_ONLY: "${ARENA_ACCOUNT_ONLY:-0}"
+      ARENA_AUTH_ORIGINS: "${ARENA_AUTH_ORIGINS:-}"
+      ARENA_AUTH_ALLOW_HTTP: "${ARENA_AUTH_ALLOW_HTTP:-0}"
     volumes:
       - arena_data:/app/data
       - arena_uploads:/app/uploads

@@ -6,10 +6,10 @@
   <meta name="theme-color" content="#f4f7fc">
   <meta name="description" content="NEON ARENA — không gian thi đấu bot đa game trên local và LAN.">
   <title>NEON ARENA · Tournament workspace</title>
-  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=0ab76a04fe4c">
-  <link rel="stylesheet" href="/static/styles.css?v=24fe06cdf1f3">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=7b9e5bcd3348">
+  <link rel="stylesheet" href="/static/styles.css?v=a317a4a7509e">
   <script src="/static/renderers.js?v=c6d00dfb7370" defer></script>
-  <script src="/static/app.js?v=54c622eb3998" defer></script>
+  <script src="/static/app.js?v=e54230693b72" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#main-content">Đến nội dung chính</a>
@@ -56,6 +56,7 @@
         <button class="button ghost small" id="organizer-toggle" type="button">Mở quyền Organizer</button>
       </section>
       <div class="feedback hidden" id="readonly-notice">Chế độ chỉ xem · Bạn có thể xem live và replay.</div>
+      <div class="feedback pending hidden" id="account-mode-note">Account-Only đang bật · Submission và Active Bot tạm khóa đến Phase 4.2C Team Ownership.</div>
       <div class="network-notice hidden" id="network-notice" role="status"><span id="network-message">Đang kết nối lại. Dữ liệu đã nhận vẫn được giữ trên màn hình.</span><button type="button" class="text-button" id="retry-connection">Thử lại</button></div>
       <section class="panel competition-banner glass-surface" id="competition-banner" aria-live="polite">
         <div class="competition-symbol"><svg class="nav-icon"><use href="#i-lock"/></svg></div>
@@ -155,6 +156,13 @@
     </main>
   </div>
 
+  <dialog class="organizer-dialog account-dialog glass-surface glass-elevated" id="account-dialog" aria-labelledby="account-title">
+    <div class="padded-form"><span class="dialog-icon"><svg><use href="#i-lock"/></svg></span><div><span class="eyebrow">ACCOUNT-ONLY WORKSPACE</span><h2 id="account-title">Đăng nhập NEON ARENA</h2><p class="form-note">Phiên Player và Admin được tách riêng. Admin chỉ dùng trong môi trường quản trị tin cậy.</p></div>
+      <form id="account-login-form" class="account-form"><label>Loại tài khoản<select name="audience"><option value="player">Player</option><option value="admin">Admin</option></select></label><label for="account-username">Tên đăng nhập<input id="account-username" name="username" required minlength="3" maxlength="32" autocomplete="username"></label><label>Mật khẩu<input type="password" name="password" required maxlength="1024" autocomplete="current-password"></label><button class="button primary full" type="submit">Đăng nhập <span>↗</span></button></form>
+      <details class="activation-panel"><summary>Kích hoạt tài khoản được mời</summary><form id="account-activation-form" class="account-form"><label>Invitation token<input name="token" required minlength="43" maxlength="43" autocomplete="off"></label><label>Mật khẩu mới<input type="password" name="password" required minlength="15" maxlength="1024" autocomplete="new-password"></label><button class="button ghost full" type="submit">Kích hoạt tài khoản</button></form></details>
+      <div class="feedback pending" id="account-feedback" role="status" aria-live="polite">Đăng nhập để tiếp tục vào workspace.</div>
+    </div>
+  </dialog>
   <dialog class="organizer-dialog glass-surface glass-elevated" id="organizer-dialog" aria-labelledby="organizer-title"><form id="organizer-form" class="padded-form"><span class="dialog-icon"><svg><use href="#i-lock"/></svg></span><h2 id="organizer-title">Không gian Organizer</h2><p class="form-note">Nhập mã do người chạy server cung cấp. Quyền chỉ áp dụng cho phiên này và mất khi server khởi động lại.</p><label for="organizer-code">Mã Organizer<input type="password" id="organizer-code" name="code" maxlength="256" required autocomplete="off"></label><div class="form-buttons"><button class="button primary" type="submit">Xác minh</button><button class="button ghost" id="organizer-cancel" type="button">Đóng</button></div></form></dialog>
   <dialog class="organizer-dialog invitation-dialog glass-surface glass-elevated" id="invitation-dialog" aria-labelledby="invitation-title"><div class="padded-form"><span class="eyebrow">BẠN ĐƯỢC MỜI THI ĐẤU</span><h2 id="invitation-title">Một đối thủ đang chờ bạn.</h2><div id="invitation-fighters" class="invitation-fighters"></div><p id="invitation-game" class="form-note"></p><strong id="invitation-countdown" class="countdown"></strong><p id="invitation-wait" class="form-note"></p><div class="form-buttons"><button id="invitation-accept" class="button primary">Chấp nhận <span>↗</span></button><button id="invitation-decline" class="button ghost">Từ chối</button></div></div></dialog>
   <dialog class="organizer-dialog confirm-dialog glass-surface glass-elevated" id="confirm-dialog" aria-labelledby="confirm-title" aria-describedby="confirm-description"><div class="padded-form"><span class="eyebrow">XÁC NHẬN THAO TÁC</span><h2 id="confirm-title"></h2><p class="form-note" id="confirm-description"></p><div class="form-buttons"><button class="button ghost" id="confirm-cancel" type="button" autofocus>Quay lại</button><button class="button danger" id="confirm-accept" type="button">Xác nhận</button></div></div></dialog>

@@ -6,6 +6,43 @@ Nền tảng thi đấu bot đa game dành cho bài tập nhóm môn Lập trìn
 
 > **Chỉ dùng local/LAN riêng.** Legacy runner (`start.bat`/Phase1) chỉ dành cho code tin cậy: subprocess có quyền của tài khoản server, không phải sandbox. Phase2 bổ sung cách ly Docker nhưng không bảo đảm an toàn tuyệt đối. Không công khai tính năng thực thi code lên Internet.
 
+## Phase 4.2B.3.2 — Account-Only cutover
+
+Chế độ Account-Only đã có Player/Admin login, activation, logout, CSRF, REST và
+WebSocket theo audience. Cookie host-only được tách ở `Path=/api/player` và
+`Path=/api/admin`; legacy `arena_session`, Organizer code, upload/Active Bot và
+match invitation không cấp quyền khi `ARENA_ACCOUNT_ONLY=1`. Admin có thể quản lý
+game/rules/competition và xem history/replay qua serializer an toàn. Player được
+xem game/rules/competition và tải sample; history legacy mặc định Admin-only.
+
+Ba chế độ cấu hình:
+
+| Chế độ | Cấu hình |
+| --- | --- |
+| Legacy | `ARENA_ACCOUNT_AUTH=0`, `ARENA_ACCOUNT_ONLY=0` |
+| Coexistence QA B.3.1 | `ARENA_ACCOUNT_AUTH=1`, `ARENA_ACCOUNT_ONLY=0` |
+| Account-Only | `ARENA_ACCOUNT_AUTH=1`, `ARENA_ACCOUNT_ONLY=1` |
+
+Account-Only vẫn chỉ hỗ trợ local/LAN và exact origins. HTTP chỉ dành cho QA có
+chủ đích với `ARENA_AUTH_ALLOW_HTTP=1`; không mở ra Internet. Team CRUD, Team bot
+ownership, Official Match và Scrimmage chưa có, nên submission/Active Bot tạm khóa.
+Xem [thiết kế, endpoint và runbook](docs/PHASE_4_2_DESIGN.md#14-b32--full-account-only-cutover).
+
+QA Docker phải dùng project/volumes mới và bind loopback. Chuẩn bị `.env` QA riêng
+với runner token ngẫu nhiên, `ARENA_BIND_IP=127.0.0.1`, exact origin
+`http://127.0.0.1:8000`, rồi migrate/bootstrap khi backend đang dừng:
+
+```powershell
+docker compose -p neon-arena-auth-qa build
+docker compose -p neon-arena-auth-qa run --rm --no-deps arena python -m backend.admin_cli --data-dir /app/data migrate
+docker compose -p neon-arena-auth-qa run --rm --no-deps arena python -m backend.admin_cli --data-dir /app/data create-admin --username qa.admin --display-name "QA Admin"
+docker compose -p neon-arena-auth-qa up -d --wait
+```
+
+Không dùng `docker compose down -v`. Sau restore, trước startup đầu tiên, chạy CLI
+offline `invalidate-restored-auth` trên volume mới để revoke toàn bộ session và
+one-time token có trong snapshot. Tài khoản, bot, replay và ownership không bị xóa.
+
 ## Phase 4.2B.3.1 — HTTP authentication foundation (opt-in)
 
 Đã có activation, Player/Admin login/logout/me, Admin account invitations và HTTP

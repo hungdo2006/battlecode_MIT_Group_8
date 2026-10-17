@@ -2,6 +2,7 @@ import asyncio
 import anyio
 import hashlib
 import hmac
+import json
 import os
 import shutil
 from copy import deepcopy
@@ -26,10 +27,43 @@ from backend.sessions import COOKIE_NAME, SESSION_SECONDS, Sessions
 from backend.storage import Store
 from backend.writer_lock import WriterLock
 from backend.account_database import AccountDatabase
-from backend.auth_http import HTTPAuthSettings, HTTPAuthRuntime, auth_path, install_auth_http
+from backend.auth_limits import AuthRateLimited
+from backend.auth_http import (HTTPAuthSettings, HTTPAuthRuntime, account_path,
+    account_prefix, account_cookie_name, authenticate_account, guard_account_scope,
+    install_auth_http, strict_cookie)
 
 PROJECT = Path(__file__).resolve().parent.parent
 TERMINAL = {"completed", "interrupted"}
+MODE_FILE = "access_mode.json"
+PENDING_INVITATIONS = {"PENDING", "PARTIALLY_ACCEPTED", "ACCEPTED"}
+
+
+def _read_json(path: Path, default):
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else default
+
+
+def validate_account_only_cutover(root: Path):
+    """Refuse a first authority cutover while legacy work is still active."""
+    data = root / "data"
+    marker = _read_json(data / MODE_FILE, {})
+    rules = _read_json(data / "rules.json", {})
+    matches = _read_json(data / "matches.json", {})
+    invitations = _read_json(data / "invitations.json", {})
+    active_matches = [item.get("id", key) for key, item in matches.items()
+                      if item.get("status") in {"queued", "running"}]
+    pending = [item.get("id", key) for key, item in invitations.items()
+               if item.get("status") in PENDING_INVITATIONS]
+    transitioning = marker.get("mode") != "account_only"
+    if active_matches or pending or (transitioning and rules.get("competition_locked") is True):
+        details = []
+        if transitioning and rules.get("competition_locked") is True:
+            details.append("competition is still open")
+        if pending:
+            details.append(f"{len(pending)} legacy invitation(s) are pending")
+        if active_matches:
+            details.append(f"{len(active_matches)} match/job(s) are queued or running")
+        raise RuntimeError("Account-only cutover refused: " + "; ".join(details)
+                           + ". Close/drain these items in legacy mode, then restart.")
 
 
 def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
@@ -38,7 +72,9 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
     installed = registry or create_registry()
     settings = network or NetworkSettings.from_environment()
     account_settings = HTTPAuthSettings.from_environment() if account_http is None else account_http
-    admin_code = os.environ.get("ARENA_ADMIN_CODE", "")
+    # The shared Organizer secret has no authority in account-only mode and is
+    # deliberately not even loaded into the application process in that mode.
+    admin_code = "" if account_settings.account_only else os.environ.get("ARENA_ADMIN_CODE", "")
     admin_digest = hashlib.sha256(admin_code.encode("utf-8")).digest() if admin_code else None
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -47,21 +83,30 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
         with WriterLock((base_dir or PROJECT).resolve() / "data") as writer:
             runner = manager = lobby = auth_runtime = None
             try:
+                root = (base_dir or PROJECT).resolve()
+                if account_settings.account_only:
+                    validate_account_only_cutover(root)
                 if account_settings.enabled:
                     auth_runtime = HTTPAuthRuntime(AccountDatabase(writer.path.parent), writer, account_settings)
                     await asyncio.to_thread(auth_runtime.startup)
                     app.state.account_http = auth_runtime
                 app.state.registry = installed
-                app.state.store = Store((base_dir or PROJECT).resolve(), installed)
-                app.state.sessions = Sessions(app.state.store.data / "sessions.json")
+                app.state.store = Store(root, installed)
+                app.state.sessions = None if account_settings.account_only else Sessions(app.state.store.data / "sessions.json")
                 runner = app.state.runner = configured_runner(lambda *args: prepare_submission(*args))
                 await asyncio.to_thread(runner.startup)
                 manager = app.state.manager = MatchManager(app.state.store, tick_seconds, runner)
                 app.state.competition = Competition(app.state.store, manager)
-                lobby = app.state.lobby = Lobby(app.state.store, app.state.sessions, manager, app.state.competition)
-                app.state.competition.lobby = lobby
-                manager.on_activity = lobby.activity
+                if account_settings.account_only:
+                    app.state.lobby = None
+                    manager.on_activity = app.state.competition.publish
+                else:
+                    lobby = app.state.lobby = Lobby(app.state.store, app.state.sessions, manager, app.state.competition)
+                    app.state.competition.lobby = lobby
+                    manager.on_activity = lobby.activity
                 app.state.upload_lock = asyncio.Lock()
+                await asyncio.to_thread(Store._write, app.state.store.data / MODE_FILE,
+                                        {"version": 1, "mode": "account_only" if account_settings.account_only else "legacy"})
                 yield
             finally:
                 # Keep ownership until every cleanup has been attempted, including
@@ -82,7 +127,10 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
                                 with anyio.CancelScope(shield=True):
                                     await auth_runtime.close()
 
-    app = FastAPI(title="NEON ARENA", version="3.0.0", lifespan=lifespan)
+    app = FastAPI(title="NEON ARENA", version="4.2.0", lifespan=lifespan,
+                  docs_url=None if account_settings.account_only else "/docs",
+                  redoc_url=None if account_settings.account_only else "/redoc",
+                  openapi_url=None if account_settings.account_only else "/openapi.json")
 
     @app.exception_handler(RunnerUnavailable)
     async def runner_unavailable(request, exc):
@@ -94,9 +142,12 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
 
     @app.middleware("http")
     async def trusted_demo_network(request, call_next):
-        if account_settings.enabled and auth_path(request.url.path):
+        if account_settings.enabled and account_path(request.url.path):
             # AccountAuthBoundary enforces stricter LAN/Host/Origin policy here.
             # Do not resolve/create legacy browser identities on account routes.
+            return await call_next(request)
+        if account_settings.enabled and not account_settings.account_only and (
+                request.url.path == "/api/auth" or request.url.path.startswith("/api/auth/")):
             return await call_next(request)
         host = request.headers.get("host", "")
         if not settings.allows_host(host):
@@ -104,6 +155,15 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
         if not same_origin(request.headers.get("origin"), host, request.url.scheme):
             return JSONResponse({"detail": "Origin không được phép."}, status_code=403)
         mutation = request.method not in {"GET", "HEAD", "OPTIONS"}
+        if account_settings.account_only:
+            if request.url.path.startswith("/api/") and request.url.path != "/api/health":
+                return JSONResponse({"detail": "Legacy API disabled in account-only mode"}, status_code=410)
+            response = await call_next(request)
+            if request.url.path.startswith("/api/"):
+                response.headers["Cache-Control"] = "no-store"
+            response.headers["X-Content-Type-Options"] = "nosniff"
+            response.headers["X-Frame-Options"] = "DENY"
+            return response
         if settings.read_only and mutation and request.url.path != "/api/session":
             return JSONResponse({"detail": "Server ở chế độ chỉ xem; nộp bot, chạy trận và chỉnh luật đã tắt."}, status_code=403)
         identity = await asyncio.to_thread(app.state.sessions.resolve, request.cookies.get(COOKIE_NAME))
@@ -130,7 +190,8 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
         if not runner["ready"]:
             raise RunnerUnavailable("Sandbox controller is unavailable")
         return {"status": "ok", "runner": runner, "toolchains": runner["toolchains"], "protocol": 1,
-                "read_only": settings.read_only}
+                "read_only": settings.read_only, "account_auth": account_settings.enabled,
+                "account_only": account_settings.account_only}
 
     def session_payload(request: Request):
         return {"participant": request.state.participant, "read_only": settings.read_only,
@@ -448,6 +509,9 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
 
     @app.websocket("/ws/matches/{match_id}")
     async def watch(websocket: WebSocket, match_id: str, after: int = Query(-1, ge=-1, le=100000)):
+        if account_settings.account_only:
+            await websocket.close(code=1008, reason="Legacy WebSocket disabled")
+            return
         host = websocket.headers.get("host", "")
         if not settings.allows_host(host) or not same_origin(websocket.headers.get("origin"), host, websocket.scope["scheme"]):
             await websocket.close(code=1008)
@@ -496,6 +560,9 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
 
     @app.websocket("/ws/competition")
     async def competition_socket(websocket: WebSocket):
+        if account_settings.account_only:
+            await websocket.close(code=1008, reason="Legacy WebSocket disabled")
+            return
         host = websocket.headers.get("host", "")
         if not settings.allows_host(host) or not same_origin(websocket.headers.get("origin"), host, websocket.scope["scheme"]):
             await websocket.close(code=1008)
@@ -550,6 +617,325 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
                 except (WebSocketDisconnect, RuntimeError):
                     pass
 
+    if account_settings.enabled:
+        async def account_principal(request, audience, *, mutation=False):
+            principal, _ = await authenticate_account(request, audience, csrf=mutation, touch=mutation)
+            return principal
+
+        def require_empty(body):
+            if body:
+                raise HTTPException(422, "Request body must be an empty JSON object")
+
+        @app.get("/api/player/games")
+        async def account_player_games(request: Request):
+            await account_principal(request, "PLAYER")
+            return {"selected_game_id": app.state.store.selected_game_id,
+                    "games": [describe_game(game_id) for game_id in installed.ids()]}
+
+        @app.get("/api/player/games/{game_id}")
+        async def account_player_game(game_id: str, request: Request):
+            await account_principal(request, "PLAYER")
+            game_or_404(game_id)
+            return describe_game(game_id)
+
+        @app.get("/api/player/games/{game_id}/rules")
+        async def account_player_rules(game_id: str, request: Request):
+            await account_principal(request, "PLAYER")
+            game_or_404(game_id)
+            return app.state.store.get_rules(game_id)
+
+        @app.get("/api/player/rules")
+        async def account_player_selected_rules(request: Request):
+            await account_principal(request, "PLAYER")
+            return app.state.store.get_rules(app.state.store.selected_game_id)
+
+        @app.get("/api/player/competition")
+        async def account_player_competition(request: Request):
+            await account_principal(request, "PLAYER")
+            return safe_competition(app.state.competition.get_state())
+
+        @app.get("/api/player/games/{game_id}/samples/{language}")
+        async def account_player_sample(game_id: str, language: str, request: Request):
+            await account_principal(request, "PLAYER")
+            sample = sample_info(game_id, language)
+            path = PROJECT / "samples" / sample["path"]
+            return FileResponse(path, filename=path.name, media_type="text/plain")
+
+        @app.get("/api/player/bots")
+        @app.get("/api/player/matches")
+        async def account_player_private_resources(request: Request):
+            await account_principal(request, "PLAYER")
+            raise HTTPException(403, "Team ownership and published match visibility are not available yet")
+
+        @app.post("/api/player/bots")
+        @app.put("/api/player/active-bot")
+        async def account_player_team_mutations(request: Request):
+            await account_principal(request, "PLAYER", mutation=True)
+            raise HTTPException(403, "Team ownership is required before submissions can be changed")
+
+        @app.get("/api/player/matches/{match_id}")
+        @app.get("/api/player/matches/{match_id}/replay")
+        async def account_player_private_match(match_id: str, request: Request):
+            await account_principal(request, "PLAYER")
+            raise HTTPException(403, "This match has no verified Player publication policy")
+
+        @app.get("/api/admin/network")
+        async def account_admin_network(request: Request):
+            await account_principal(request, "ADMIN")
+            port = request.url.port or (443 if request.url.scheme == "https" else 80)
+            addresses = [] if settings.read_only else await asyncio.to_thread(lan_addresses)
+            return {"origin": str(request.base_url).rstrip("/"), "read_only": settings.read_only,
+                    "lan_urls": [f"{request.url.scheme}://{address}:{port}" for address in addresses]}
+
+        @app.get("/api/admin/games")
+        async def account_admin_games(request: Request):
+            await account_principal(request, "ADMIN")
+            return {"selected_game_id": app.state.store.selected_game_id,
+                    "games": [describe_game(game_id) for game_id in installed.ids()]}
+
+        @app.get("/api/admin/games/{game_id}")
+        async def account_admin_game(game_id: str, request: Request):
+            await account_principal(request, "ADMIN")
+            game_or_404(game_id)
+            return describe_game(game_id)
+
+        @app.get("/api/admin/games/{game_id}/rules")
+        async def account_admin_rules(game_id: str, request: Request):
+            await account_principal(request, "ADMIN")
+            game_or_404(game_id)
+            return app.state.store.get_rules(game_id)
+
+        @app.get("/api/admin/games/{game_id}/samples/{language}")
+        async def account_admin_sample(game_id: str, language: str, request: Request):
+            await account_principal(request, "ADMIN")
+            sample = sample_info(game_id, language)
+            path = PROJECT / "samples" / sample["path"]
+            return FileResponse(path, filename=path.name, media_type="text/plain")
+
+        @app.get("/api/admin/rules")
+        async def account_admin_selected_rules(request: Request):
+            await account_principal(request, "ADMIN")
+            return app.state.store.get_rules(app.state.store.selected_game_id)
+
+        @app.get("/api/admin/competition")
+        async def account_admin_competition(request: Request):
+            await account_principal(request, "ADMIN")
+            return safe_competition(app.state.competition.get_state())
+
+        @app.put("/api/admin/games/selected")
+        async def account_admin_select(selection: GameSelection, request: Request):
+            await account_principal(request, "ADMIN", mutation=True)
+            game_or_404(selection.game_id)
+            async with app.state.competition.lock:
+                app.state.competition.require_editable()
+                await asyncio.to_thread(app.state.store.select_game, selection.game_id)
+                await app.state.competition.publish()
+            return {"selected_game_id": selection.game_id}
+
+        @app.put("/api/admin/games/{game_id}/rules")
+        async def account_admin_update_rules(game_id: str, request: Request, rules: dict = Body(...)):
+            await account_principal(request, "ADMIN", mutation=True)
+            return await persist_rules(game_id, rules)
+
+        @app.post("/api/admin/games/{game_id}/rules/reset")
+        async def account_admin_reset_rules(game_id: str, request: Request, body: dict = Body(default={})):
+            require_empty(body)
+            await account_principal(request, "ADMIN", mutation=True)
+            return await persist_rules(game_id, game_or_404(game_id).validate_rules())
+
+        @app.put("/api/admin/rules")
+        async def account_admin_save_selected_rules(request: Request, rules: dict = Body(...)):
+            await account_principal(request, "ADMIN", mutation=True)
+            return await persist_rules(app.state.store.selected_game_id, rules)
+
+        @app.post("/api/admin/competition/open")
+        async def account_admin_open(request: Request, body: dict = Body(default={})):
+            require_empty(body)
+            await account_principal(request, "ADMIN", mutation=True)
+            return safe_competition(await app.state.competition.open())
+
+        @app.post("/api/admin/competition/close")
+        async def account_admin_close(request: Request, body: dict = Body(default={})):
+            require_empty(body)
+            await account_principal(request, "ADMIN", mutation=True)
+            return safe_competition(await app.state.competition.close())
+
+        @app.get("/api/admin/bots")
+        async def account_admin_bots(request: Request):
+            await account_principal(request, "ADMIN")
+            return [safe_bot(bot) for bot in app.state.store.get_bots()]
+
+        @app.get("/api/admin/matches")
+        async def account_admin_matches(request: Request):
+            await account_principal(request, "ADMIN")
+            return [safe_match(match) for match in app.state.manager.get_matches()]
+
+        @app.get("/api/admin/matches/{match_id}")
+        async def account_admin_match(match_id: str, request: Request):
+            await account_principal(request, "ADMIN")
+            match = app.state.manager.get_match(match_id)
+            if not match:
+                raise HTTPException(404, "Không tìm thấy trận đấu.")
+            return safe_match(match)
+
+        @app.get("/api/admin/matches/{match_id}/replay")
+        async def account_admin_replay(match_id: str, request: Request):
+            await account_principal(request, "ADMIN")
+            payload = app.state.manager.get_replay(match_id)
+            if not payload:
+                raise HTTPException(404, "Không tìm thấy replay.")
+            return {"match": safe_match(payload["match"]), "version": payload.get("version", 1),
+                    "frames": payload.get("frames", [])}
+
+        @app.post("/api/admin/matches/{match_id}/cancel")
+        async def account_admin_cancel(match_id: str, request: Request, body: dict = Body(default={})):
+            require_empty(body)
+            await account_principal(request, "ADMIN", mutation=True)
+            if not app.state.manager.get_match(match_id):
+                raise HTTPException(404, "Không tìm thấy trận đấu.")
+            async with app.state.competition.lock:
+                try:
+                    return safe_match(await app.state.manager.cancel(match_id))
+                except ValueError as exc:
+                    raise HTTPException(409, str(exc)) from exc
+
+        async def account_ws_identity(websocket, audience, *, allowed_query=()):
+            try:
+                guard_account_scope(websocket.scope, websocket.headers, account_settings, settings, websocket=True)
+                if websocket.headers.getlist("sec-websocket-protocol"):
+                    raise HTTPException(403, "WebSocket subprotocol credentials are not supported")
+                from urllib.parse import parse_qs
+                try:
+                    query = parse_qs(
+                        websocket.scope.get("query_string", b"").decode("ascii"),
+                        keep_blank_values=True,
+                        strict_parsing=True,
+                    )
+                except (UnicodeDecodeError, ValueError):
+                    raise HTTPException(403, "Unsupported WebSocket query parameter") from None
+                if any(key not in allowed_query
+                       or key.lower() in {"token", "session", "authorization"}
+                       or len(values) != 1
+                       for key, values in query.items()):
+                    raise HTTPException(403, "Unsupported WebSocket query parameter")
+                if "after" in query:
+                    try:
+                        after = int(query["after"][0])
+                    except (TypeError, ValueError):
+                        raise HTTPException(403, "Invalid WebSocket cursor") from None
+                    if after < -1 or after > 100000:
+                        raise HTTPException(403, "Invalid WebSocket cursor")
+                token = strict_cookie(websocket.headers, account_cookie_name(audience))
+                runtime = app.state.account_http
+                runtime.limiter.request(websocket.client.host, audience, token)
+                principal = await runtime.run(
+                    lambda auth, _: auth.validate_session(token, audience=audience, touch=False))
+                revoked = runtime.register_websocket(principal.session_id)
+                return principal, token, revoked, query
+            except (HTTPException, AuthRateLimited):
+                await websocket.close(code=1008, reason="WebSocket authorization failed")
+                return None
+
+        async def revalidate_ws(runtime, token, audience):
+            return await runtime.run(lambda auth, _: auth.validate_session(token, audience=audience, touch=False))
+
+        async def account_competition_ws(websocket: WebSocket, audience: str):
+            identity = await account_ws_identity(websocket, audience)
+            if not identity:
+                return
+            principal, token, revoked, _ = identity
+            runtime, cursor, last_ping = app.state.account_http, -1, 0.0
+            await websocket.accept()
+            try:
+                while True:
+                    await revalidate_ws(runtime, token, audience)
+                    state = safe_competition(app.state.competition.get_state())
+                    if cursor != state["revision"]:
+                        await asyncio.wait_for(websocket.send_json({
+                            "type": "competition", "state": state, "role": audience.lower(),
+                            "account": {"id": principal.account.id, "display_name": principal.account.display_name},
+                            "lobby": None}), timeout=3)
+                        cursor = state["revision"]
+                    now = asyncio.get_running_loop().time()
+                    if now - last_ping >= 10:
+                        await asyncio.wait_for(websocket.send_json({"type": "ping"}), timeout=3)
+                        last_ping = now
+                    try:
+                        await asyncio.wait_for(revoked.wait(), timeout=2)
+                    except asyncio.TimeoutError:
+                        continue
+                    await revalidate_ws(runtime, token, audience)
+            except (WebSocketDisconnect, RuntimeError, asyncio.TimeoutError, HTTPException):
+                try:
+                    await websocket.close(code=4401, reason="Account session expired or revoked")
+                except (WebSocketDisconnect, RuntimeError):
+                    pass
+            finally:
+                runtime.unregister_websocket(principal.session_id, revoked)
+
+        @app.websocket("/api/player/ws/competition")
+        async def account_player_competition_ws(websocket: WebSocket):
+            await account_competition_ws(websocket, "PLAYER")
+
+        @app.websocket("/api/admin/ws/competition")
+        async def account_admin_competition_ws(websocket: WebSocket):
+            await account_competition_ws(websocket, "ADMIN")
+
+        @app.websocket("/api/admin/ws/matches/{match_id}")
+        async def account_admin_match_ws(websocket: WebSocket, match_id: str):
+            identity = await account_ws_identity(websocket, "ADMIN", allowed_query=("after",))
+            if not identity:
+                return
+            principal, token, revoked, query = identity
+            after = int(query.get("after", ["-1"])[0])
+            runtime = app.state.account_http
+            match = app.state.manager.get_match(match_id)
+            if not match:
+                runtime.unregister_websocket(principal.session_id, revoked)
+                await websocket.close(code=1008, reason="Match not found")
+                return
+            await websocket.accept()
+            cursor = after + 1
+            last_auth_check = asyncio.get_running_loop().time()
+            try:
+                await asyncio.wait_for(
+                    websocket.send_json({"type": "hello", "match": safe_match(match)}), timeout=3)
+                while True:
+                    await revalidate_ws(runtime, token, "ADMIN")
+                    last_auth_check = asyncio.get_running_loop().time()
+                    live = app.state.manager.live.get(match_id)
+                    if live:
+                        frames = list(enumerate(live.frames[cursor:], start=cursor))
+                        meta = deepcopy(live.meta)
+                    else:
+                        payload = app.state.manager.get_replay(match_id)
+                        frames = list(enumerate((payload or {}).get("frames", [])[cursor:], start=cursor))
+                        meta = app.state.manager.get_match(match_id)
+                    for seq, frame in frames:
+                        if asyncio.get_running_loop().time() - last_auth_check >= 2:
+                            await revalidate_ws(runtime, token, "ADMIN")
+                            last_auth_check = asyncio.get_running_loop().time()
+                        await asyncio.wait_for(websocket.send_json({"type": "state", "seq": seq, "state": frame}), timeout=3)
+                        cursor = seq + 1
+                    if not live or meta["status"] in TERMINAL:
+                        await asyncio.wait_for(websocket.send_json(
+                            {"type": "complete", "match": safe_match(meta)}), timeout=3)
+                        await websocket.close(code=1000)
+                        return
+                    try:
+                        await asyncio.wait_for(revoked.wait(), timeout=2)
+                    except asyncio.TimeoutError:
+                        await asyncio.wait_for(websocket.send_json({"type": "ping"}), timeout=3)
+                        continue
+                    await revalidate_ws(runtime, token, "ADMIN")
+            except (WebSocketDisconnect, RuntimeError, asyncio.TimeoutError, HTTPException):
+                try:
+                    await websocket.close(code=4401, reason="Account session expired or revoked")
+                except (WebSocketDisconnect, RuntimeError):
+                    pass
+            finally:
+                runtime.unregister_websocket(principal.session_id, revoked)
+
     app.mount("/static", StaticFiles(directory=PROJECT / "frontend"), name="static")
 
     @app.get("/", include_in_schema=False)
@@ -566,6 +952,28 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
 
 def public_bot(bot: dict) -> dict:
     return {key: value for key, value in bot.items() if key not in {"command", "folder", "sample_key", "artifact_id", "artifact_digest"}}
+
+
+def safe_bot(bot: dict) -> dict:
+    fields = ("id", "name", "filename", "language", "game_id", "status", "created_at", "execution_backend")
+    return {key: deepcopy(bot[key]) for key in fields if key in bot}
+
+
+def safe_match(match: dict) -> dict:
+    fields = ("id", "game_id", "game", "game_name", "game_version", "status", "created_at",
+              "started_at", "finished_at", "rules", "rules_snapshot", "turn", "result", "winner",
+              "player_a_name_snapshot", "player_b_name_snapshot", "bot_a_id", "bot_b_id",
+              "bot_a_name_snapshot", "bot_b_name_snapshot", "bot_a_language", "bot_b_language")
+    result = {key: deepcopy(match[key]) for key in fields if key in match}
+    result["bots"] = {side: {key: deepcopy(bot[key]) for key in ("id", "name", "language") if key in bot}
+                      for side, bot in match.get("bots", {}).items()}
+    return result
+
+
+def safe_competition(state: dict) -> dict:
+    fields = ("selected_game_id", "competition_locked", "active_rules_snapshot", "phase",
+              "pending_matches", "pending_invitations", "can_edit", "rules", "revision", "server_id")
+    return {key: deepcopy(state[key]) for key in fields if key in state}
 
 
 app = create_app()

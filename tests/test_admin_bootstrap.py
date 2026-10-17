@@ -114,7 +114,7 @@ def test_cli_hidden_prompt_and_no_password_in_output(tmp_path, monkeypatch, caps
     assert len(prompts) == 2
     assert PASSWORD not in output.out + output.err
     assert "$argon2" not in output.out + output.err
-    assert "HTTP login is not enabled" in output.out
+    assert "Account HTTP remains opt-in" in output.out
 
 
 def test_cli_confirmation_failure_does_not_create_admin(tmp_path, monkeypatch):

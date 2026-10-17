@@ -7,6 +7,7 @@ import pytest
 def configured_admin_code(monkeypatch):
     # Account HTTP is opt-in. Native regression must not inherit an operator's gate.
     monkeypatch.setenv("ARENA_ACCOUNT_AUTH", "0")
+    monkeypatch.setenv("ARENA_ACCOUNT_ONLY", "0")
     # Native regression suite deliberately exercises legacy; sandbox has separate
     # real-Engine probes. Never inherit an operator's runner setting accidentally.
     monkeypatch.setenv("ARENA_RUNNER", "legacy")

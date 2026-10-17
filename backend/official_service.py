@@ -119,6 +119,9 @@ def official_json(connection,row,*,include_slots=True):
     result={name:row[name] for name in (
         "id","team_a_id","team_b_id","game_id","bot_lock_at",
         "scheduled_at","created_at","status","locked_at","status_reason","revision")}
+    result.update(match_id=row["match_id"],started_at=row["started_at"],
+                  finished_at=row["finished_at"],
+                  outcome=json.loads(row["outcome_json"]) if row["outcome_json"] else None)
     result["rules_snapshot"]=json.loads(row["rules_json"])
     if include_slots:
         result["slots"]=[dict(slot) for slot in connection.execute("""SELECT side,team_id,team_name_snapshot,
@@ -214,6 +217,176 @@ class OfficialSchedule:
                 VALUES (?,?,'OFFICIAL_MATCH_CANCELLED','official_match',?,'{}')""",
                 (now,admin["id"],request_id))
             return official_json(self.db,self._get(request_id))
+
+
+    def _stamp_execution(self, request_id, status, now, *, reason=None, outcome=None):
+        self.db.execute("""UPDATE official_match_requests
+            SET status=?, status_reason=?, finished_at=?,
+                outcome_json=?, revision=revision+1 WHERE id=?""",
+            (status, reason, now if status in ("COMPLETED", "INTERRUPTED") else None,
+             json.dumps(outcome, separators=(",", ":")) if outcome is not None else None, request_id))
+        self.db.execute("""INSERT INTO audit_events
+            (occurred_at,actor_user_id,action,target_type,target_id,details_json)
+            VALUES (?,NULL,?,'official_match',?,?)""",
+            (now, "OFFICIAL_MATCH_" + status, request_id,
+             json.dumps({"reason": reason}, separators=(",", ":"))))
+
+    def claim_due(self):
+        """Reserve ONE due match in SQLite before any runner or JSON side effect.
+
+        A claimed match is NEVER reclaimed for execution after restart; this
+        prevents duplicates even if the process dies between claim and launch.
+        """
+        self._ready()
+        with transaction(self.db):
+            now = self._now()
+            row = self.db.execute("""SELECT * FROM official_match_requests
+                WHERE status='LOCKED' AND scheduled_at <= ?
+                ORDER BY scheduled_at,id LIMIT 1""", (now,)).fetchone()
+            if row is None:
+                return None
+            slots = {s["side"]: dict(s) for s in self.db.execute(
+                "SELECT * FROM official_match_slots WHERE request_id=?",
+                (row["id"],)).fetchall()}
+            reason = None
+            if set(slots) != {"A", "B"}:
+                reason = "FROZEN_SLOTS_MISSING"
+            else:
+                for side in ("A", "B"):
+                    slot = slots[side]
+                    bot = self.store.get_bot(slot["bot_id"])
+                    if (not bot or bot.get("team_id") != slot["team_id"]
+                        or bot.get("game_id") != slot["game_id"]
+                        or bot.get("language") != slot["bot_language"]
+                        or bot.get("status") != "ready"
+                        or bot.get("execution_backend") != "sandbox"
+                        or not bot.get("artifact_id") or not bot.get("artifact_digest")):
+                        reason = "FROZEN_ARTIFACT_UNAVAILABLE"
+                        break
+                    actual = snapshot_source(self.store, slot, bot)
+                    if actual is None:
+                        reason = "SOURCE_UNAVAILABLE"
+                        break
+                    if actual != slot["source_sha256"]:
+                        reason = "SOURCE_CHANGED"
+                        break
+                    attested = self.db.execute("""SELECT source_sha256
+                        FROM official_source_attestations WHERE bot_id=?""",
+                        (slot["bot_id"],)).fetchone()
+                    if not attested or actual != attested["source_sha256"]:
+                        reason = "SOURCE_UNVERIFIED"
+                        break
+            if reason:
+                self.db.execute("""UPDATE official_match_requests
+                    SET status='BLOCKED',locked_at=NULL,status_reason=?,
+                        revision=revision+1 WHERE id=?""", (reason,row["id"]))
+                self.db.execute("""INSERT INTO audit_events
+                    (occurred_at,actor_user_id,action,target_type,target_id,details_json)
+                    VALUES (?,NULL,'OFFICIAL_MATCH_BLOCKED','official_match',?,?)""",
+                    (now,row["id"],json.dumps({"reason":reason})))
+                return {"blocked": row["id"], "reason": reason}
+            match_id = "o" + row["id"][:15]
+            self.db.execute("""UPDATE official_match_requests
+                SET status='DISPATCHING',match_id=?,started_at=?,
+                    revision=revision+1 WHERE id=? AND status='LOCKED'""",
+                (match_id,now,row["id"]))
+            self.db.execute("""INSERT INTO audit_events
+                (occurred_at,actor_user_id,action,target_type,target_id,details_json)
+                VALUES (?,NULL,'OFFICIAL_MATCH_DISPATCHING','official_match',?,'{}')""",
+                (now,row["id"]))
+            return {"id":row["id"],"match_id":match_id,"game_id":row["game_id"],
+                    "rules_snapshot":json.loads(row["rules_json"]),"slots":slots}
+
+    def sync_execution(self):
+        """Reconcile saved MatchManager results during normal server operation."""
+        self._ready()
+        with transaction(self.db):
+            now = self._now()
+            changed = []
+            rows = self.db.execute("""SELECT * FROM official_match_requests WHERE
+                status IN ('DISPATCHING','RUNNING')""").fetchall()
+            for row in rows:
+                match = self.store.get_match(row["match_id"])
+                if not match or match.get("official_request_id") != row["id"]:
+                    continue
+                status = match.get("status")
+                if status == "completed":
+                    replay = self.store.get_replay(row["match_id"])
+                    if not replay or not replay.get("frames") or not match.get("result"):
+                        self._stamp_execution(row["id"], "INTERRUPTED", now, reason="REPLAY_INCOMPLETE")
+                    else:
+                        winner = match["result"].get("winner")
+                        slots = dict((s["side"], s["team_id"]) for s in self.db.execute(
+                            "SELECT side,team_id FROM official_match_slots WHERE request_id=?", (row["id"],)))
+                        outcome = {"winner_side":winner,"winner_team_id":slots.get(winner),
+                                   "result":match["result"],"turn":match.get("turn",0)}
+                        self._stamp_execution(row["id"], "COMPLETED", now, outcome=outcome)
+                    changed.append(row["id"])
+                elif status == "interrupted":
+                    self._stamp_execution(row["id"], "INTERRUPTED", now,
+                                          reason=match.get("result",{}).get("reason","MATCH_INTERRUPTED"))
+                    changed.append(row["id"])
+                elif status in ("queued","running") and row["status"] == "DISPATCHING":
+                    self.db.execute("""UPDATE official_match_requests
+                        SET status='RUNNING',revision=revision+1 WHERE id=?""", (row["id"],))
+                    changed.append(row["id"])
+            return changed
+
+    def recover_uncertain(self):
+        """Startup fence: never execute an in-flight/possibly executed claim twice."""
+        self._ready()
+        self.sync_execution()
+        with transaction(self.db):
+            now = self._now()
+            rows = self.db.execute("""SELECT id FROM official_match_requests
+                WHERE status IN ('DISPATCHING','RUNNING')""").fetchall()
+            for row in rows:
+                self._stamp_execution(row["id"], "INTERRUPTED", now, reason="SERVER_RESTART")
+            return len(rows)
+
+    def dispatch_failed(self, request_id):
+        """No retry of an execution claim with uncertain side effects."""
+        self._ready()
+        with transaction(self.db):
+            row = self._get(request_id)
+            if row["status"] not in ("DISPATCHING","RUNNING"):
+                return False
+            self._stamp_execution(request_id,"INTERRUPTED",self._now(),
+                                  reason="DISPATCH_FAILED")
+            return True
+
+    def replay(self, actor, request_id, *, audience, manager):
+        now = self._now()
+        if audience == "ADMIN":
+            self.auth.require_actor(actor, now, admin=True, touch=False)
+        elif audience == "PLAYER":
+            player = self.auth.require_actor(actor, now, player_only=True, touch=False)
+            member = self.db.execute("""SELECT 1 FROM team_memberships
+                WHERE user_id=? AND left_at IS NULL AND team_id IN
+                    (SELECT team_a_id FROM official_match_requests WHERE id=?
+                     UNION SELECT team_b_id FROM official_match_requests WHERE id=?)""",
+                (player["id"],request_id,request_id)).fetchone()
+            if not member:
+                raise OfficialNotFound("Official match not found")
+        else:
+            raise PermissionDenied("Wrong account audience")
+        row = self._get(request_id)
+        if not row["match_id"]:
+            raise OfficialConflict("Match has not started; no replay exists")
+        payload = manager.get_replay(row["match_id"])
+        if not payload or payload["match"].get("official_request_id") != row["id"]:
+            raise OfficialConflict("Match replay is not available")
+        match = payload["match"]
+        # Explicit allowlist: never expose server-side execution commands,
+        # artifact IDs/digests, source, runner tokens or internal owner details.
+        fields = ("id","game_id","game","game_name","game_version","status",
+                  "created_at","finished_at","turn","result","winner","rules",
+                  "rules_snapshot","player_a_name_snapshot","player_b_name_snapshot")
+        safe = {key:match[key] for key in fields if key in match}
+        safe["bots"] = {side: {key:bot[key] for key in ("id","name","language") if key in bot}
+                        for side,bot in match.get("bots",{}).items()}
+        return {"match":safe,"version":payload.get("version",1),
+                "frames":payload.get("frames",[])}
 
     def freeze_due(self):
         self._ready()

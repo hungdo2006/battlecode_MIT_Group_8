@@ -53,6 +53,10 @@ def install_bot_http(app):
     async def detail(bot_id: str, request: Request):
         return {"bot":await work(request,lambda b,p:b.bot_detail(p,bot_id))}
 
+    @router.get("/api/player/bots/{bot_id}/source")
+    async def source(bot_id: str, request: Request):
+        return await work(request, lambda b,p:b.source(p,bot_id))
+
     @router.post("/api/player/bots", status_code=201)
     async def upload(body: BotUpload, request: Request):
         # Account-only boundary intentionally only accepts JSON mutations.

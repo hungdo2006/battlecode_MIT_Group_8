@@ -24,6 +24,7 @@ engine = docker.DockerClient(base_url='unix:///var/run/docker.sock', version='au
 label = 'io.neonarena.sandbox=' + namespace
 assert not engine.containers.list(all=True, filters={'label': label}), 'Test stack must have no active jobs'
 owner, token = uuid.uuid4().hex, os.environ['ARENA_RUNNER_TOKEN']
+lease = None
 stopped = threading.Event()
 checks = []
 
@@ -32,8 +33,11 @@ def rpc(path, data=None, authenticated=True):
     headers = {'Content-Type': 'application/json'}
     if authenticated:
         headers['Authorization'] = 'Bearer ' + token
+    payload = {'owner': owner, **data} if data is not None else None
+    if payload is not None and path != '/owner':
+        payload['lease'] = lease
     request = Request('http://127.0.0.1:9000' + path,
-                      data=json.dumps({'owner': owner, **data}).encode() if data is not None else None,
+                      data=json.dumps(payload).encode() if payload is not None else None,
                       headers=headers)
     with build_opener(ProxyHandler({})).open(request, timeout=45) as response:
         return json.load(response)
@@ -83,7 +87,7 @@ def run(code, language='py'):
         close(job)
 
 
-rpc('/owner', {})
+lease = rpc('/owner', {'epoch': rpc('/health')['epoch']})['lease']
 thread = threading.Thread(target=heartbeat, daemon=True)
 thread.start()
 stage = sys.argv[1] if len(sys.argv) > 1 else 'all'
@@ -235,6 +239,7 @@ for line in sys.stdin:
 finally:
     stopped.set()
     thread.join(timeout=5)
+    rpc('/release', {})
     remaining = engine.containers.list(all=True, filters={'label': label})
     assert not remaining, 'Leaked sandbox containers'
 print(json.dumps({'passed': len(checks), 'stage': stage, 'jobs_remaining': 0}), flush=True)

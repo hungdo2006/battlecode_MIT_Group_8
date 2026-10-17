@@ -229,7 +229,7 @@ def main(args):
         for p in (org, a, b): p.url = qa.url
         verify_persistence(org, a, b, expected, hashes, qa)
         print("PASS down/up: new container, same volumes; compiled submissions reused", flush=True)
-        qa.compose("stop", "arena")
+        qa.compose("stop", "arena", "controller")
         with tempfile.TemporaryDirectory(prefix="arena-volume-backup-") as folder:
             archive = backup(Path(folder) / "arena.tar.gz", qa.project, qa.env)
             with tarfile.open(archive, "r:gz") as stream:
@@ -240,7 +240,10 @@ def main(args):
                 assert any(n.startswith("data/replays/") and n.endswith(".jsonl") for n in names)
                 assert not any(n.endswith(".env") for n in names)
                 assert any(n.startswith("artifacts/") and n.endswith(".tar") for n in names)
-            print(f"PASS binary-safe volume backup: {archive.stat().st_size} bytes", flush=True)
+            from restore_docker import verify_bundle
+            bundle = verify_bundle(archive)
+            assert bundle['image_archive_sha256'] and bundle['manifest']['artifact_images']
+            print(f"PASS verified three-volume backup + pinned images: {archive.stat().st_size} bytes", flush=True)
         if args.browser:
             qa.ready()
             from check_multiplayer_ui import check

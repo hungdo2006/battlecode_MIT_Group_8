@@ -35,7 +35,7 @@ EXPOSE 8000
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \
     CMD ["python", "deploy/healthcheck.py"]
 
-# One worker: JSON storage and the lobby/admission lock are process-local.
+# One worker: the data-volume writer lock rejects a second backend process.
 # Exec form forwards SIGTERM; Compose init reaps orphaned children.
 CMD ["python", "-m", "uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--timeout-graceful-shutdown", "20"]
 
@@ -47,6 +47,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && python -m pip install --no-cache-dir -r requirements-dev.txt
 COPY tests/ ./tests/
+COPY scripts/backup_docker.py scripts/restore_docker.py scripts/volume_snapshot.py ./scripts/
 COPY pytest.ini ./
 COPY sandbox_controller/artifacts.py sandbox_controller/__init__.py ./sandbox_controller/
 COPY docs/reference/ottv2/ ./docs/reference/ottv2/

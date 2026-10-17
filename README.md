@@ -6,6 +6,16 @@ Nền tảng thi đấu bot đa game dành cho bài tập nhóm môn Lập trìn
 
 > **Chỉ dùng local/LAN riêng.** Legacy runner (`start.bat`/Phase1) chỉ dành cho code tin cậy: subprocess có quyền của tài khoản server, không phải sandbox. Phase2 bổ sung cách ly Docker nhưng không bảo đảm an toàn tuyệt đối. Không công khai tính năng thực thi code lên Internet.
 
+## Security Foundation — trước Phase 4.2
+
+Backend giữ OS lock trên data volume trước khi đọc/ghi Store và claim Controller.
+Controller dùng epoch/lease fencing, không cho owner mới chiếm lease còn sống,
+không tái dùng job ID sau cleanup. Cold backup kiểm tra cả ba volumes và lưu exact
+image IDs/images để khôi phục vào bộ volume mới. Không thay đổi game/UI và chưa
+triển khai Authentication/RBAC hoặc public gateway.
+
+Xem [runbook, giới hạn và lệnh kiểm thử](docs/SECURITY_FOUNDATION.md).
+
 ## v4.0 Phase 3.1 — Premium Liquid Glass
 
 Tinh chỉnh trên Liquid Light theo [đặc tả được chủ dự án cung cấp](docs/NEON_ARENA_FIGMA_LIQUID_GLASS_BRIEF.md):

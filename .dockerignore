@@ -18,5 +18,8 @@ docs/screenshots
 **/*.p12
 **/*.pfx
 **/*.zip
+**/*.tar.gz
+**/*.images.tar
+**/*.receipt.json
 **/*.log
 **/*.tmp

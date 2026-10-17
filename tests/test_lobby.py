@@ -22,6 +22,7 @@ def clients(tmp_path, authorize_organizer):
             client.portal = org.portal
             client.get('/api/session')
         with ExitStack() as stack:
+            org._test_socket_stack = stack
             sockets = [stack.enter_context(c.websocket_connect('/ws/competition')) for c in [org, *others]]
             yield org, *others, sockets
         for client in others:
@@ -221,7 +222,7 @@ def test_presence_multitab_heartbeat_reconnect_pending_and_running(clients, open
     assert a.get('/api/players/me').json()['status'] == 'OFFLINE'
 
 
-def test_restart_cancels_pending_keeps_active_and_old_replay(clients, tmp_path, authorize_organizer, open_competition):
+def test_restart_cancels_pending_keeps_active_and_old_replay(clients, tmp_path, authorize_organizer, open_competition, stop_backend):
     org, a, b, _, _ = clients
     ba = ready(a); ready(b)
     cookie = a.cookies.get('arena_session')
@@ -232,6 +233,7 @@ def test_restart_cancels_pending_keeps_active_and_old_replay(clients, tmp_path, 
     frames, _ = watch(org, mid)
     pending = invite(org, a, b)
     a.post(f"/api/invitations/{pending['id']}/accept")
+    stop_backend(org)
     with TestClient(create_app(tmp_path)) as restarted:
         restarted.cookies.set('arena_session', cookie)
         me = restarted.get('/api/players/me').json()
@@ -360,7 +362,7 @@ def test_role_promotion_during_compile_cannot_commit_organizer_bot(clients, monk
     assert org.get('/api/bots').json() == []
 
 
-def test_invitation_write_failure_after_start_cannot_create_second_match(clients, monkeypatch, open_competition, tmp_path):
+def test_invitation_write_failure_after_start_cannot_create_second_match(clients, monkeypatch, open_competition, tmp_path, stop_backend):
     org, a, b, _, _ = clients
     ready(a); ready(b)
     open_competition(org, rules={'max_turns': 30})
@@ -383,6 +385,7 @@ def test_invitation_write_failure_after_start_cannot_create_second_match(clients
     assert len(matches) == 1
     assert b.post(path).json()['match_id'] == matches[0]['id']
     assert len(org.get('/api/matches').json()) == 1
+    stop_backend(org)
     with TestClient(create_app(tmp_path)) as restarted:
         restarted.cookies.set('arena_session', b.cookies.get('arena_session'))
         assert restarted.get('/api/invitations').json()[0]['match_id'] == matches[0]['id']

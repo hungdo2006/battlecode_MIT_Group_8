@@ -1,7 +1,7 @@
 """Phase 4.2C2/C3 integration tests with isolated Account-Only data."""
 import base64
 
-from tests.test_team_http import room, login, csrf
+from test_team_http import room, login, csrf
 
 
 def team(room, username, slug):
@@ -55,3 +55,22 @@ def test_disallowed_source_and_team_preconditions(room):
         "source_base64":"$$"},headers=h).status_code == 422
 
 
+
+def test_incomplete_journal_recovery_idempotent(room):
+    from backend.account_database import transaction
+    from backend.auth_service import AuthService
+    from backend.auth_limits import AuthRateLimiter
+    from backend.bot_service import TeamBots
+    tid,h=team(room,"alice","journal-qa")
+    rt=room.app.state.account_http
+    with rt.database.writer_connection(rt.writer) as db:
+        auth=AuthService(db,rt.writer,login_limiter=AuthRateLimiter(),clock=room.clock)
+        bots=TeamBots(auth,db,rt.writer,room.app.state.store,room.app.state.registry)
+        uid=db.execute("SELECT id FROM users WHERE username='alice'").fetchone()[0]
+        with transaction(db):
+            db.execute("INSERT INTO submission_journal VALUES ('unfinished',?,?,?,?,'PREPARING')",
+                       (tid,"robot_battle",uid,room.clock.now))
+        assert bots.reconcile()==1
+        assert bots.reconcile()==0
+        assert db.execute("SELECT state FROM submission_journal WHERE bot_id='unfinished'").fetchone()[0]=="ABORTED"
+    assert room.client.get("/api/player/bots").json()["bots"] == []

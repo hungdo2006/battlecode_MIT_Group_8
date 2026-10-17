@@ -1313,6 +1313,8 @@ async function refreshAccountTeam() {
   $("#account-team-invite").classList.toggle("hidden", !captain || team?.status === "ARCHIVED");
   $("#account-team-activate").classList.toggle("hidden", !captain || team?.status !== "DRAFT");
   $("#account-team-archive").classList.toggle("hidden", !captain);
+  $("#account-team-rename").classList.toggle("hidden", !captain);
+  $("#account-team-leave").classList.toggle("hidden", !team || captain);
   const inbox = $("#account-team-inbox");
   inbox.replaceChildren();
   for (const inv of invites.invitations.filter(i => i.status === "PENDING")) {
@@ -1337,6 +1339,20 @@ async function refreshAccountTeam() {
     target.replaceChildren();
     target.append(el("strong", "", "Thành viên: "));
     target.append(document.createTextNode(members.members.map(m => `${m.display_name} (${m.team_role})`).join(", ")));
+    const actions = $("#account-team-member-actions"); actions.replaceChildren();
+    if (captain) for (const member of members.members.filter(m => m.team_role === "MEMBER")) {
+      const row=el("div","bot-row");row.append(el("span","",member.display_name));
+      for(const action of ["captain-transfer","remove"]){
+        const btn=el("button","button ghost small",action==="remove"?"Xóa thành viên":"Chuyển Captain");
+        btn.onclick=async()=>{
+          if(!confirm(action==="remove"?"Xóa thành viên khỏi Team?":"Chuyển quyền Captain cho thành viên này?"))return;
+          const path=action==="remove" ? `/api/player/teams/${team.id}/members/${member.user_id}/remove`
+            : `/api/player/teams/${team.id}/captain-transfer`;
+          try{await api(path,jsonOptions("POST",action==="remove"?{}:{new_captain_user_id:member.user_id}));await refreshAccountTeam();}
+          catch(e){toast(e.message,true);}
+        };row.append(btn);
+      }actions.append(row);
+    }
   }
   const bots = team ? await api("/api/player/bots") : {bots:[]};
   app.bots = bots.bots;
@@ -1358,6 +1374,14 @@ function renderAccountBotLibrary() {
       catch(e){toast(e.message,true);}
     };
     row.append(btn);
+    const view=el("button","button ghost small","Xem source");
+    view.onclick=async()=>{
+      try{const src=await api(`/api/player/bots/${bot.id}/source`);
+        const details=el("details");details.open=true;
+        details.append(el("summary","","Source · "+src.filename),el("pre","",src.source));
+        row.append(details);view.disabled=true;
+      }catch(e){toast(e.message,true);}
+    };row.append(view);
     if(bot.logs) {const details=el("details"); details.append(el("summary","","Compiler log"),el("pre","",bot.logs));row.append(details);}
     target.append(row);
   }
@@ -1382,5 +1406,18 @@ $("#account-team-activate").addEventListener("click",async()=>{
 $("#account-team-archive").addEventListener("click",async()=>{
   if(!confirm("Lưu trữ Team sẽ kết thúc tất cả memberships và hủy lời mời. Tiếp tục?"))return;
   try{await api(`/api/player/teams/${app.team.team.id}/archive`,jsonOptions("POST",{}));await refreshAccountTeam();}
+  catch(e){toast(e.message,true);}
+});
+
+$("#account-team-rename").addEventListener("submit",async event=>{
+  event.preventDefault();
+  try{await api(`/api/player/teams/${app.team.team.id}`,jsonOptions("PATCH",{
+      display_name:event.currentTarget.elements.display_name.value
+    }));event.currentTarget.reset();await refreshAccountTeam();}
+  catch(e){toast(e.message,true);}
+});
+$("#account-team-leave").addEventListener("click",async()=>{
+  if(!confirm("Bạn muốn rời Team?"))return;
+  try{await api(`/api/player/teams/${app.team.team.id}/leave`,jsonOptions("POST",{}));await refreshAccountTeam();}
   catch(e){toast(e.message,true);}
 });

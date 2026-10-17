@@ -1,5 +1,14 @@
 # NEON ARENA
 
+## Phase 4.2D — Official Match Scheduling (D1 work in progress)
+
+**Nhánh phát triển:** `feature/official-match-scheduling`. Phase 4.2C đã merge; D1 là thay đổi đang đợi Codex QA, **chưa merge và chưa tự chạy trận**.
+
+D1 bổ sung migration SQLite v5 (append-only), `official_match_requests` và `official_match_slots`, API Admin lên lịch/cancel, lịch đọc chỉ cho Admin hoặc Player thuộc Team liên quan, bot deadline UTC Unix seconds, snapshot luật khi xếp lịch, và source checksum cùng Active Bot revision khi khóa bot. Khi bot thiếu/sai game/chưa ready hoặc Team bị archive lúc khóa, trạng thái `BLOCKED` rõ nguyên nhân (không xử thua, không lựa chọn bot mới sau deadline). Tick nền xử lý deadline và thao tác Captain chọn Active Bot cũng xử lý deadline quá hạn **trước khi** thay lựa chọn trong cùng SQLite transaction.
+
+**Hạn chế cố ý D1:** `LOCKED` mới chỉ chứng minh đã chốt hai slot; chưa có scheduler dispatch, replay Team official, idempotent match execution hay giao diện Admin/Player lịch thi đấu. Những nội dung đó cần làm D2/D3 trước nghiệm thu Phase D. Cần migrate offline bằng `python -m backend.admin_cli --data-dir <disposable-data-dir> migrate` và chạy QA với dữ liệu riêng. Không migrate AWS/volume hiện hữu chỉ để thử.
+
+
 Nền tảng thi đấu bot đa game dành cho bài tập nhóm môn Lập trình mạng. Hiện hỗ trợ **Robot Battle** và **OTT v2**, đăng ký qua **GameRegistry + GameAdapter**. Backend **Python FastAPI**, frontend **HTML/CSS/JavaScript thuần + Canvas**, giao tiếp **HTTP REST + WebSocket**, bot **legacy subprocess hoặc Docker sandbox**, dữ liệu **JSON**. Chế độ native không cần Docker, Node.js hoặc database server.
 
 **v3.0: Organizer điều hành, Player nộp bot và Accept/Decline lời mời.** Presence qua WebSocket/heartbeat, một Active Bot riêng cho mỗi Player, tự chạy đúng một trận khi cả hai Accept và tự mở cùng Live Arena trên ba trình duyệt. Game Lock, Game Adapter, runner đa ngôn ngữ và replay JSONL được giữ. Xem [demo ba laptop](docs/MULTIPLAYER.md), [báo cáo kiểm thử v3](docs/MULTIPLAYER_VERIFICATION.md), [networking](docs/NETWORKING.md); hướng dẫn trong app ở `/lan`.

@@ -1,4 +1,4 @@
-"""Tests for append-only Team migrations v3 and v4, upgrade/rollback and integrity."""
+"""Append-only Team and Official Match migrations v3 through v5."""
 import sqlite3
 import pytest
 
@@ -7,7 +7,7 @@ from backend.account_database import AccountDatabase, SCHEMA_VERSION, SchemaErro
 from backend.account_schema import MIGRATIONS
 
 
-def test_new_database_creates_v4_with_team_indexes_and_journal(tmp_path):
+def test_new_database_creates_v5_with_team_and_official_indexes(tmp_path):
     db = AccountDatabase(tmp_path)
     db.migrate()
     with db.read() as connection:
@@ -18,13 +18,18 @@ def test_new_database_creates_v4_with_team_indexes_and_journal(tmp_path):
             (2, "auth_service_core"),
             (3, "team_lifecycle_membership"),
             (4, "team_submission_journal"),
+            (5, "official_match_scheduling"),
         ]
         indexes = {row[0] for row in connection.execute("SELECT name FROM sqlite_schema WHERE type='index'")}
         assert "membership_active_user_global" in indexes
         assert "team_memberships_team_active" in indexes
         assert "team_invitations_user_status" in indexes
         assert "submission_journal_team" in indexes
+        assert "official_due" in indexes
+        assert "official_schedule" in indexes
         assert connection.execute("SELECT 1 FROM sqlite_schema WHERE name='submission_journal'").fetchone()
+        assert connection.execute("SELECT 1 FROM sqlite_schema WHERE name='official_match_requests'").fetchone()
+        assert connection.execute("SELECT 1 FROM sqlite_schema WHERE name='official_match_slots'").fetchone()
         check_integrity(connection)
 
 
@@ -46,7 +51,7 @@ def test_v2_to_current_upgrade_preserves_existing_data(tmp_path, monkeypatch):
             connection.execute("""INSERT INTO auth_sessions (id, token_hash, user_id, audience, auth_version, created_at, expires_at, idle_timeout_seconds)
                 VALUES ('s1', ?, 'u1', 'PLAYER', 1, 100, 200, 60)""", ("a" * 64,))
 
-    # 2. Upgrade from v2 through v3 to current v4
+    # 2. Upgrade from v2 through v3/v4 to current v5
     db.migrate()
     with db.read() as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
@@ -154,4 +159,19 @@ def test_v3_to_v4_upgrade_preserves_ownership_and_creates_journal(tmp_path, monk
         assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         assert connection.execute("SELECT count(*) FROM submission_ownership").fetchone()[0] == 1
         assert connection.execute("SELECT count(*) FROM submission_journal").fetchone()[0] == 0
+        check_integrity(connection)
+
+
+def test_v4_to_v5_upgrade_is_append_only_and_idempotent(tmp_path,monkeypatch):
+    db=AccountDatabase(tmp_path)
+    with monkeypatch.context() as patch:
+        patch.setattr(account_database,"MIGRATIONS",MIGRATIONS[:4])
+        patch.setattr(account_database,"SCHEMA_VERSION",4)
+        db.migrate()
+    db.migrate()
+    db.migrate()
+    with db.read() as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0]==5
+        assert connection.execute("SELECT count(*) FROM schema_migrations").fetchone()[0]==5
+        assert connection.execute("SELECT count(*) FROM official_match_requests").fetchone()[0]==0
         check_integrity(connection)

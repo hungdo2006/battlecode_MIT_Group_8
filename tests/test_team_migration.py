@@ -30,6 +30,7 @@ def test_new_database_creates_v5_with_team_and_official_indexes(tmp_path):
         assert connection.execute("SELECT 1 FROM sqlite_schema WHERE name='submission_journal'").fetchone()
         assert connection.execute("SELECT 1 FROM sqlite_schema WHERE name='official_match_requests'").fetchone()
         assert connection.execute("SELECT 1 FROM sqlite_schema WHERE name='official_match_slots'").fetchone()
+        assert connection.execute("SELECT 1 FROM sqlite_schema WHERE name='official_source_attestations'").fetchone()
         check_integrity(connection)
 
 

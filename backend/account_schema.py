@@ -180,6 +180,14 @@ MIGRATIONS = (
         ) STRICT""",
         "CREATE INDEX official_due ON official_match_requests(status, bot_lock_at)",
         "CREATE INDEX official_schedule ON official_match_requests(scheduled_at, id)",
+        """CREATE TABLE official_source_attestations (
+            bot_id TEXT PRIMARY KEY NOT NULL REFERENCES submission_ownership(bot_id)
+                ON DELETE RESTRICT,
+            source_sha256 TEXT NOT NULL CHECK (
+                length(source_sha256)=64 AND
+                source_sha256 NOT GLOB '*[^0-9a-f]*'),
+            attested_at INTEGER NOT NULL CHECK (attested_at >= 0)
+        ) STRICT""",
         """CREATE TABLE official_match_slots (
             request_id TEXT NOT NULL REFERENCES official_match_requests(id) ON DELETE RESTRICT,
             side TEXT NOT NULL CHECK (side IN ('A','B')),

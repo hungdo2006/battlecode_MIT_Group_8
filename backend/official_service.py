@@ -23,18 +23,25 @@ class OfficialConflict(AccountConflict):
 
 
 def snapshot_source(store, record, bot):
-    """Read only server-controlled source paths. Fail closed when source is absent."""
+    """Read only server-controlled source paths and fail closed on read errors.
+
+    A broken/unreadable source must block its own request, not raise an OS
+    exception that rolls back otherwise healthy requests in the due queue.
+    """
     bot_id=record["bot_id"]
     language=bot.get("language")
     if (len(bot_id)!=16 or any(c not in "0123456789abcdef" for c in bot_id)
         or language not in ("py","cpp","java")):
         return None
     filename="Main.java" if language=="java" else f"bot.{language}"
-    root=store.uploads.resolve()
-    location=(root/bot_id/filename).resolve()
-    if not location.is_relative_to(root) or not location.is_file():
+    try:
+        root=store.uploads.resolve()
+        location=(root/bot_id/filename).resolve()
+        if not location.is_relative_to(root) or not location.is_file():
+            return None
+        data=location.read_bytes()
+    except OSError:
         return None
-    data=location.read_bytes()
     if not data or len(data)>256*1024:
         return None
     return hashlib.sha256(data).hexdigest()
@@ -70,9 +77,15 @@ def lock_due_matches(connection, store, now):
             if (not binding or not bot or bot.get("team_id")!=tid
                 or bot.get("game_id")!=request["game_id"] or bot.get("status")!="ready"):
                 reason="BOT_UNAVAILABLE";break
+            attestation=connection.execute("""SELECT source_sha256 FROM official_source_attestations
+                WHERE bot_id=?""",(selected["bot_id"],)).fetchone()
+            if attestation is None:
+                reason="SOURCE_UNVERIFIED";break
             digest=snapshot_source(store,binding,bot)
             if digest is None:
                 reason="SOURCE_UNAVAILABLE";break
+            if digest != attestation["source_sha256"]:
+                reason="SOURCE_CHANGED";break
             slots.append((request["id"],side,tid,team["display_name"],
                           request["game_id"],bot["id"],bot["name"],bot["language"],
                           digest,selected["revision"],now))

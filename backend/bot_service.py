@@ -5,6 +5,7 @@ SQLite ownership binding. Readers require both a committed binding and a matchin
 ready/error JSON bot, never a legacy owner fallback.
 """
 import uuid
+import re
 from pathlib import Path
 
 from .account_database import transaction, require_writer
@@ -74,6 +75,17 @@ class TeamBots:
             self.db.execute("""INSERT INTO submission_ownership
                 (bot_id,team_id,game_id,uploaded_by,origin,created_at)
                 VALUES (?,?,?,?,'NEW',?)""", (bot_id,row["team_id"],row["game_id"],user["id"],row["created_at"]))
+            # Attest the submitted bytes that were handed to the compiler, not
+            # whatever source file happens to exist when the scheduler wakes.
+            # Historical/unattested submissions remain usable for C2/C3 but
+            # are fail-closed for Official Matches (re-upload to qualify).
+            digest = saved.get("source_sha256")
+            if saved.get("status") == "ready" and isinstance(digest, str):
+                if not re.fullmatch(r"[0-9a-f]{64}", digest):
+                    raise TeamConflict("Invalid compiled source attestation")
+                self.db.execute("""INSERT INTO official_source_attestations
+                    (bot_id,source_sha256,attested_at) VALUES (?,?,?)""",
+                    (bot_id,digest,now))
             self.db.execute("UPDATE submission_journal SET state='COMMITTED' WHERE bot_id=?", (bot_id,))
             self.db.execute("""INSERT INTO audit_events(occurred_at,actor_user_id,action,target_type,target_id,details_json)
                 VALUES (?,?,'TEAM_BOT_SUBMITTED','bot',?,'{}')""", (now,user["id"],bot_id))

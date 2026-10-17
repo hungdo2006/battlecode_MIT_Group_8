@@ -1,5 +1,6 @@
 """Phase 4.2D1: deterministic Official scheduling and per-match frozen selections."""
 from pathlib import Path
+import hashlib
 import pytest
 
 from test_team_http import room,login,csrf
@@ -24,7 +25,8 @@ def seed_ready_bot(room,team_id,username,bot_id):
     """Synthetic locally persisted compiled bot and ownership; real compiler is tested by C2."""
     root=room.app.state.store.uploads/bot_id
     root.mkdir(parents=True,exist_ok=True)
-    (root/"bot.py").write_bytes(b"print('ok',flush=True)\n")
+    source=b"print('ok',flush=True)\n"
+    (root/"bot.py").write_bytes(source)
     room.app.state.store.save_bot({
         "id":bot_id,"name":"Ready "+username,"language":"py","game_id":GAME,
         "team_id":team_id,"status":"ready","filename":"bot.py",
@@ -37,6 +39,9 @@ def seed_ready_bot(room,team_id,username,bot_id):
             (bot_id,team_id,game_id,uploaded_by,origin,created_at)
             VALUES (?,?,?,?,'NEW',?)""",
             (bot_id,team_id,GAME,user_id,room.clock.now))
+        db.execute("""INSERT INTO official_source_attestations
+            (bot_id,source_sha256,attested_at) VALUES (?,?,?)""",
+            (bot_id,hashlib.sha256(source).hexdigest(),room.clock.now))
     return bot_id
 
 

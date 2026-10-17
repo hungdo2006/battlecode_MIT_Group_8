@@ -37,7 +37,7 @@ def test_script_never_forces_branch_or_deletes_volumes():
     ps = (ROOT / "scripts" / "start_local_qa.ps1").read_text(encoding="utf-8")
     assert 'pull --ff-only origin main' in ps
     assert 'git -C $root pull --ff-only origin main' in ps
-    assert 'git switch' not in ps.split('    New-Item -ItemType Directory', 1)[0]
+    assert '& git -C $root switch ' not in ps  # An error message may recommend switching manually
     assert 'Compose-Checked -Arguments @("down")' in ps
     assert 'down -v' not in ps
     assert 'down", "-v' not in ps
@@ -45,7 +45,7 @@ def test_script_never_forces_branch_or_deletes_volumes():
     assert 'git clean' not in ps
     assert 'An existing outdated/invalid schema' not in ps  # note is documentation only
     assert 'if ($dbExit -eq 15)' in ps
-    assert 'if ($dbExit -eq 15)' in ps and '"migrate")' in ps
+    assert '"migrate")' in ps
     assert 'Compose-Checked -Arguments @("run", "--rm", "--no-deps", "arena",' in ps
 
 

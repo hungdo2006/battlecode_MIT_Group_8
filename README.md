@@ -1,5 +1,14 @@
 # NEON ARENA
 
+## Windows one-click QA preview
+
+For a local Account-Only Docker preview on the merged `main` branch, double-click
+`Start-NEON-ARENA-QA.bat` (and `Stop-NEON-ARENA-QA.bat` to stop safely).
+The launcher uses dedicated volumes/images at `http://127.0.0.1:18042`,
+creates the QA database and Admin on first run, and never changes AWS or
+production data. See [the one-click quickstart](docs/QUICKSTART_LOCAL_QA.md).
+
+
 Nền tảng thi đấu bot đa game dành cho bài tập nhóm môn Lập trình mạng. Hiện hỗ trợ **Robot Battle** và **OTT v2**, đăng ký qua **GameRegistry + GameAdapter**. Backend **Python FastAPI**, frontend **HTML/CSS/JavaScript thuần + Canvas**, giao tiếp **HTTP REST + WebSocket**, bot **legacy subprocess hoặc Docker sandbox**, dữ liệu **JSON**. Chế độ native không cần Docker, Node.js hoặc database server.
 
 **v3.0: Organizer điều hành, Player nộp bot và Accept/Decline lời mời.** Presence qua WebSocket/heartbeat, một Active Bot riêng cho mỗi Player, tự chạy đúng một trận khi cả hai Accept và tự mở cùng Live Arena trên ba trình duyệt. Game Lock, Game Adapter, runner đa ngôn ngữ và replay JSONL được giữ. Xem [demo ba laptop](docs/MULTIPLAYER.md), [báo cáo kiểm thử v3](docs/MULTIPLAYER_VERIFICATION.md), [networking](docs/NETWORKING.md); hướng dẫn trong app ở `/lan`.

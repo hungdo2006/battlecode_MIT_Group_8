@@ -1,5 +1,6 @@
 """Account-Only frontend regressions and platform-independent fingerprints."""
 from pathlib import Path
+import re
 from scripts import version_frontend
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -7,8 +8,12 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def test_account_only_permissions_operate_on_node_lists():
     js = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
-    assert '$$(".player-only, [data-go=upload]' in js
-    assert '$$(".nav-item[data-view=upload], #view-upload .two-column' in js
+    assert 'document.querySelectorAll(".player-only, [data-go=upload]' in js
+    assert 'document.querySelectorAll(".nav-item[data-view=upload], #view-upload .two-column' in js
+    assert 'document.querySelectorAll(\'[data-sample]\')' in js
+    # A single-node selector cannot be followed by NodeList.forEach. Guard
+    # the entire script so legacy and account-only branches are covered.
+    assert not re.search(r"(?<!\\$)\\$\\([^;\\n]*?\\)\\.forEach\\(", js)
     assert '(!accountPlayer && location.hash === "#upload")' in js
 
 
@@ -29,5 +34,7 @@ def test_frontend_fingerprint_is_stable_under_windows_autocrlf(tmp_path, monkeyp
 
 
 def test_committed_asset_versions_current():
-    html = (ROOT / "frontend" / "index.html").read_text(encoding="utf-8")
-    assert version_frontend.versioned_html(html) == html
+    # The build script checks *all* HTML documents, not only index.html.
+    for page in sorted((ROOT / "frontend").glob("*.html")):
+        html = page.read_text(encoding="utf-8")
+        assert version_frontend.versioned_html(html) == html, page.name

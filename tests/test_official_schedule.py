@@ -377,3 +377,37 @@ def test_d2_no_legacy_runner_dispatch_for_locked_official(room):
     # The official worker must leave it locked until an enabled sandbox exists.
     assert room.app.state.manager.runner.mode=="legacy"
     assert room.app.state.store.get_match("o"+request_id[:15]) is None
+
+
+def test_d2_artifact_metadata_change_after_lock_blocks_dispatch(room):
+    ta=create_team(room,"alice","alpha-d2-artifact")
+    tb=create_team(room,"bob","beta-d2-artifact")
+    for user,tid,bot_id in (("alice",ta,"a"*16),("bob",tb,"b"*16)):
+        seed_ready_bot(room,tid,user,bot_id)
+        make_sandbox_artifact(room,bot_id)
+        select_bot(room,user,bot_id)
+    deadline=room.clock.now+5
+    response=schedule(room,ta,tb,bot_lock_at=deadline,scheduled_at=deadline+4)
+    assert response.status_code==201,response.text
+    request_id=response.json()["request"]["id"]
+    room.clock.now=deadline
+    assert freeze_official_requests(room)==[(request_id,"LOCKED")]
+    # Changing the mutable JSON artifact after lock cannot switch a frozen bot.
+    tampered=room.app.state.store.get_bot("a"*16)
+    tampered["artifact_digest"]="b"*64
+    room.app.state.store.save_bot(tampered)
+    room.clock.now=deadline+4
+    rt=room.app.state.account_http
+    from backend.official_service import OfficialSchedule
+    from backend.auth_service import AuthService
+    from backend.auth_limits import AuthRateLimiter
+    with rt.database.writer_connection(rt.writer) as conn:
+        svc=OfficialSchedule(conn,rt.writer,
+            AuthService(conn,rt.writer,clock=room.clock,login_limiter=AuthRateLimiter()),
+            room.app.state.store,room.app.state.registry)
+        blocked=svc.claim_due()
+        assert blocked=={"blocked":request_id,"reason":"FROZEN_ARTIFACT_UNAVAILABLE"}
+        assert svc.claim_due() is None
+        assert svc._get(request_id)["status"]=="BLOCKED"
+        assert conn.execute("SELECT count(*) FROM official_match_slots WHERE request_id=?",
+                            (request_id,)).fetchone()[0]==2

@@ -1,6 +1,6 @@
 # NEON ARENA
 
-## Phase 4.2D — Official Match Scheduling (D1 work in progress)
+## Phase 4.2D — Official Match Scheduling (D1–D3 QA candidate)
 
 **D1 source attestation:** A ready bot uploaded after this feature is installed
 receives a SHA-256 attestation of the original submitted source in SQLite as part
@@ -14,11 +14,17 @@ updated while PR #7 was still unmerged; QA must use **fresh disposable data**
 rather than reusing an earlier v5 test database with a different checksum.
 
 
-**Nhánh phát triển:** `feature/official-match-scheduling`. Phase 4.2C đã merge; D1 là thay đổi đang đợi Codex QA, **chưa merge và chưa tự chạy trận**.
+**Nhánh phát triển:** `feature/official-match-scheduling`. Code D1–D3 đã được thêm vào PR #7, **chưa merge và chưa có QA end-to-end độc lập cho D2/D3**.
 
 D1 bổ sung migration SQLite v5 (append-only), `official_match_requests` và `official_match_slots`, API Admin lên lịch/cancel, lịch đọc chỉ cho Admin hoặc Player thuộc Team liên quan, bot deadline UTC Unix seconds, snapshot luật khi xếp lịch, và source checksum cùng Active Bot revision khi khóa bot. Khi bot thiếu/sai game/chưa ready hoặc Team bị archive lúc khóa, trạng thái `BLOCKED` rõ nguyên nhân (không xử thua, không lựa chọn bot mới sau deadline). Tick nền xử lý deadline và thao tác Captain chọn Active Bot cũng xử lý deadline quá hạn **trước khi** thay lựa chọn trong cùng SQLite transaction.
 
-**Hạn chế cố ý D1:** `LOCKED` mới chỉ chứng minh đã chốt hai slot; chưa có scheduler dispatch, replay Team official, idempotent match execution hay giao diện Admin/Player lịch thi đấu. Những nội dung đó cần làm D2/D3 trước nghiệm thu Phase D. Cần migrate offline bằng `python -m backend.admin_cli --data-dir <disposable-data-dir> migrate` và chạy QA với dữ liệu riêng. Không migrate AWS/volume hiện hữu chỉ để thử.
+**D2 — Dispatch & recovery:** Worker kiểm tra deadline mỗi giây, chỉ khởi chạy Official Match khi `ARENA_RUNNER=sandbox` và controller báo ready. SQLite claim chuyển `LOCKED → DISPATCHING` **trước** mọi side effect; mỗi request có match ID cố định. Những claim không có kết quả rõ ràng khi restart được đánh dấu `INTERRUPTED` và **không tự chạy lại**. Kết quả hoàn thành chỉ được công bố `COMPLETED` sau khi JSON match và replay hợp lệ; không suy diễn thắng/thua do lỗi hạ tầng. Artifact ID/digest đã chốt ngay lúc lock được đối chiếu tại dispatch và ngay trước khi MatchManager khởi tạo session. Tối đa hai trận đồng thời. Trận Official được tạo bằng snapshot game/rules riêng của request, độc lập với việc Player online hoặc trạng thái cuộc thi legacy.
+
+**D3 — API & UI:** Account-Only Admin có trang Official Match để chọn 2 Team ACTIVE, game, deadline khóa và giờ đấu. Player chỉ đọc những trận có liên quan đến Team mình đang tham gia. Replay lấy qua `/api/{admin|player}/official-matches/{request_id}/replay` với cookie audience/CSRF/IDOR policy, và frontend dùng polling đọc replay đang chạy (không mở WebSocket legacy). Kết quả Official Team không bị tính nhầm sang standings dành cho Player legacy.
+
+**Chính sách vận hành:** chưa có tự động retry một claim đã dispatch hoặc trận interrupted, vì có thể gây chạy trùng. Admin cần lên lịch yêu cầu mới sau khi kiểm tra nguyên nhân. Bot cũ thiếu attestation phải nộp lại, bot legacy không đủ điều kiện thực thi Official. Không chuyển runner về subprocess để tránh yêu cầu Sandbox. Scheduler không thể bảo đảm chính xác thời điểm tick đến từng mili-giây; deadline bot được bảo vệ bằng transaction cùng Active Bot update. Cần migrate offline trên **fresh disposable database** bằng `python -m backend.admin_cli --data-dir <disposable-data-dir> migrate`; không được dùng lại v5 từ commit D1 trước đó hoặc migrate AWS/volume vận hành chỉ để thử.
+
+**QA trước merge:** Chạy `python -m pytest tests controller_tests -ra --tb=short`, browser Chrome Account-Only và Legacy, `python scripts/check_account_ui.py`, Docker sandbox, fingerprint CRLF/LF, restart/kill sau claim, side-effect fault injection, CSRF/Origin/IDOR, artifact replacement, replay isolation và đồng bộ rank/match mới trên main. PR #7 vẫn Draft đến khi QA độc lập PASS.
 
 
 Nền tảng thi đấu bot đa game dành cho bài tập nhóm môn Lập trình mạng. Hiện hỗ trợ **Robot Battle** và **OTT v2**, đăng ký qua **GameRegistry + GameAdapter**. Backend **Python FastAPI**, frontend **HTML/CSS/JavaScript thuần + Canvas**, giao tiếp **HTTP REST + WebSocket**, bot **legacy subprocess hoặc Docker sandbox**, dữ liệu **JSON**. Chế độ native không cần Docker, Node.js hoặc database server.

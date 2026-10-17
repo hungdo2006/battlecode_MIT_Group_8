@@ -84,6 +84,9 @@ function toast(message, error = false) {
 }
 
 async function api(path, options = {}) {
+  if (typeof path !== "string" || !path.startsWith("/") || path.startsWith("//") || /^[a-zA-Z][a-zA-Z\d+.-]*:/.test(path)) {
+    throw new Error("Đường dẫn API không hợp lệ.");
+  }
   path = scopedApiPath(path);
   const method = (options.method || "GET").toUpperCase();
   if (app.accountOnly && !["GET", "HEAD", "OPTIONS"].includes(method) && !path.includes("/auth/login")

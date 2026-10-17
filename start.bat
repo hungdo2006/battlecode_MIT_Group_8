@@ -27,7 +27,7 @@ if not errorlevel 1 (
 if errorlevel 1 goto failed
 
 :checkdeps
-".venv\Scripts\python.exe" -c "import fastapi, uvicorn, multipart, websockets" >nul 2>&1
+".venv\Scripts\python.exe" -c "import fastapi, uvicorn, multipart, websockets, argon2" >nul 2>&1
 if not errorlevel 1 goto run
 echo Installing project dependencies...
 ".venv\Scripts\python.exe" -m pip install -r requirements.txt

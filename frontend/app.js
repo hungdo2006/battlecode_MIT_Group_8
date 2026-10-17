@@ -1934,3 +1934,121 @@ $("#account-team-leave").addEventListener("click",async()=>{
   try{await api(`/api/player/teams/${app.team.team.id}/leave`,jsonOptions("POST",{}));await refreshAccountTeam();}
   catch(e){toast(e.message,true);}
 });
+
+
+// Phase 4.2D3: Account-Only Official Match workspace.
+// Uses the same authenticated API wrapper as Team management.
+function officialDateTime(seconds) {
+  return new Date(seconds * 1000).toLocaleString("vi-VN");
+}
+function officialLocalInput(ms) {
+  const date = new Date(ms);
+  return new Date(ms - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+}
+async function refreshOfficialMatches() {
+  if (!app.accountOnly || !app.account) return;
+  const isAdmin = app.accountAudience === "admin";
+  const response = await api("/api/" + app.accountAudience + "/official-matches");
+  if (!Array.isArray(response.requests)) throw new Error("Danh sách Official Match không hợp lệ.");
+  app.officialMatches = response.requests;
+  if (isAdmin) {
+    const teams = await api("/api/admin/teams");
+    app.officialTeams = teams.teams.filter(team => team.status === "ACTIVE");
+    for (const [selector, fallback] of [
+      ["#official-team-a", app.officialTeams[0]?.id || ""],
+      ["#official-team-b", app.officialTeams[1]?.id || ""]
+    ]) {
+      const input = $(selector), previous = input.value;
+      input.replaceChildren(...app.officialTeams.map(team => {
+        const option = el("option", "", team.display_name);
+        option.value = team.id;
+        return option;
+      }));
+      input.value = app.officialTeams.some(team => team.id === previous) ? previous : fallback;
+    }
+    const game = $("#official-game"), previous = game.value;
+    game.replaceChildren(...app.games.map(item => {
+      const option = el("option", "", item.name);
+      option.value = item.game_id;
+      return option;
+    }));
+    game.value = app.games.some(item => item.game_id === previous)
+      ? previous : app.competition?.selected_game_id || "";
+    $("#official-schedule-form [type=submit]").disabled = app.officialTeams.length < 2 || !app.games.length;
+  }
+  $("#official-admin-panel").classList.toggle("hidden", !isAdmin);
+  $("#official-list-heading").textContent = isAdmin ? "Tất cả Official Matches" : "Trận đấu của Team tôi";
+  renderOfficialMatches();
+}
+function renderOfficialMatches() {
+  const target = $("#official-match-list");
+  target.replaceChildren();
+  if (!app.officialMatches.length) {
+    target.append(el("div", "empty-state", "Chưa có trận đấu chính thức nào."));
+    return;
+  }
+  for (const item of app.officialMatches) {
+    const row = el("article", "panel glass-surface glass-subtle");
+    const slots = Object.fromEntries((item.slots || []).map(slot => [slot.side, slot]));
+    const label = side => slots[side]?.team_name_snapshot ||
+      app.officialTeams.find(team => team.id === (side === "A" ? item.team_a_id : item.team_b_id))?.display_name ||
+      (side === "A" ? "Team A" : "Team B");
+    row.append(el("strong", "", label("A") + " vs " + label("B")));
+    row.append(el("div", "form-note", item.game_id + " · Khóa: " + officialDateTime(item.bot_lock_at) +
+      " · Đấu: " + officialDateTime(item.scheduled_at)));
+    row.append(el("div", "form-note", "Trạng thái: " + item.status +
+      (item.status_reason ? " · " + item.status_reason : "")));
+    if (item.outcome) row.append(el("div", "form-note", "Kết quả: " +
+      (item.outcome.winner_side || "Hòa") + " · " + (item.outcome.turn ?? 0) + " lượt"));
+    if (item.match_id) {
+      const watch = el("button", "button ghost small", "Xem Live / Replay ↗");
+      watch.type = "button";
+      watch.onclick = () => loadMatch(item.id, true).catch(error => toast(error.message, true));
+      row.append(watch);
+    }
+    if (app.accountAudience === "admin" && ["SCHEDULED","LOCKED","BLOCKED"].includes(item.status)) {
+      const cancel = el("button", "button ghost small", "Hủy lịch");
+      cancel.type = "button";
+      cancel.onclick = async () => {
+        if (!window.confirm("Hủy lịch thi đấu này?")) return;
+        cancel.disabled = true;
+        try {
+          await api("/api/admin/official-matches/" + encodeURIComponent(item.id) + "/cancel",
+            jsonOptions("POST", {}));
+          await refreshOfficialMatches();
+        } catch (error) { cancel.disabled = false; toast(error.message, true); }
+      };
+      row.append(cancel);
+    }
+    target.append(row);
+  }
+}
+$("#official-refresh").addEventListener("click", () =>
+  refreshOfficialMatches().catch(error => toast(error.message, true)));
+$("#official-schedule-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const form = event.currentTarget, button = form.querySelector("[type=submit]");
+  const lock = Math.floor(new Date(form.elements.bot_lock_at.value).getTime() / 1000);
+  const scheduled = Math.floor(new Date(form.elements.scheduled_at.value).getTime() / 1000);
+  if (!Number.isFinite(lock) || !Number.isFinite(scheduled) || lock > scheduled ||
+      lock < Math.floor(Date.now() / 1000)) {
+    feedback("#official-schedule-feedback", "Giờ khóa bot và giờ thi đấu không hợp lệ.", true);
+    return;
+  }
+  button.disabled = true;
+  try {
+    await api("/api/admin/official-matches", jsonOptions("POST", {
+      team_a_id: form.elements.team_a_id.value, team_b_id: form.elements.team_b_id.value,
+      game_id: form.elements.game_id.value, bot_lock_at: lock, scheduled_at: scheduled
+    }));
+    feedback("#official-schedule-feedback", "Đã xếp lịch Official Match.");
+    await refreshOfficialMatches();
+  } catch (error) {
+    feedback("#official-schedule-feedback", error.message, true);
+  } finally { button.disabled = false; }
+});
+{
+  const form = $("#official-schedule-form");
+  form.elements.bot_lock_at.value = officialLocalInput(Date.now() + 120000);
+  form.elements.scheduled_at.value = officialLocalInput(Date.now() + 300000);
+}

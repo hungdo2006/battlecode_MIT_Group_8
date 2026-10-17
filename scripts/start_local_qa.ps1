@@ -78,23 +78,26 @@ try {
         exit 0
     }
 
-    # Only preview the reviewed/stable main branch. Do not silently switch away
-    # from a developer's feature branch and do not build unfinished D1 work.
+    # Preview merged main or ONLY the dedicated one-click launcher PR branch.
+    # Never silently switch branches or launch unfinished D1 work.
     $commit = "no-git"
     $dirty = $true
     if (Get-Command git -ErrorAction SilentlyContinue) {
         $currentBranch = (& git -C $root branch --show-current 2>$null | Select-Object -First 1)
         if ($LASTEXITCODE -eq 0 -and $currentBranch) {
             $currentBranch = $currentBranch.Trim()
-            if ($currentBranch -ne "main") {
-                throw "Current Git branch is '$currentBranch'. Run 'git switch main' first. The one-click preview only runs merged main."
+            if ($currentBranch -notin @("main", "feature/one-click-local-qa")) {
+                throw "Current Git branch is '$currentBranch'. Switch to main or feature/one-click-local-qa; unfinished feature branches are not supported."
+            }
+            if ($currentBranch -eq "feature/one-click-local-qa") {
+                Write-Host "PR #8 launcher preview mode: preserving this feature branch; no automatic main pull."
             }
             $changes = @(& git -C $root status --porcelain --untracked-files=no)
             if ($LASTEXITCODE -ne 0) {
                 throw "Cannot inspect Git working tree; refusing to update automatically."
             }
             $dirty = $changes.Count -gt 0
-            if (-not $SkipPull -and -not $dirty) {
+            if ($currentBranch -eq "main" -and -not $SkipPull -and -not $dirty) {
                 Write-Host "[1/5] Syncing origin/main (fast-forward only)..."
                 & git -C $root pull --ff-only origin main
                 if ($LASTEXITCODE -ne 0) {

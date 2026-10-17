@@ -1,6 +1,8 @@
 # NEON ARENA — One-click local QA (Windows)
 
 This is a **local-only**, Docker-backed preview of the **merged main branch**.
+For testing PR #8 before merge, the dedicated `feature/one-click-local-qa`
+branch is also permitted (without automatically pulling `main` onto it).
 It does not touch the default `neon-arena` Compose project, its volumes,
 an AWS instance, or the unfinished Phase 4.2D PR.
 
@@ -9,8 +11,9 @@ an AWS instance, or the unfinished Phase 4.2D PR.
 1. Install/start Docker Desktop and select **Linux containers**.
 2. In the repository folder, double-click **Start-NEON-ARENA-QA.bat**.
 3. The launcher will attempt `git pull --ff-only origin main` only while on a
-   clean `main` checkout. Dirty tracked files are never overwritten. Network
-   pull failures leave the local checkout unchanged.
+   clean `main` checkout. On the `feature/one-click-local-qa` PR branch,
+   it preserves that branch without pulling `main`. Dirty tracked files are
+   never overwritten. Network pull failures leave the local checkout unchanged.
 4. The first launch builds isolated Docker images, creates a fresh QA database
    in dedicated volumes, and prompts once for the password of `qa.admin`.
    Password input is hidden and is not saved to a file.
@@ -34,13 +37,15 @@ only the local QA project, **without** deleting its volumes.
   account invitations in the UI/API and activate them as Players.
 - Do not expose port 18042 to the Internet. The opt-in HTTP authentication setting
   is intended for local QA only.
-- Changes from an unreviewed feature branch are **not** launched by this script.
-  Return to `main` manually; the launcher never force-switches branches.
+- Only `main` and the launcher-test branch `feature/one-click-local-qa`
+  can run. Unfinished Phase D1 and all other feature branches are refused.
+  The launcher never force-switches branches.
 - First startup needs network access to Git/Docker registries if images are absent.
 
 ## Troubleshooting
 
-- Wrong branch: run `git switch main` in PowerShell; save your current changes
+- Wrong branch: run `git switch main` or
+  `git switch feature/one-click-local-qa` in PowerShell; save your current changes
   first if Git blocks the switch.
 - Docker CLI missing/unhealthy: start Docker Desktop, Linux containers.
 - Port already in use: stop the other service using port 18042. The launcher

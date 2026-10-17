@@ -57,3 +57,11 @@ def test_password_stays_interactive_and_runner_token_is_random():
     assert 'the one you entered at first setup' in ps
     assert 'ARENA_RUNNER_TOKEN=$token' in ps
     assert 'password=' not in ps.lower()
+
+
+def test_launcher_pr_branch_supported_without_main_pull():
+    ps = (ROOT / "scripts" / "start_local_qa.ps1").read_text(encoding="utf-8")
+    assert '$currentBranch -notin @("main", "feature/one-click-local-qa")' in ps
+    assert '$currentBranch -eq "feature/one-click-local-qa"' in ps
+    assert '$currentBranch -eq "main" -and -not $SkipPull' in ps
+    assert 'PR #8 launcher preview mode' in ps

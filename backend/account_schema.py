@@ -169,14 +169,26 @@ MIGRATIONS = (
             scheduled_at INTEGER NOT NULL CHECK (scheduled_at >= bot_lock_at),
             created_at INTEGER NOT NULL CHECK (created_at >= 0),
             status TEXT NOT NULL CHECK (status IN
-                ('SCHEDULED','LOCKED','BLOCKED','CANCELLED')),
+                ('SCHEDULED','LOCKED','BLOCKED','CANCELLED',
+                 'DISPATCHING','RUNNING','COMPLETED','INTERRUPTED')),
             locked_at INTEGER CHECK (locked_at >= created_at),
             status_reason TEXT,
+            match_id TEXT UNIQUE,
+            started_at INTEGER,
+            finished_at INTEGER,
+            outcome_json TEXT CHECK (outcome_json IS NULL OR json_valid(outcome_json)),
             revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
             CHECK (team_a_id <> team_b_id),
             CHECK (bot_lock_at >= created_at),
-            CHECK ((status = 'LOCKED' AND locked_at IS NOT NULL) OR
-                   (status != 'LOCKED' AND locked_at IS NULL))
+            CHECK ((status IN ('LOCKED','DISPATCHING','RUNNING','COMPLETED','INTERRUPTED')
+                AND locked_at IS NOT NULL)
+                OR (status IN ('SCHEDULED','BLOCKED','CANCELLED')
+                AND locked_at IS NULL)),
+            CHECK ((status IN ('DISPATCHING','RUNNING','COMPLETED','INTERRUPTED')
+                AND match_id IS NOT NULL AND started_at IS NOT NULL)
+                OR (status IN ('SCHEDULED','LOCKED','BLOCKED','CANCELLED')
+                AND match_id IS NULL AND started_at IS NULL)),
+            CHECK (finished_at IS NULL OR finished_at >= started_at)
         ) STRICT""",
         "CREATE INDEX official_due ON official_match_requests(status, bot_lock_at)",
         "CREATE INDEX official_schedule ON official_match_requests(scheduled_at, id)",

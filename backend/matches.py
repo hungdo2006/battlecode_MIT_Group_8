@@ -40,10 +40,19 @@ class MatchManager:
     async def start(self, request: MatchRequest, created_by: dict | None = None,
                     participants: dict | None = None, invitation_id: str | None = None,
                     tournament_id: str | None = None,
-                    tournament_match_id: str | None = None) -> dict:
+                    tournament_match_id: str | None = None,
+                    official: dict | None = None) -> dict:
         if len(self.live) >= 2:
             raise ValueError("Tối đa 2 trận cùng lúc. Hãy đợi trận hiện tại kết thúc.")
-        game_id, rules = self.store.match_configuration(request.game_id or request.game, request.rules)
+        # Only the trusted server-side Official dispatcher can supply this
+        # snapshot. Legacy/public match requests retain their original admission.
+        if official is None:
+            game_id, rules = self.store.match_configuration(request.game_id or request.game, request.rules)
+        else:
+            game_id = official["game_id"]
+            if request.game_id != game_id or request.bot_a != official["slots"]["A"]["bot_id"] or request.bot_b != official["slots"]["B"]["bot_id"]:
+                raise ValueError("Official request differs from locked slots")
+            rules = deepcopy(official["rules_snapshot"])
         bots = {"A": self.store.get_bot(request.bot_a), "B": self.store.get_bot(request.bot_b)}
         if any(not bot or bot["status"] != "ready" for bot in bots.values()):
             raise ValueError("Cả hai bot phải tồn tại và đã biên dịch thành công.")
@@ -55,7 +64,10 @@ class MatchManager:
         rules = adapter.validate_rules(rules)
         state = adapter.create_initial_state(rules)
         metadata = adapter.get_metadata()
-        match_id = self.store.new_id()
+        match_id = ("o" + official["id"][:15]) if official else self.store.new_id()
+        if official and (self.store.get_match(match_id) is not None or
+                         (self.store.replays / f"{match_id}.jsonl").exists()):
+            raise ValueError("Official match has already been published; never dispatch twice")
         meta = {"id": match_id, "game_id": game_id, "game": game_id,
                 "game_name": metadata["name"], "game_version": metadata["version"],
                 "status": "queued", "created_at": timestamp(),
@@ -65,9 +77,18 @@ class MatchManager:
                 "rules": deepcopy(rules), "rules_snapshot": deepcopy(rules), "turn": 0, "result": None}
         meta.update(invitation_id=invitation_id, participants=deepcopy(participants), winner=None)
         meta.update(tournament_id=tournament_id, tournament_match_id=tournament_match_id)
+        if official:
+            meta["official_request_id"] = official["id"]
+            meta["official_team_ids"] = {
+                side: official["slots"][side]["team_id"] for side in ("A", "B")
+            }
         for side, bot in bots.items():
             prefix = side.lower()
-            participant = (participants or {}).get(side) or bot.get("owner") or {}
+            participant = (
+                {"id": official["slots"][side]["team_id"],
+                 "name": official["slots"][side]["team_name_snapshot"]}
+                if official else (participants or {}).get(side) or bot.get("owner") or {}
+            )
             meta.update({f"player_{prefix}_id": participant.get("id"),
                          f"player_{prefix}_name_snapshot": participant.get("name"),
                          f"bot_{prefix}_id": bot["id"], f"bot_{prefix}_name_snapshot": bot["name"],

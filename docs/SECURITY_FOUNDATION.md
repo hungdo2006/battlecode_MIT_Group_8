@@ -162,19 +162,23 @@ Engine; không chứng minh được cgroup/network isolation hay Docker volume 
 Khi Docker Engine local sẵn sàng, build và chạy các kiểm thử trên project QA riêng:
 
 ```powershell
-docker compose build
-docker build --target tests -t neon-arena:foundation-tests .
-docker run --rm --network none neon-arena:foundation-tests
-docker build -f Dockerfile.controller --target tests -t neon-arena-controller:foundation-tests .
-docker run --rm --network none neon-arena-controller:foundation-tests
-py -3 scripts/check_docker.py
+docker build --target tests -t neon-arena-qa-arena:tests .
+docker run --rm --network none neon-arena-qa-arena:tests
+docker build -f Dockerfile.controller --target tests -t neon-arena-qa-controller:tests .
+docker run --rm --network none --read-only --tmpfs /tmp:rw,nosuid,nodev,size=64m,uid=10001,gid=10001 neon-arena-qa-controller:tests
+py -3 scripts/check_docker.py --build
 py -3 scripts/check_sandbox_lifecycle.py
 ```
 
 Acceptance checker dùng project/volumes ngẫu nhiên; không chạy trên project thật.
-Cần diễn tập thêm backup/restore CLI với ba volumes QA, kiểm tra checksum/images,
-writer lock qua Docker shared volume, cancel/restart và ba WebSocket trên sandbox
-thật trước triển khai. Kết quả local hiện tại ở
+Checker hiện thực hiện restore sang project mới, so toàn bộ checksum trước startup,
+kiểm tra bot/replay và chơi trận mới bằng artifacts đã restore. Local QA mặc định
+bind `127.0.0.1`; chỉ dùng `--lan-ip <IPv4-interface>` khi chủ động kiểm thử LAN.
+QA images là `neon-arena-qa-{arena,controller,bot-image}:local`; có thể đổi prefix
+bằng `ARENA_QA_IMAGE_PREFIX`. Không đổi tags/volumes của ứng dụng thật.
+Lượt Docker QA mới đã thực hiện các bước còn thiếu, xem
+[SECURITY_FOUNDATION_DOCKER_QA.md](SECURITY_FOUNDATION_DOCKER_QA.md).
+Kết quả chặng local trước đó ở
 [SECURITY_FOUNDATION_VERIFICATION.md](SECURITY_FOUNDATION_VERIFICATION.md).
 AWS vẫn dừng đến khi chủ dự án duyệt. Docker Sandbox không bảo đảm an toàn tuyệt đối;
 chưa triển khai Authentication/RBAC hay public gateway trong bước nền tảng này.

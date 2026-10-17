@@ -47,7 +47,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && python -m pip install --no-cache-dir -r requirements-dev.txt
 COPY tests/ ./tests/
-COPY scripts/backup_docker.py scripts/restore_docker.py scripts/volume_snapshot.py ./scripts/
+COPY scripts/backup_docker.py scripts/restore_docker.py scripts/volume_snapshot.py scripts/check_docker.py ./scripts/
 COPY pytest.ini ./
 COPY sandbox_controller/artifacts.py sandbox_controller/__init__.py ./sandbox_controller/
 COPY docs/reference/ottv2/ ./docs/reference/ottv2/

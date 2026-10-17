@@ -15,6 +15,8 @@ image IDs/images để khôi phục vào bộ volume mới. Không thay đổi g
 triển khai Authentication/RBAC hoặc public gateway.
 
 Xem [runbook, giới hạn và lệnh kiểm thử](docs/SECURITY_FOUNDATION.md).
+Lượt [final review và Docker QA](docs/SECURITY_FOUNDATION_DOCKER_QA.md) đã kiểm
+chứng shared-volume lock, lifecycle và backup/restore bằng pinned images trên local.
 
 ## v4.0 Phase 3.1 — Premium Liquid Glass
 
@@ -90,7 +92,7 @@ docker compose logs -f arena controller
 docker compose restart arena
 docker compose down                 # giữ dữ liệu, không thêm -v
 docker compose up -d --wait
-py -3 scripts/check_docker.py --browser
+py -3 scripts/check_docker.py --build --browser
 ```
 
 ## Chạy nhanh trên Windows

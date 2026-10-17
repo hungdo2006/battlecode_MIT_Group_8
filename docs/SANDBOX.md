@@ -130,11 +130,12 @@ published ports và chỉ nối `runner_private`.
 ## Kiểm thử có thể chạy lại
 
 Host cần Python dependencies/requirements-dev; `--browser` cần Playwright + Chrome.
-Build các image trước bằng `docker compose build`, sau đó:
+Acceptance checker dùng tags image QA riêng, mặc định chỉ publish loopback;
+`--build` tạo đủ ba QA images mà không thay tags của ứng dụng thật:
 
 ```powershell
 py -3 -m pytest -o addopts="" -q
-py -3 scripts/check_docker.py --browser
+py -3 scripts/check_docker.py --build --browser
 py -3 scripts/check_sandbox_lifecycle.py
 ```
 

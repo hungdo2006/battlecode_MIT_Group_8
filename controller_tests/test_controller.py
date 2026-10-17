@@ -300,3 +300,46 @@ def test_parallel_claims_have_exactly_one_winner(control):
     with ThreadPoolExecutor(2) as pool:
         results = list(pool.map(claim, ['d'*32, 'e'*32]))
     assert sum(result is not None for result in results) == 1
+
+
+def test_completed_action_receipt_after_close_never_executes_or_reopens(control):
+    job = control.reserve('closed-action', opening(), 'runtime')
+    class Pipe:
+        calls = 0
+        def request(self, observation):
+            self.calls += 1
+            return {'type': 'wait'}
+        def close(self):
+            pass
+    job.pipe = Pipe()
+    done = service.Observation(owner=OWNER, lease=LEASE, seq=0, observation={'turn': 0})
+    expected = control.request('closed-action', done)
+    control.close_id('closed-action', payload())
+    assert job.cancelled.is_set() and job.closed_at is not None
+    assert control.request('closed-action', done) == expected
+    assert job.pipe.calls == 1 and job.container is None
+    for seq, state in ((1, {'turn': 1}), (0, {'different': True})):
+        with pytest.raises(service.InfrastructureError):
+            control.request('closed-action', service.Observation(owner=OWNER, lease=LEASE, seq=seq, observation=state))
+    control.release(payload())
+    with pytest.raises(HTTPException) as exc:
+        control.request('closed-action', done)
+    assert exc.value.status_code == 409 and job.pipe.calls == 1
+
+
+def test_action_cancelled_before_completion_is_never_cached(control):
+    job = control.reserve('cancel-before-reply', opening(), 'runtime')
+    class Pipe:
+        calls = 0
+        def request(self, observation):
+            self.calls += 1
+            control.close(job)
+            return {'type': 'wait'}
+        def close(self):
+            pass
+    job.pipe = Pipe()
+    request = service.Observation(owner=OWNER, lease=LEASE, seq=0, observation={})
+    for _ in range(2):
+        with pytest.raises(service.InfrastructureError):
+            control.request('cancel-before-reply', request)
+    assert job.response is None and job.pipe.calls == 1

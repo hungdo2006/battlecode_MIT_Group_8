@@ -109,8 +109,8 @@ docker run --rm --init neon-arena:4.0-tests node --test docs/reference/ottv2/tes
 Acceptance trên host có Python và requirements ứng dụng:
 
 ```text
-python scripts/check_docker.py --lan-ip IP-WIFI-CUA-HOST
-python scripts/check_docker.py --lan-ip IP-WIFI-CUA-HOST --browser
+python scripts/check_docker.py --build --lan-ip IP-WIFI-CUA-HOST
+python scripts/check_docker.py --build --lan-ip IP-WIFI-CUA-HOST --browser
 ```
 
 Bỏ --lan-ip thì dùng loopback. Bật --browser cần Playwright/Chrome như QA v3. Checker dùng random project `neon-arena-qa-*`, random code runtime, port publish ngẫu nhiên, hai volume riêng. Thực thi upload/compile sáu cặp ngôn ngữ, hai game, invitation/Accept/Decline, ba WS/replay, restart, ordinary down/up tạo container mới, hash source/artifacts giữ nguyên và chạy lại bot không compile. Backup tar được mở kiểm tra đầy đủ records. Cleanup chỉ xóa QA volumes sau xác minh label/project, không đụng `neon-arena_*` hoặc data/uploads native. Không mount Docker socket vào app: Docker CLI chỉ chạy trên host trong checker.

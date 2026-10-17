@@ -298,6 +298,9 @@ class Controller:
             with self.lock:
                 self.authorize_owner(payload.owner, payload.lease)
             # Transport retries must never feed the same observation twice.
+            # A completed response remains an immutable receipt after close;
+            # returning it does NOT reopen the runtime or authorize a new turn.
+            # Owner/lease validation above still fences expired/restarted owners.
             digest = hashlib.sha256(payload.model_dump_json().encode()).hexdigest()
             if payload.seq == job.seq and digest == job.request_hash and job.response is not None:
                 return job.response

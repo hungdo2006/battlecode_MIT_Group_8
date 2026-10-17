@@ -115,6 +115,17 @@ try:
     finally:
         close(job)
 
+    # Closed runtime can only return an already-completed receipt, not execute
+    # another observation. Exercise the reviewed semantics against real HTTP/IO.
+    assert request(job, 1) == second
+    assert not engine.containers.list(all=True, filters={'label': [label, 'io.neonarena.job=' + job]})
+    try:
+        request(job, 2)
+        raise AssertionError('Closed runtime accepted a new observation')
+    except HTTPError as exc:
+        assert exc.code == 503
+    check('closed action receipt cached without runtime resurrection; new turn rejected')
+
     # Close before create: a delayed create cannot escape cancellation.
     job = 'r-' + uuid.uuid4().hex
     close(job)

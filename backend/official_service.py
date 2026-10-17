@@ -328,7 +328,13 @@ class OfficialSchedule:
                 status = match.get("status")
                 if status == "completed":
                     replay = self.store.get_replay(row["match_id"])
-                    if not replay or not replay.get("frames") or not match.get("result"):
+                    frames = replay.get("frames", []) if replay else []
+                    terminal = frames[-1] if frames else {}
+                    if (not frames or not match.get("result")
+                        or terminal.get("turn") != match.get("turn")
+                        or terminal.get("result") != match.get("result")):
+                        # A persisted JSON victory without its final replay
+                        # frame is NOT a verified completed Official Match.
                         self._stamp_execution(row["id"], "INTERRUPTED", now, reason="REPLAY_INCOMPLETE")
                     else:
                         winner = match["result"].get("winner")

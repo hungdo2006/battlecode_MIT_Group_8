@@ -329,7 +329,8 @@ def test_d3_replay_scoped_to_participating_team_and_admin(room):
                              "B":{"id":"b"*16,"name":"B","language":"py"}},
             "command":["private"],"artifact_digest":"secret"})
         room.app.state.store.start_replay(match_id,{"turn":0,"game_id":GAME})
-        room.app.state.store.append_replay_frame(match_id,{"turn":1,"game_id":GAME})
+        room.app.state.store.append_replay_frame(match_id,{
+            "turn":1,"game_id":GAME,"result":{"winner":"A","reason":"goal"}})
         assert svc.sync_execution()==[request_id]
         saved=svc._get(request_id)
         assert saved["status"]=="COMPLETED"
@@ -411,3 +412,38 @@ def test_d2_artifact_metadata_change_after_lock_blocks_dispatch(room):
         assert svc._get(request_id)["status"]=="BLOCKED"
         assert conn.execute("SELECT count(*) FROM official_match_slots WHERE request_id=?",
                             (request_id,)).fetchone()[0]==2
+
+
+def test_d2_missing_terminal_replay_frame_never_publishes_win(room):
+    ta=create_team(room,"alice","alpha-d2partial")
+    tb=create_team(room,"bob","beta-d2partial")
+    for user,tid,bot_id in (("alice",ta,"a"*16),("bob",tb,"b"*16)):
+        seed_ready_bot(room,tid,user,bot_id)
+        make_sandbox_artifact(room,bot_id)
+        select_bot(room,user,bot_id)
+    deadline=room.clock.now+5
+    response=schedule(room,ta,tb,bot_lock_at=deadline,scheduled_at=deadline)
+    assert response.status_code==201
+    request_id=response.json()["request"]["id"]
+    room.clock.now=deadline
+    rt=room.app.state.account_http
+    from backend.official_service import OfficialSchedule
+    from backend.auth_service import AuthService
+    from backend.auth_limits import AuthRateLimiter
+    with rt.database.writer_connection(rt.writer) as conn:
+        svc=OfficialSchedule(conn,rt.writer,
+            AuthService(conn,rt.writer,clock=room.clock,login_limiter=AuthRateLimiter()),
+            room.app.state.store,room.app.state.registry)
+        svc.freeze_due()
+        claim=svc.claim_due()
+        match_id=claim["match_id"]
+        # Storage JSON says completed, but the final replay record is missing.
+        room.app.state.store.save_match({
+            "id":match_id,"official_request_id":request_id,"status":"completed",
+            "game_id":GAME,"result":{"winner":"A","reason":"goal"},"turn":1})
+        room.app.state.store.start_replay(match_id,{"turn":0,"game_id":GAME,"result":None})
+        assert svc.sync_execution()==[request_id]
+        row=svc._get(request_id)
+        assert row["status"]=="INTERRUPTED"
+        assert row["status_reason"]=="REPLAY_INCOMPLETE"
+        assert row["outcome_json"] is None

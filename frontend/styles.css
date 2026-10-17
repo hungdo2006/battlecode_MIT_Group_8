@@ -467,6 +467,14 @@ summary { cursor: pointer; width: fit-content; }
 .organizer-dialog .padded-form { padding: 31px; gap: 18px; }
 .organizer-dialog h2 { font-size: 27px; font-weight: 600; letter-spacing: -.9px; line-height: 1.3; }
 .organizer-dialog::backdrop { background: #40537538; }
+.account-dialog { width: min(560px,calc(100vw - 32px)); }
+.account-dialog .padded-form { display: grid; gap: 17px; }
+.account-form { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 16px; border: 1px solid #d4deecb8; border-radius: var(--radius); background: #ffffff70; box-shadow: inset 0 1px #fff; }
+.account-form label:first-child, .account-form .button { grid-column: 1 / -1; }
+.account-form input, .account-form select { width: 100%; }
+.activation-panel { border-top: 1px solid #d6dfec; padding-top: 13px; }
+.activation-panel summary { cursor: pointer; color: var(--accent); font-size: 12px; font-weight: 650; margin-bottom: 12px; }
+.account-dialog #account-feedback { margin: 0; }
 .invitation-dialog { width: min(600px,calc(100vw - 32px)); }
 .invitation-fighters { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 14px; }
 .invitation-fighter { padding: 19px; background: #f2f6ff; border: 1px solid #dbe6fb; border-radius: 16px; overflow-wrap: anywhere; }
@@ -670,5 +678,6 @@ summary { cursor: pointer; width: fit-content; }
   .protocol-document pre { font-size: 10px; padding: 15px; }
 }
 @media (max-width:370px) { main { padding-inline: 13px; } .topbar { padding-inline: 16px; } .identity-bar #organizer-toggle { margin-top: 0; align-self: flex-start; } .identity-bar form { flex-basis: 100%; } .hero-actions .button { width: 100%; } .workspace-game label { width: 143px; } }
+@media (max-width:520px) { .account-form { grid-template-columns: 1fr; } .account-form label, .account-form label:first-child, .account-form .button { grid-column: 1; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } html { scroll-behavior: auto; } }
 @media (forced-colors: active) { .button, .icon-button, .panel, .nav-item, .tag, .match-status { border: 1px solid CanvasText; } .hp-track span { background: Highlight; } }

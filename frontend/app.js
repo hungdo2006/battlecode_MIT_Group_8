@@ -9,6 +9,8 @@ const app = {
   victoryDismissed: false, displayedResult: false, reconnectTimer: null,
   participant: null, readOnly: false, refreshing: false,
   role: "player", organizerAvailable: false,
+  accountOnly: false, accountAuth: false, account: null, accountAudience: null, csrf: null,
+  logoutBusy: false, logoutError: false,
   competition: null, competitionSocket: null, competitionTimer: null,
   competitionGeneration: 0, competitionBusy: false, shuttingDown: false,
   lobby: null, invitationBusy: false, seenStarts: new Set(), seenFinishes: new Set(), heartbeatTimer: null,
@@ -81,6 +83,17 @@ function toast(message, error = false) {
 }
 
 async function api(path, options = {}) {
+  path = scopedApiPath(path);
+  const method = (options.method || "GET").toUpperCase();
+  if (app.accountOnly && !["GET", "HEAD", "OPTIONS"].includes(method) && !path.includes("/auth/login")
+      && !path.includes("/auth/activate")) {
+    const token = await accountCsrf();
+    options = { ...options, headers: { ...(options.headers || {}), "X-CSRF-Token": token } };
+    if (options.body === undefined) {
+      options.body = "{}";
+      options.headers["Content-Type"] = "application/json";
+    }
+  }
   let response;
   try { response = await fetch(path, options); }
   catch { throw new Error("Mất kết nối với máy chủ. Kiểm tra mạng và thử lại."); }
@@ -91,9 +104,31 @@ async function api(path, options = {}) {
     const detail = Array.isArray(data.detail)
       ? data.detail.map(item => `${item.loc?.join(".")}: ${item.msg}`).join("; ")
       : data.detail;
-    throw new Error(detail || `HTTP ${response.status}`);
+    const error = new Error(detail || `HTTP ${response.status}`);
+    error.status = response.status;
+    if (app.accountOnly && response.status === 401 && !path.includes("/auth/login")) accountExpired();
+    throw error;
   }
   return data;
+}
+
+function scopedApiPath(path) {
+  if (!app.accountOnly || !path.startsWith("/api/") || path === "/api/health"
+      || path.startsWith("/api/player/") || path.startsWith("/api/admin/")) return path;
+  return `/api/${app.accountAudience || "player"}${path.slice(4)}`;
+}
+
+async function accountCsrf() {
+  if (app.csrf) return app.csrf;
+  if (!app.accountAudience) throw new Error("Phiên tài khoản chưa sẵn sàng.");
+  const response = await fetch(`/api/${app.accountAudience}/auth/csrf`);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    if (response.status === 401) accountExpired();
+    throw Object.assign(new Error(data.detail || "Phiên đăng nhập đã hết hạn."), { status: response.status });
+  }
+  app.csrf = data.csrf_token;
+  return app.csrf;
 }
 
 function jsonOptions(method, body) {
@@ -224,6 +259,19 @@ for (const action of ["accept", "decline"]) $("#invitation-" + action).addEventL
 $("#resume-match").onclick = () => { if (app.lobby?.me?.current_match_id) loadMatch(app.lobby.me.current_match_id).catch(e => toast(e.message, true)); };
 
 function renderSession() {
+  if (app.accountOnly) {
+    $("#participant-name").textContent = app.account?.display_name || "Chưa đăng nhập";
+    $("#participant-id").textContent = app.account
+      ? `ACCOUNT / ${app.account.username} · ${app.account.system_role}`
+      : "Account-Only · cần xác thực";
+    $("#participant-role").textContent = app.account?.system_role || "SIGNED OUT";
+    $("#session-form").classList.add("hidden");
+    $("#organizer-toggle").textContent = app.logoutBusy ? "Đang đăng xuất…" : app.logoutError ? "Thử lại đăng xuất" : "Đăng xuất";
+    $("#organizer-toggle").disabled = !app.account || app.logoutBusy;
+    $("#organizer-toggle").title = app.logoutError ? "Chưa xác nhận thu hồi phiên trên server. Nhấn để thử lại." : "Thu hồi phiên tài khoản hiện tại";
+    applyPermissions();
+    return;
+  }
   $("#participant-name").textContent = app.participant.name;
   $("#participant-id").textContent = `ID / ${app.participant.id.toUpperCase()} · Phiên riêng của trình duyệt`;
   $("#session-name").value = app.participant.name;
@@ -237,6 +285,7 @@ function renderSession() {
 
 function applyPermissions() {
   const organizer = app.role === "organizer" && !app.readOnly;
+  const accountPlayer = app.accountOnly && app.accountAudience !== "admin";
   const allowed = organizer && app.competition?.can_edit && !app.competitionBusy && !app.rulesBusy;
   $$("#rules-form input, #rules-form textarea, #rules-form select, #rules-form [type=submit], #default-rules").forEach(node => {
     node.disabled = !allowed; node.title = allowed ? "" : "Cần quyền Organizer và cuộc thi đang ở trạng thái cấu hình";
@@ -250,6 +299,14 @@ function applyPermissions() {
   $("#rules-access-note").textContent = app.competition?.competition_locked ? "Luật đã chốt. Đóng cuộc thi và chờ các trận kết thúc để cấu hình lại." : app.competition?.phase === "draining" ? "Cuộc thi đang đóng. Chờ các trận và tác vụ còn lại kết thúc để chỉnh cấu hình." : allowed ? app.rulesDirty ? "Có thay đổi chưa lưu. Lưu cấu hình trước khi mở cuộc thi." : "Chọn game, lưu cấu hình rồi nhấn Lock game & mở cuộc thi." : "Game và luật do Organizer quyết định. Chọn Active Bot để sẵn sàng nhận lời mời.";
   $$(".organizer-only").forEach(node => node.classList.toggle("hidden", !organizer));
   $$(".player-only, [data-go=upload], .nav-item[data-view=upload]").forEach(node => node.classList.toggle("hidden", organizer));
+  if (app.accountOnly) {
+    $$(".player-only, [data-go=upload], .nav-item[data-view=upload], #quick-match, #create-match").forEach(node => node.classList.add("hidden"));
+    if (["#upload", "#create"].includes(location.hash)) location.hash = "home";
+  }
+  $('.nav-item[data-view="create"]').classList.toggle("hidden", app.accountOnly);
+  $('.nav-item[data-view="watch"]').classList.toggle("hidden", accountPlayer);
+  $(".docs-link").classList.toggle("hidden", app.accountOnly);
+  if (accountPlayer && location.hash === "#watch") location.hash = "home";
   $$("#rules-form [type=submit], #default-rules").forEach(node => node.classList.toggle("hidden", !organizer));
   if (organizer && location.hash === "#upload") location.hash = "create";
   $$("#quick-match [type=submit], #create-match [type=submit]").forEach(node => {
@@ -270,7 +327,9 @@ function renderCompetitionBanner() {
   $("#competition-banner").dataset.phase = state?.phase || "setup";
   $("#competition-banner").classList.toggle("competition-live", state?.competition_locked === true);
   setText("#competition-game", app.games.find(game => game.game_id === state?.selected_game_id)?.name || "Đang tải game…");
-  setText("#competition-message", state?.phase === "open" ? "Game và luật đã khóa. Organizer mời hai Player READY; trận bắt đầu sau hai lượt ACCEPT." : state?.phase === "draining" ? `Đã chặn trận mới. Đang chờ ${state.pending_matches} trận/bot kết thúc trước khi mở khóa cấu hình.` : "Ban tổ chức đang chuẩn bị game và luật. Có thể nộp bot cho game hiện tại; chưa thể tạo trận.");
+  const legacyMessage = state?.phase === "open" ? "Game và luật đã khóa. Organizer mời hai Player READY; trận bắt đầu sau hai lượt ACCEPT." : state?.phase === "draining" ? `Đã chặn trận mới. Đang chờ ${state.pending_matches} trận/bot kết thúc trước khi mở khóa cấu hình.` : "Ban tổ chức đang chuẩn bị game và luật. Có thể nộp bot cho game hiện tại; chưa thể tạo trận.";
+  const accountMessage = state?.phase === "open" ? "Game và luật đã khóa. Nộp bot theo Team và Official Match sẽ được mở ở Phase 4.2C–D." : state?.phase === "draining" ? `Đã chặn trận mới. Đang chờ ${state.pending_matches} tác vụ hiện có kết thúc trước khi mở khóa cấu hình.` : "Admin đang chuẩn bị game và luật. Chức năng Team submission hiện được khóa an toàn.";
+  setText("#competition-message", app.accountOnly ? accountMessage : legacyMessage);
 }
 
 async function acceptCompetition(state) {
@@ -294,31 +353,38 @@ async function acceptCompetition(state) {
 }
 
 function connectCompetitionSocket() {
-  if (app.shuttingDown) return;
+  if (app.shuttingDown || (app.accountOnly && !app.account)) return;
   const scheme = location.protocol === "https:" ? "wss" : "ws";
-  const socket = new WebSocket(`${scheme}://${location.host}/ws/competition`);
+  const socketPath = app.accountOnly ? `/api/${app.accountAudience}/ws/competition` : "/ws/competition";
+  const socket = new WebSocket(`${scheme}://${location.host}${socketPath}`);
   app.competitionSocket = socket;
   socket.onopen = () => {
     app.lobbyOnline = true; renderConnection();
     clearInterval(app.heartbeatTimer);
-    const beat = () => { if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "heartbeat" })); };
-    beat(); app.heartbeatTimer = setInterval(beat, 10000);
+    if (!app.accountOnly) {
+      const beat = () => { if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "heartbeat" })); };
+      beat(); app.heartbeatTimer = setInterval(beat, 10000);
+    }
   };
   socket.onmessage = event => {
     if (socket !== app.competitionSocket) return;
     let message; try { message = JSON.parse(event.data); } catch { return; }
     if (message.type === "competition") {
       const restarted = app.competition && app.competition.server_id !== message.state.server_id;
-      if (restarted) api("/api/session").then(acceptSession).catch(() => {});
+      if (restarted && !app.accountOnly) api("/api/session").then(acceptSession).catch(() => {});
       acceptCompetition(message.state).catch(error => toast(error.message, true));
-      if (message.role && message.role !== app.role) api("/api/session").then(acceptSession).catch(() => {});
+      if (!app.accountOnly && message.role && message.role !== app.role) api("/api/session").then(acceptSession).catch(() => {});
       if (message.lobby) acceptLobby(message.lobby);
     }
   };
-  socket.onclose = () => {
+  socket.onclose = event => {
     if (socket === app.competitionSocket) { app.lobbyOnline = false; renderConnection(); }
     if (socket === app.competitionSocket) clearInterval(app.heartbeatTimer);
-    if (!app.shuttingDown && socket === app.competitionSocket) app.competitionTimer = setTimeout(connectCompetitionSocket, 1200);
+    if (app.accountOnly && [1008, 4401].includes(event.code)) {
+      accountExpired();
+      return;
+    }
+    if (!app.shuttingDown && socket === app.competitionSocket && (!app.accountOnly || app.account)) app.competitionTimer = setTimeout(connectCompetitionSocket, 1200);
   };
 }
 
@@ -328,6 +394,113 @@ function acceptSession(data) {
   renderSession();
   renderBots();
   renderInvitations();
+}
+
+function showAccountDialog(message = "Đăng nhập để tiếp tục vào workspace.") {
+  const dialog = $("#account-dialog");
+  $("#account-feedback").textContent = message;
+  $("#account-feedback").classList.remove("hidden", "error");
+  if (!dialog.open) dialog.showModal();
+  $("#account-username").focus();
+}
+
+function acceptAccount(data, audience) {
+  app.logoutError = false;
+  app.account = data.account;
+  app.accountAudience = audience;
+  app.csrf = null;
+  app.role = data.account.system_role === "ADMIN" ? "organizer" : "player";
+  app.participant = { id: data.account.id, name: data.account.display_name };
+  app.organizerAvailable = app.role === "organizer";
+  if ($("#account-dialog").open) $("#account-dialog").close();
+  renderSession();
+}
+
+$("#account-dialog").addEventListener("cancel", event => event.preventDefault());
+
+function accountExpired() {
+  if (!app.accountOnly || !app.account) return;
+  app.account = null; app.participant = null; app.accountAudience = null; app.csrf = null;
+  app.role = "player"; app.organizerAvailable = false; app.initialized = false;
+  app.competitionSocket?.close(); app.socket?.close();
+  clearTimeout(app.competitionTimer); clearTimeout(app.reconnectTimer);
+  renderSession();
+  showAccountDialog("Phiên đã hết hạn hoặc bị thu hồi. Hãy đăng nhập lại.");
+}
+
+async function restoreAccount() {
+  for (const audience of ["admin", "player"]) {
+    const response = await fetch(`/api/${audience}/auth/me`, { headers: { "Accept": "application/json" } });
+    if (response.ok) {
+      acceptAccount(await response.json(), audience);
+      return true;
+    }
+  }
+  return false;
+}
+
+$("#account-login-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const audience = form.elements.audience.value;
+  const button = form.querySelector("[type=submit]");
+  busyButton(button, true);
+  try {
+    const data = await api(`/api/${audience}/auth/login`, jsonOptions("POST", {
+      username: form.elements.username.value, password: form.elements.password.value
+    }));
+    form.elements.password.value = "";
+    acceptAccount(data, audience);
+    app.initialized = false;
+    await bootstrap();
+  } catch (error) {
+    feedback("#account-feedback", error.message, true);
+  } finally { busyButton(button, false); button.disabled = false; }
+});
+
+$("#account-activation-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector("[type=submit]");
+  busyButton(button, true);
+  try {
+    await api("/api/player/auth/activate", jsonOptions("POST", {
+      token: form.elements.token.value, password: form.elements.password.value
+    }));
+    form.reset();
+    $("#account-login-form [name=username]").focus();
+    feedback("#account-feedback", "Kích hoạt thành công. Hãy đăng nhập bằng tài khoản vừa tạo.");
+  } catch (error) { feedback("#account-feedback", error.message, true); }
+  finally { busyButton(button, false); button.disabled = false; }
+});
+
+async function accountLogout() {
+  if (!app.accountAudience || app.logoutBusy) return;
+  const audience = app.accountAudience;
+  app.logoutBusy = true; app.logoutError = false; renderSession();
+  try {
+    const result = await api(`/api/${audience}/auth/logout`, jsonOptions("POST", {}));
+    if (result.logged_out !== true) throw new Error("Server chưa xác nhận thu hồi phiên.");
+  } catch (error) {
+    if (error.status === 401) {
+      accountExpired();
+      showAccountDialog("Phiên đã hết hiệu lực. Hãy đăng nhập lại.");
+    } else {
+      // Keep the account and retry action: a lost response does not prove that
+      // the server revoked the session or removed the browser cookie.
+      app.logoutError = true;
+      toast(`Chưa xác nhận đăng xuất. ${error.message} Nhấn “Thử lại đăng xuất”.`, true);
+    }
+    return;
+  } finally {
+    app.logoutBusy = false; renderSession();
+  }
+  app.account = null; app.participant = null; app.accountAudience = null; app.csrf = null;
+  app.role = "player"; app.organizerAvailable = false; app.initialized = false;
+  app.competitionSocket?.close(); app.socket?.close();
+  clearTimeout(app.competitionTimer); clearTimeout(app.reconnectTimer);
+  renderSession();
+  showAccountDialog("Đã đăng xuất an toàn.");
 }
 
 $("#session-form").addEventListener("submit", async event => {
@@ -343,6 +516,7 @@ $("#session-form").addEventListener("submit", async event => {
 });
 
 $("#organizer-toggle").addEventListener("click", async () => {
+  if (app.accountOnly) { await accountLogout(); return; }
   if (app.role !== "organizer") { $("#organizer-dialog").showModal(); $("#organizer-code").focus(); return; }
   try { acceptSession(await api("/api/session/organizer", { method: "DELETE" })); toast("Đã trở về quyền Player."); }
   catch (error) { toast(error.message, true); }
@@ -585,7 +759,7 @@ function renderSamples() {
     const copy = el("div");
     copy.append(el("strong", "", sample.name), el("p", "", sample.description));
     const link = el("a", "icon-button", "⇩");
-    link.href = `/api/games/${game.game_id}/samples/${sample.language}`;
+    link.href = scopedApiPath(`/api/games/${game.game_id}/samples/${sample.language}`);
     link.title = `Tải bot ${sample.language}`;
     link.setAttribute("aria-label", link.title);
     const button = el("button", "icon-button", "＋");
@@ -825,9 +999,10 @@ async function loadMatch(id) {
 }
 
 function connectSocket(id, generation) {
-  if (generation !== app.generation) return;
+  if (generation !== app.generation || (app.accountOnly && (!app.account || app.accountAudience !== "admin"))) return;
   const scheme = location.protocol === "https:" ? "wss" : "ws";
-  const socket = new WebSocket(`${scheme}://${location.host}/ws/matches/${id}?after=${app.frames.length - 1}`);
+  const socketPath = app.accountOnly ? `/api/admin/ws/matches/${id}` : `/ws/matches/${id}`;
+  const socket = new WebSocket(`${scheme}://${location.host}${socketPath}?after=${app.frames.length - 1}`);
   app.socket = socket;
   app.arenaOnline = false;
   socket.onopen = () => { if (generation === app.generation) { app.arenaOnline = true; updatePlayback(); } };
@@ -846,8 +1021,13 @@ function connectSocket(id, generation) {
     }
     updatePlayback();
   };
-  socket.onclose = () => {
-    if (generation !== app.generation || !["running", "queued"].includes(app.match?.status)) return;
+  socket.onclose = event => {
+    if (app.accountOnly && [1008, 4401].includes(event.code)) {
+      accountExpired();
+      return;
+    }
+    if (generation !== app.generation || !["running", "queued"].includes(app.match?.status)
+        || (app.accountOnly && !app.account)) return;
     app.arenaOnline = false; updatePlayback();
     app.reconnectTimer = setTimeout(async () => {
       if (generation !== app.generation) return;
@@ -1030,10 +1210,25 @@ async function bootstrap() {
   if (app.initializing) return;
   app.initializing = true;
   try {
-    // Establish the cookie first; parallel startup requests then share one identity.
-    const session = await api("/api/session");
-    acceptSession(session);
-    const [health, bots, registry, matches, competition] = await Promise.all([api("/api/health"), api("/api/bots"), api("/api/games"), api("/api/matches"), api("/api/competition")]);
+    const health = await api("/api/health");
+    app.accountAuth = health.account_auth === true;
+    app.accountOnly = health.account_only === true;
+    if (app.accountOnly) {
+      $("#account-mode-note").classList.remove("hidden");
+      if (!app.account && !await restoreAccount()) {
+        setConnection(true); renderSession(); showAccountDialog(); return;
+      }
+    } else {
+      // Establish the legacy cookie first; parallel startup requests then share one identity.
+      acceptSession(await api("/api/session"));
+    }
+    const canInspectPrivate = !app.accountOnly || app.accountAudience === "admin";
+    const [bots, registry, matches, competition] = await Promise.all([
+      canInspectPrivate ? api("/api/bots") : Promise.resolve([]),
+      api("/api/games"),
+      canInspectPrivate ? api("/api/matches") : Promise.resolve([]),
+      api("/api/competition")
+    ]);
     app.bots = bots; app.games = registry.games; app.matches = matches;
     await acceptCompetition(competition);
     setConnection(health.status === "ok");
@@ -1062,7 +1257,7 @@ $("#retry-connection").addEventListener("click", async event => {
   finally { busyButton(button, false); button.disabled = false; }
 });
 setInterval(async () => {
-  if (document.hidden || app.refreshing || !app.participant) return;
+  if (document.hidden || app.refreshing || !app.participant || (app.accountOnly && app.accountAudience !== "admin")) return;
   if (!app.initialized) { bootstrap(); return; }
   app.refreshing = true;
   try { await Promise.all([refreshMatches(), refreshBots()]); setConnection(true); }

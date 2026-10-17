@@ -8,6 +8,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.main import create_app
+from backend.account_database import AccountDatabase, check_integrity
+from backend.admin_cli import bootstrap_admin
 from backend.writer_lock import WriterLock
 from sandbox_controller.artifacts import ArtifactStore
 from scripts import backup_docker as backup_cli, restore_docker as restore_cli
@@ -24,6 +26,7 @@ def source(tmp_path):
     roots = {role: tmp_path / 'original' / role for role in ROLES}
     for root in roots.values():
         root.mkdir(parents=True)
+    bootstrap_admin(roots['data'], 'backup-admin', 'backup restore test passphrase 93')
     # Build valid application metadata only inside this disposable directory.
     with TestClient(create_app(tmp_path / 'original')) as client:
         for mid in ('old', 'new'):
@@ -125,6 +128,9 @@ def test_three_volume_bundle_restore_images_and_legacy_replays(source, tmp_path,
         assert client.app.state.store.data == restored['data']
         assert client.get('/api/matches/old/replay').json()['frames'] == [{'turn': 0}]
         assert client.get('/api/matches/new/replay').json()['frames'] == [{'turn': 0}, {'turn': 1}]
+    with AccountDatabase(restored['data']).read() as connection:
+        check_integrity(connection)
+        assert connection.execute("SELECT username FROM users").fetchone()[0] == 'backup-admin'
     assert (restored['data'] / 'replays' / 'new.jsonl').read_bytes() == before['data/replays/new.jsonl']
     with pytest.raises(FileExistsError):
         restore_cli.restore(output, 'neon-arena-restore-unit')

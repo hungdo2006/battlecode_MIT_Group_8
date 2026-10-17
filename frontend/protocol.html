@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f6f8fc"><title>NEON ARENA · Giao thức bot</title><link rel="icon" href="/static/favicon.svg?v=0ab76a04fe4c"><link rel="stylesheet" href="/static/styles.css?v=24fe06cdf1f3"></head>
+<html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f6f8fc"><title>NEON ARENA · Giao thức bot</title><link rel="icon" href="/static/favicon.svg?v=7b9e5bcd3348"><link rel="stylesheet" href="/static/styles.css?v=a317a4a7509e"></head>
 <body><article class="protocol-document">
 <a class="text-button" href="/#upload">← Trở về Nộp bot</a><h1>BOT PROTOCOL / JSON LINES v1</h1>
 <p>Bot chạy liên tục trong một subprocess. Mỗi request: đọc một dòng JSON UTF-8 trên stdin, trả đúng một dòng JSON trên stdout rồi flush. Chỉ ghi debug vào stderr. Mỗi submission chọn một game; server kiểm tra action theo game đó.</p>
@@ -16,16 +16,29 @@
 <p>Subprocess không phải sandbox. Chỉ dùng code tin cậy trong nhóm trên local/LAN riêng.</p>
 <h2>Bot mẫu</h2><div id="examples">Đang tải registry…</div>
 <script>
-fetch('/api/games').then(response => response.json()).then(data => {
+(async () => {
+  const health = await fetch('/api/health').then(response => response.json());
+  let prefix = '/api';
+  if (health.account_only) {
+    prefix = null;
+    for (const audience of ['admin', 'player']) {
+      const response = await fetch(`/api/${audience}/auth/me`);
+      if (response.ok) { prefix = `/api/${audience}`; break; }
+    }
+    if (!prefix) throw new Error('Authentication required');
+  }
+  const response = await fetch(prefix + '/games');
+  if (!response.ok) throw new Error('Game registry unavailable');
+  const data = await response.json();
   const target = document.querySelector('#examples'); target.textContent = '';
   for (const game of data.games) {
     const row = document.createElement('p'); row.textContent = game.name + ': ';
     for (const sample of game.samples) {
       const link = document.createElement('a'); link.className = 'text-button';
-      link.href = '/api/games/' + game.game_id + '/samples/' + sample.language;
+      link.href = prefix + '/games/' + game.game_id + '/samples/' + sample.language;
       link.textContent = sample.language + ' ⇩'; row.append(link, document.createTextNode('   '));
     }
     target.append(row);
   }
-}).catch(() => { document.querySelector('#examples').textContent = 'Cần mở tài liệu từ server đang chạy.'; });
+})().catch(() => { document.querySelector('#examples').textContent = 'Cần đăng nhập và mở tài liệu từ server đang chạy.'; });
 </script></article></body></html>

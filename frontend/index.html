@@ -6,10 +6,10 @@
   <meta name="theme-color" content="#f4f7fc">
   <meta name="description" content="NEON ARENA — không gian thi đấu bot đa game trên local và LAN.">
   <title>NEON ARENA · Tournament workspace</title>
-  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=7b9e5bcd3348">
-  <link rel="stylesheet" href="/static/styles.css?v=a317a4a7509e">
-  <script src="/static/renderers.js?v=c6d00dfb7370" defer></script>
-  <script src="/static/app.js?v=1e48de821350" defer></script>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=0ab76a04fe4c">
+  <link rel="stylesheet" href="/static/styles.css?v=695af9c02684">
+  <script src="/static/renderers.js?v=d15c4fb4c581" defer></script>
+  <script src="/static/app.js?v=78d930ca6296" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#main-content">Đến nội dung chính</a>
@@ -56,7 +56,7 @@
         <button class="button ghost small" id="organizer-toggle" type="button">Mở quyền Organizer</button>
       </section>
       <div class="feedback hidden" id="readonly-notice">Chế độ chỉ xem · Bạn có thể xem live và replay.</div>
-      <div class="feedback pending hidden" id="account-mode-note">Account-Only đang bật · Submission và Active Bot tạm khóa đến Phase 4.2C Team Ownership.</div>
+      <div class="feedback pending hidden" id="account-mode-note">Account-Only đang bật · Bot thuộc Team, Captain chọn Active Bot · Official Match sẽ mở ở Phase 4.2D.</div>
       <div class="network-notice hidden" id="network-notice" role="status"><span id="network-message">Đang kết nối lại. Dữ liệu đã nhận vẫn được giữ trên màn hình.</span><button type="button" class="text-button" id="retry-connection">Thử lại</button></div>
       <section class="panel competition-banner glass-surface" id="competition-banner" aria-live="polite">
         <div class="competition-symbol"><svg class="nav-icon"><use href="#i-lock"/></svg></div>
@@ -118,6 +118,24 @@
       </section>
 
       <section class="view" id="view-upload" aria-label="Nộp bot">
+        <section class="panel hidden" id="account-team-panel"><div class="panel-heading"><h2>Team workspace</h2><span class="tag">Team vs Team</span></div>
+          <div class="padded-form">
+            <p class="form-note" id="account-team-status">Đang tải Team…</p>
+            <form id="account-team-create" class="padded-form"><label>Team slug<input name="slug" required minlength="3" maxlength="48" placeholder="neon-warriors"></label>
+              <label>Tên Team<input name="display_name" required maxlength="64" placeholder="NEON Warriors"></label><button class="button primary" type="submit">Tạo Team và trở thành Captain</button></form>
+            <div id="account-team-inbox" class="match-list" aria-label="Lời mời tham gia Team"></div>
+            <div id="account-team-manage" class="hidden">
+              <p id="account-team-members" class="form-note"></p>
+              <form id="account-team-invite" class="hidden"><label>Mời Player theo username<input name="username" required minlength="3" maxlength="32"></label><button class="button ghost" type="submit">Mời thành viên</button></form>
+              <div id="account-team-member-actions" class="match-list"></div>
+              <form id="account-team-rename" class="hidden"><label>Tên Team mới<input name="display_name" required maxlength="64"></label><button class="button ghost" type="submit">Đổi tên Team</button></form>
+              <button id="account-team-leave" class="button ghost hidden" type="button">Rời Team</button>
+              <button id="account-team-activate" class="button ghost hidden" type="button">Kích hoạt Team</button>
+              <button id="account-team-archive" class="button ghost hidden" type="button">Lưu trữ Team</button>
+            </div>
+            <div id="account-team-feedback" class="form-note"></div>
+          </div>
+        </section>
         <div class="page-intro"><div class="eyebrow">YOUR NEXT CONTENDER</div><h1>Một bot mới.<br><em>Một khả năng mới.</em></h1><p>Nộp code, kiểm tra biên dịch và chọn bot đại diện cho bạn.</p></div>
         <div class="two-column player-only">
           <section class="panel glass-surface glass-subtle glass-frame"><div class="panel-heading"><h2>Submission mới</h2><span class="tag">Tối đa 256 KiB</span></div><form id="upload-form" class="padded-form">

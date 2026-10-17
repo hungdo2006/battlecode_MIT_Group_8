@@ -34,6 +34,7 @@ PREFIX = "/api/auth"
 ACCOUNT_PREFIXES = {"PLAYER": "/api/player", "ADMIN": "/api/admin"}
 MAX_BODY = 4096
 MAX_API_BODY = 64 * 1024
+MAX_TEAM_UPLOAD_BODY = 384 * 1024  # base64 of 256 KiB source plus bounded metadata
 SAFE_HEADERS = {"Cache-Control": "no-store", "Pragma": "no-cache", "X-Content-Type-Options": "nosniff",
                 "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer"}
 
@@ -383,7 +384,9 @@ class AccountAuthBoundary:
             if mutation:
                 if request.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
                     raise HTTPException(415, "Use application/json")
-            maximum = MAX_BODY if auth_path(scope["path"]) or "/auth/" in scope["path"] else MAX_API_BODY
+            maximum = (MAX_BODY if auth_path(scope["path"]) or "/auth/" in scope["path"]
+                       else MAX_TEAM_UPLOAD_BODY if scope["path"] == "/api/player/bots" and scope["method"] == "POST" and self.settings.account_only
+                       else MAX_API_BODY)
             lengths = request.headers.getlist("content-length")
             if lengths and (len(lengths) != 1 or not lengths[0].isdigit() or int(lengths[0]) > maximum):
                 raise HTTPException(413, "Authentication request too large")

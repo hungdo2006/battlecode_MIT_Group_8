@@ -10,6 +10,7 @@ const app = {
   participant: null, readOnly: false, refreshing: false,
   role: "player", organizerAvailable: false,
   accountOnly: false, accountAuth: false, account: null, accountAudience: null, csrf: null,
+  team: null, activeTeamBot: null,
   logoutBusy: false, logoutError: false,
   competition: null, competitionSocket: null, competitionTimer: null,
   competitionGeneration: 0, competitionBusy: false, shuttingDown: false,
@@ -285,7 +286,7 @@ function renderSession() {
 
 function applyPermissions() {
   const organizer = app.role === "organizer" && !app.readOnly;
-  const accountPlayer = app.accountOnly && app.accountAudience !== "admin";
+  const accountPlayer = app.accountOnly && app.accountAudience === "player";
   const allowed = organizer && app.competition?.can_edit && !app.competitionBusy && !app.rulesBusy;
   $$("#rules-form input, #rules-form textarea, #rules-form select, #rules-form [type=submit], #default-rules").forEach(node => {
     node.disabled = !allowed; node.title = allowed ? "" : "Cần quyền Organizer và cuộc thi đang ở trạng thái cấu hình";
@@ -300,8 +301,15 @@ function applyPermissions() {
   $$(".organizer-only").forEach(node => node.classList.toggle("hidden", !organizer));
   $$(".player-only, [data-go=upload], .nav-item[data-view=upload]").forEach(node => node.classList.toggle("hidden", organizer));
   if (app.accountOnly) {
-    $$(".player-only, [data-go=upload], .nav-item[data-view=upload], #quick-match, #create-match").forEach(node => node.classList.add("hidden"));
-    if (["#upload", "#create"].includes(location.hash)) location.hash = "home";
+    document.querySelectorAll(".player-only, [data-go=upload], .nav-item[data-view=upload], #quick-match, #create-match").forEach(node => node.classList.add("hidden"));
+    if (accountPlayer) {
+      document.querySelectorAll(".nav-item[data-view=upload], #view-upload .two-column, #view-upload .library-panel").forEach(node => node.classList.remove("hidden"));
+      $("#account-team-panel").classList.remove("hidden");
+      $("#account-team-panel").closest(".view").classList.remove("hidden");
+    } else {
+      $("#account-team-panel").classList.add("hidden");
+    }
+    if (location.hash === "#create" || (!accountPlayer && location.hash === "#upload")) location.hash = "home";
   }
   $('.nav-item[data-view="create"]').classList.toggle("hidden", app.accountOnly);
   $('.nav-item[data-view="watch"]').classList.toggle("hidden", accountPlayer);
@@ -315,8 +323,9 @@ function applyPermissions() {
     node.title = node.disabled ? app.competition?.phase !== "open" ? "Cuộc thi cần được mở trước khi gửi lời mời" : "Cần hai Player đang online, có Active Bot và sẵn sàng" : "Hai Player sẽ tự xác nhận lời mời";
   });
   $("#upload-form [type=submit]").disabled = organizer || app.readOnly || app.uploading || !app.selectedGameId;
-  $("#seed-samples").disabled = organizer || app.readOnly || app.seeding || !app.selectedGameId;
-  $$('[data-sample]').forEach(node => { node.disabled = organizer || app.readOnly || app.seeding || app.sampleBusy.has(`${node.dataset.gameId}:${node.dataset.sample}`); });
+  $("#seed-samples").disabled = app.accountOnly || organizer || app.readOnly || app.seeding || !app.selectedGameId;
+  $("#seed-samples").classList.toggle("hidden", app.accountOnly);
+  document.querySelectorAll('[data-sample]').forEach(node => { node.disabled = app.accountOnly || organizer || app.readOnly || app.seeding || app.sampleBusy.has(`${node.dataset.gameId}:${node.dataset.sample}`); });
   $$(".game-select, .game-card").forEach(node => { node.title = allowed ? "Chọn game của cuộc thi" : app.competition?.competition_locked ? "Game đã khóa; đóng cuộc thi để cấu hình lại" : "Chỉ Organizer được chọn game"; });
   renderCompetitionBanner();
 }
@@ -328,7 +337,7 @@ function renderCompetitionBanner() {
   $("#competition-banner").classList.toggle("competition-live", state?.competition_locked === true);
   setText("#competition-game", app.games.find(game => game.game_id === state?.selected_game_id)?.name || "Đang tải game…");
   const legacyMessage = state?.phase === "open" ? "Game và luật đã khóa. Organizer mời hai Player READY; trận bắt đầu sau hai lượt ACCEPT." : state?.phase === "draining" ? `Đã chặn trận mới. Đang chờ ${state.pending_matches} trận/bot kết thúc trước khi mở khóa cấu hình.` : "Ban tổ chức đang chuẩn bị game và luật. Có thể nộp bot cho game hiện tại; chưa thể tạo trận.";
-  const accountMessage = state?.phase === "open" ? "Game và luật đã khóa. Nộp bot theo Team và Official Match sẽ được mở ở Phase 4.2C–D." : state?.phase === "draining" ? `Đã chặn trận mới. Đang chờ ${state.pending_matches} tác vụ hiện có kết thúc trước khi mở khóa cấu hình.` : "Admin đang chuẩn bị game và luật. Chức năng Team submission hiện được khóa an toàn.";
+  const accountMessage = state?.phase === "open" ? "Game và luật đã khóa. Team có thể nộp bot, Captain chọn Active Bot; Official Match ở Phase 4.2D." : state?.phase === "draining" ? `Đã chặn trận mới. Đang chờ ${state.pending_matches} tác vụ hiện có kết thúc trước khi mở khóa cấu hình.` : "Admin đang chuẩn bị game và luật. Team có thể nộp bot cho game hiện tại; Official Match chưa mở.";
   setText("#competition-message", app.accountOnly ? accountMessage : legacyMessage);
 }
 
@@ -601,6 +610,10 @@ $$(".player-select").forEach(select => select.addEventListener("change", () => {
 }));
 
 function renderBots() {
+  if (app.accountOnly && app.accountAudience === "player") {
+    renderAccountBotLibrary();
+    return;
+  }
   const target = $("#bot-library");
   const restore = preserveListState(target);
   target.replaceChildren();
@@ -818,7 +831,23 @@ function renderMatches() {
   renderStats();
 }
 
-async function refreshBots() { app.bots = await api("/api/bots"); renderBots(); }
+async function refreshBots() {
+  if (app.accountOnly) {
+    if (app.accountAudience !== "player") return;
+    // Account-Only returns {bots: [...]}, not the legacy bare array.
+    // Keep the current library intact on a failed or malformed response.
+    if (!app.team?.team) {
+      app.bots = [];
+    } else {
+      const response = await api("/api/player/bots");
+      if (!Array.isArray(response.bots)) throw new Error("Dữ liệu submission của Team không hợp lệ.");
+      app.bots = response.bots;
+    }
+  } else {
+    app.bots = await api("/api/bots");
+  }
+  renderBots();
+}
 async function refreshMatches() { app.matches = await api("/api/matches"); renderMatches(); }
 $("#refresh-bots").addEventListener("click", () => refreshBots().catch(e => toast(e.message, true)));
 $("#refresh-matches").addEventListener("click", () => refreshMatches().catch(e => toast(e.message, true)));
@@ -847,6 +876,27 @@ $("#upload-form").addEventListener("submit", async event => {
   $("#upload-feedback").classList.add("pending");
   $("#compiler-log").classList.add("hidden");
   try {
+    if (app.accountOnly) {
+      if (!app.team?.team) throw new Error("Cần tham gia Team trước khi nộp bot.");
+      const source_base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error("Không thể đọc file bot."));
+        reader.onload = () => resolve(String(reader.result).split(",")[1]);
+        reader.readAsDataURL(file);
+      });
+      const response = await api("/api/player/bots", jsonOptions("POST", {
+        filename: file.name, name: form.elements.name.value,
+        game_id: app.competition.selected_game_id, source_base64
+      }));
+      const bot = response.bot;
+      feedback("#upload-feedback", bot.status === "ready" ? "Bot đã nộp cho Team." : "Biên dịch lỗi.", bot.status !== "ready");
+      if (bot.logs) {
+        $("#compiler-log").textContent = bot.logs;
+        $("#compiler-log").classList.remove("hidden");
+      }
+      await refreshAccountTeam();
+      return;
+    }
     const body = new FormData(form);
     // Disabled Player game selectors are omitted by FormData; use server state explicitly.
     body.set("game_id", app.competition.selected_game_id);
@@ -1231,6 +1281,7 @@ async function bootstrap() {
     ]);
     app.bots = bots; app.games = registry.games; app.matches = matches;
     await acceptCompetition(competition);
+    if (app.accountOnly && app.accountAudience === "player") await refreshAccountTeam();
     setConnection(health.status === "ok");
     renderBots(); renderRules(true); renderMatches();
     applyPermissions();
@@ -1265,3 +1316,138 @@ setInterval(async () => {
   finally { app.refreshing = false; }
 }, 2000);
 window.addEventListener("beforeunload", () => { app.shuttingDown = true; app.generation++; app.socket?.close(); clearTimeout(app.competitionTimer); clearInterval(app.heartbeatTimer); app.competitionSocket?.close(); });
+
+async function refreshAccountTeam() {
+  if (!app.accountOnly || app.accountAudience !== "player" || !app.account) return;
+  const [mine, invites] = await Promise.all([api("/api/player/team"), api("/api/player/team-invitations")]);
+  app.team = mine;
+  const team = mine.team, captain = mine.my_role === "CAPTAIN";
+  $("#account-team-create").classList.toggle("hidden", !!team);
+  $("#account-team-manage").classList.toggle("hidden", !team);
+  $("#account-team-status").textContent = team
+    ? `${team.display_name} · ${team.status} · ${mine.my_role} · ${team.member_count} thành viên`
+    : "Bạn chưa tham gia Team. Tạo Team mới hoặc nhận lời mời bên dưới.";
+  $("#account-team-invite").classList.toggle("hidden", !captain || team?.status === "ARCHIVED");
+  $("#account-team-activate").classList.toggle("hidden", !captain || team?.status !== "DRAFT");
+  $("#account-team-archive").classList.toggle("hidden", !captain);
+  $("#account-team-rename").classList.toggle("hidden", !captain);
+  $("#account-team-leave").classList.toggle("hidden", !team || captain);
+  const inbox = $("#account-team-inbox");
+  inbox.replaceChildren();
+  for (const inv of invites.invitations.filter(i => i.status === "PENDING")) {
+    const row = el("div", "bot-row"), label = el("span", "", `Lời mời: ${inv.team_display_name} · hết hạn ${new Date(inv.expires_at*1000).toLocaleString("vi-VN")}`);
+    row.append(label);
+    for (const action of ["accept","decline"]) {
+      const btn = el("button", "button ghost small", action === "accept" ? "Tham gia" : "Từ chối");
+      btn.disabled = !!team && action === "accept";
+      btn.onclick = async () => {
+        try {
+          await api(`/api/player/team-invitations/${encodeURIComponent(inv.id)}/${action}`, jsonOptions("POST", {}));
+          await refreshAccountTeam();
+        } catch (e) { toast(e.message, true); }
+      };
+      row.append(btn);
+    }
+    inbox.append(row);
+  }
+  if (team) {
+    const members = await api(`/api/player/teams/${encodeURIComponent(team.id)}/members`);
+    const target = $("#account-team-members");
+    target.replaceChildren();
+    target.append(el("strong", "", "Thành viên: "));
+    target.append(document.createTextNode(members.members.map(m => `${m.display_name} (${m.team_role})`).join(", ")));
+    const actions = $("#account-team-member-actions"); actions.replaceChildren();
+    if (captain) for (const member of members.members.filter(m => m.team_role === "MEMBER")) {
+      const row=el("div","bot-row");row.append(el("span","",member.display_name));
+      for(const action of ["captain-transfer","remove"]){
+        const btn=el("button","button ghost small",action==="remove"?"Xóa thành viên":"Chuyển Captain");
+        btn.onclick=async()=>{
+          if(!confirm(action==="remove"?"Xóa thành viên khỏi Team?":"Chuyển quyền Captain cho thành viên này?"))return;
+          const path=action==="remove" ? `/api/player/teams/${team.id}/members/${member.user_id}/remove`
+            : `/api/player/teams/${team.id}/captain-transfer`;
+          try{await api(path,jsonOptions("POST",action==="remove"?{}:{new_captain_user_id:member.user_id}));await refreshAccountTeam();}
+          catch(e){toast(e.message,true);}
+        };row.append(btn);
+      }actions.append(row);
+    }
+  }
+  const bots = team ? await api("/api/player/bots") : {bots:[]};
+  app.bots = bots.bots;
+  app.activeTeamBot = team ? (await api(`/api/player/active-bot?game_id=${encodeURIComponent(app.competition.selected_game_id)}`)).active : null;
+  renderBots();
+}
+function renderAccountBotLibrary() {
+  const target = $("#bot-library");
+  target.replaceChildren();
+  if (!app.bots.length) target.append(el("div","empty-state","Team chưa có submission."));
+  for (const bot of app.bots) {
+    const row=el("div","bot-row"), name=el("strong","",`${bot.name} · ${bot.language.toUpperCase()} · ${bot.status}`);
+    row.append(name,el("span","tag",bot.game_id));
+    const active=app.activeTeamBot?.bot?.id===bot.id;
+    const btn=el("button","button ghost small",active?"Active Bot ✓":"Chọn Active Bot");
+    btn.disabled=app.team?.my_role!=="CAPTAIN" || app.team?.team?.status!=="ACTIVE" || bot.status!=="ready" || active;
+    btn.onclick=async()=>{
+      try { await api("/api/player/active-bot",jsonOptions("PUT",{bot_id:bot.id,game_id:bot.game_id})); await refreshAccountTeam(); }
+      catch(e){toast(e.message,true);}
+    };
+    row.append(btn);
+    const view=el("button","button ghost small","Xem source");
+    view.onclick=async()=>{
+      try{const src=await api(`/api/player/bots/${bot.id}/source`);
+        const details=el("details");details.open=true;
+        details.append(el("summary","","Source · "+src.filename),el("pre","",src.source));
+        row.append(details);view.disabled=true;
+      }catch(e){toast(e.message,true);}
+    };row.append(view);
+    if(bot.logs) {const details=el("details"); details.append(el("summary","","Compiler log"),el("pre","",bot.logs));row.append(details);}
+    target.append(row);
+  }
+}
+$("#account-team-create").addEventListener("submit",async event=>{
+  event.preventDefault(); const form=event.currentTarget,btn=form.querySelector("button");btn.disabled=true;
+  try { await api("/api/player/teams",jsonOptions("POST",{
+    slug:form.elements.slug.value,display_name:form.elements.display_name.value
+  })); await refreshAccountTeam();toast("Đã tạo Team.");}
+  catch(e){toast(e.message,true);}finally{btn.disabled=false;}
+});
+$("#account-team-invite").addEventListener("submit",async event=>{
+  event.preventDefault();const form=event.currentTarget,btn=form.querySelector("button");btn.disabled=true;
+  try {await api(`/api/player/teams/${app.team.team.id}/invitations`,jsonOptions("POST",{username:form.elements.username.value}));
+    form.reset();toast("Đã gửi lời mời.");await refreshAccountTeam();}
+  catch(e){toast(e.message,true);}finally{btn.disabled=false;}
+});
+$("#account-team-activate").addEventListener("click",async()=>{
+  try {await api(`/api/player/teams/${app.team.team.id}/activate`,jsonOptions("POST",{}));await refreshAccountTeam();}
+  catch(e){toast(e.message,true);}
+});
+$("#account-team-archive").addEventListener("click",async()=>{
+  if(!confirm("Lưu trữ Team sẽ kết thúc tất cả memberships và hủy lời mời. Tiếp tục?"))return;
+  try{await api(`/api/player/teams/${app.team.team.id}/archive`,jsonOptions("POST",{}));await refreshAccountTeam();}
+  catch(e){toast(e.message,true);}
+});
+
+$("#account-team-rename").addEventListener("submit", async event => {
+  event.preventDefault();
+  // currentTarget is only available while the browser dispatches the event,
+  // not after the first await. Keep a stable reference for subsequent updates.
+  const form = event.currentTarget;
+  const button = form.querySelector("[type=submit]");
+  button.disabled = true;
+  try {
+    await api(`/api/player/teams/${app.team.team.id}`, jsonOptions("PATCH", {
+      display_name: form.elements.display_name.value
+    }));
+    form.reset();
+    await refreshAccountTeam();
+    toast("Đã đổi tên Team.");
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    button.disabled = false;
+  }
+});
+$("#account-team-leave").addEventListener("click",async()=>{
+  if(!confirm("Bạn muốn rời Team?"))return;
+  try{await api(`/api/player/teams/${app.team.team.id}/leave`,jsonOptions("POST",{}));await refreshAccountTeam();}
+  catch(e){toast(e.message,true);}
+});

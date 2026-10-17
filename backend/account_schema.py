@@ -140,4 +140,21 @@ AUTH_SERVICE_CORE = (
 MIGRATIONS = (
     (1, "account_foundation", FOUNDATION),
     (2, "auth_service_core", AUTH_SERVICE_CORE),
+    (3, "team_lifecycle_membership", (
+        """CREATE UNIQUE INDEX membership_active_user_global
+            ON team_memberships(user_id) WHERE left_at IS NULL""",
+        "CREATE INDEX team_memberships_team_active ON team_memberships(team_id, left_at)",
+        "CREATE INDEX team_invitations_user_status ON team_invitations(invited_user_id, status)",
+    )),
+    (4, "team_submission_journal", (
+        """CREATE TABLE submission_journal (
+            bot_id TEXT PRIMARY KEY NOT NULL,
+            team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE RESTRICT,
+            game_id TEXT NOT NULL,
+            uploaded_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+            created_at INTEGER NOT NULL,
+            state TEXT NOT NULL CHECK(state IN ('PREPARING','RECOVERING','COMMITTED','ABORTED'))
+        ) STRICT""",
+        "CREATE INDEX submission_journal_team ON submission_journal(team_id, state)",
+    )),
 )

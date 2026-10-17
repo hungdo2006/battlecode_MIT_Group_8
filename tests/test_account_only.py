@@ -125,7 +125,11 @@ def test_legacy_authority_and_side_effects_are_blocked(account_room, monkeypatch
     login(room)
     assert room.client.post("/api/player/bots", files={"file": ("bot.py", b"print(1)")},
                             data={"name": "bad", "game_id": "robot_battle"}).status_code == 403
-    assert room.client.post("/api/player/bots", json={}, headers=csrf(room, "player")).status_code == 403
+    # CSRF is checked before content type; valid CSRF cannot bypass JSON-only.
+    assert room.client.post("/api/player/bots", files={"file": ("bot.py", b"print(1)")},
+                            data={"name": "bad", "game_id": "robot_battle"},
+                            headers=csrf(room, "player")).status_code == 415
+    assert room.client.post("/api/player/bots", json={}, headers=csrf(room, "player")).status_code == 422
     assert room.client.get("/api/session/").status_code == 410
     assert room.client.head("/api/bots").status_code == 410
     assert room.client.options("/api/invitations").status_code == 410

@@ -10,6 +10,7 @@ const app = {
   participant: null, readOnly: false, refreshing: false,
   role: "player", organizerAvailable: false,
   accountOnly: false, accountAuth: false, account: null, accountAudience: null, csrf: null,
+  logoutBusy: false, logoutError: false,
   competition: null, competitionSocket: null, competitionTimer: null,
   competitionGeneration: 0, competitionBusy: false, shuttingDown: false,
   lobby: null, invitationBusy: false, seenStarts: new Set(), seenFinishes: new Set(), heartbeatTimer: null,
@@ -265,9 +266,9 @@ function renderSession() {
       : "Account-Only · cần xác thực";
     $("#participant-role").textContent = app.account?.system_role || "SIGNED OUT";
     $("#session-form").classList.add("hidden");
-    $("#organizer-toggle").textContent = "Đăng xuất";
-    $("#organizer-toggle").disabled = !app.account;
-    $("#organizer-toggle").title = "Thu hồi phiên tài khoản hiện tại";
+    $("#organizer-toggle").textContent = app.logoutBusy ? "Đang đăng xuất…" : app.logoutError ? "Thử lại đăng xuất" : "Đăng xuất";
+    $("#organizer-toggle").disabled = !app.account || app.logoutBusy;
+    $("#organizer-toggle").title = app.logoutError ? "Chưa xác nhận thu hồi phiên trên server. Nhấn để thử lại." : "Thu hồi phiên tài khoản hiện tại";
     applyPermissions();
     return;
   }
@@ -404,6 +405,7 @@ function showAccountDialog(message = "Đăng nhập để tiếp tục vào work
 }
 
 function acceptAccount(data, audience) {
+  app.logoutError = false;
   app.account = data.account;
   app.accountAudience = audience;
   app.csrf = null;
@@ -473,12 +475,28 @@ $("#account-activation-form").addEventListener("submit", async event => {
 });
 
 async function accountLogout() {
-  if (!app.accountAudience) return;
+  if (!app.accountAudience || app.logoutBusy) return;
   const audience = app.accountAudience;
-  try { await api(`/api/${audience}/auth/logout`, jsonOptions("POST", {})); }
-  catch (error) { if (error.status !== 401) toast(error.message, true); }
+  app.logoutBusy = true; app.logoutError = false; renderSession();
+  try {
+    const result = await api(`/api/${audience}/auth/logout`, jsonOptions("POST", {}));
+    if (result.logged_out !== true) throw new Error("Server chưa xác nhận thu hồi phiên.");
+  } catch (error) {
+    if (error.status === 401) {
+      accountExpired();
+      showAccountDialog("Phiên đã hết hiệu lực. Hãy đăng nhập lại.");
+    } else {
+      // Keep the account and retry action: a lost response does not prove that
+      // the server revoked the session or removed the browser cookie.
+      app.logoutError = true;
+      toast(`Chưa xác nhận đăng xuất. ${error.message} Nhấn “Thử lại đăng xuất”.`, true);
+    }
+    return;
+  } finally {
+    app.logoutBusy = false; renderSession();
+  }
   app.account = null; app.participant = null; app.accountAudience = null; app.csrf = null;
-  app.initialized = false;
+  app.role = "player"; app.organizerAvailable = false; app.initialized = false;
   app.competitionSocket?.close(); app.socket?.close();
   clearTimeout(app.competitionTimer); clearTimeout(app.reconnectTimer);
   renderSession();

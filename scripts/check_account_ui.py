@@ -91,8 +91,29 @@ def run():
                 page.wait_for_function("!document.querySelector('#workspace-game-select').disabled")
                 assert page.locator("#workspace-game-select").is_enabled()
 
+                # Failed/ambiguous logout must retain identity and offer retry;
+                # none of these responses confirms server-side revocation.
+                logout_url = origin + "/api/admin/auth/logout"
+                for failure in ("unavailable", "network", "unconfirmed"):
+                    def fail_logout(route, failure=failure):
+                        if failure == "network":
+                            route.abort("failed")
+                        else:
+                            route.fulfill(status=503 if failure == "unavailable" else 200,
+                                          content_type="application/json",
+                                          body='{"detail":"QA unavailable"}' if failure == "unavailable" else '{}')
+                    page.route(logout_url, fail_logout)
+                    page.click("#organizer-toggle")
+                    page.wait_for_function("document.querySelector('#organizer-toggle').textContent === 'Thử lại đăng xuất'")
+                    assert not dialog.is_visible()
+                    assert page.locator("#participant-role").inner_text() == "ADMIN"
+                    assert "Chưa xác nhận đăng xuất" in page.locator("#toast").inner_text()
+                    assert page.evaluate("fetch('/api/admin/auth/me').then(r => r.status)") == 200
+                    page.unroute(logout_url, fail_logout)
+
                 page.click("#organizer-toggle")
                 dialog.wait_for(state="visible")
+                assert page.locator("#account-feedback").inner_text() == "Đã đăng xuất an toàn."
                 page.select_option("#account-login-form [name=audience]", "player")
                 page.fill("#account-username", "qa.player")
                 page.fill("#account-login-form [name=password]", PASSWORD)
@@ -118,7 +139,7 @@ def run():
             thread.join(timeout=20)
             if thread.is_alive():
                 raise RuntimeError("Temporary Account-Only server did not stop cleanly")
-    print("PASS Account-Only browser UI: Admin/Player login, logout/revocation, legacy 410, Team features locked")
+    print("PASS Account-Only browser UI: login, failed logout (503/network/unconfirmed), retry, revocation, legacy 410")
 
 
 if __name__ == "__main__":

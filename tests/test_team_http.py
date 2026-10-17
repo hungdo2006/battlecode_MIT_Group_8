@@ -247,11 +247,21 @@ def test_admin_team_endpoints(room):
     assert detail["team"]["slug"] == "alpha-squad"
     assert len(detail["members"]) == 2
 
-    # Admin recovery captain transfer
+    # An active Captain cannot be overridden by Admin recovery.
     bob_id = next(m["user_id"] for m in detail["members"] if m["username"] == "bob")
     res = room.client.post(f"/api/admin/teams/{team_id}/captain-transfer",
                             json={"new_captain_user_id": bob_id}, headers=h_admin)
-    assert res.status_code == 200
+    assert res.status_code == 409
+
+    # Disable the Captain before performing audited recovery.
+    from backend.account_database import transaction
+    runtime = room.app.state.account_http
+    with runtime.database.writer_connection(runtime.writer) as connection, transaction(connection):
+        connection.execute("UPDATE users SET status='DISABLED' WHERE username='alice'")
+
+    res = room.client.post(f"/api/admin/teams/{team_id}/captain-transfer",
+                            json={"new_captain_user_id": bob_id}, headers=h_admin)
+    assert res.status_code == 200, res.text
     assert res.json()["promoted"]["user_id"] == bob_id
 
     # Admin recovery archive

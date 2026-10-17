@@ -112,13 +112,17 @@ def test_global_single_active_team_constraint(env):
     with pytest.raises(TeamConflict, match="already has an active team"):
         env.team.create_team(alice, "team-two", "Team Two")
 
-    # Bob creates team-two and invites Alice
+    # Issuance rejects players who already belong to ANY Team.
     t2 = env.team.create_team(bob, "team-two", "Team Two")
-    invitation = env.team.invite_member(bob, t2.id, username="alice")
-
-    # Alice cannot accept invitation while active in team-one
     with pytest.raises(TeamConflict, match="already has an active team membership"):
-        env.team.accept_invitation(alice, invitation.id)
+        env.team.invite_member(bob, t2.id, username="alice")
+
+    # Acceptance must also recheck eligibility after a valid invitation.
+    charlie = make_player(env, "charlie")
+    invitation = env.team.invite_member(bob, t2.id, username="charlie")
+    env.team.create_team(charlie, "team-three", "Team Three")
+    with pytest.raises(TeamConflict, match="already has an active team membership"):
+        env.team.accept_invitation(charlie, invitation.id)
 
 
 def test_admin_cannot_create_or_join_team(env):

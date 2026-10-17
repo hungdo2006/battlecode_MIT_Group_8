@@ -53,7 +53,7 @@ def test_schema_migration_is_idempotent_and_persists(database):
         tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_schema WHERE type='table'")}
         assert tables == {"schema_migrations", "users", "auth_sessions", "account_tokens", "teams",
                           "team_memberships", "team_invitations", "submission_ownership", "team_game_bots",
-                          "audit_events"}
+                          "audit_events", "submission_journal"}
         check_integrity(connection)
         with pytest.raises(sqlite3.OperationalError, match="readonly"):
             connection.execute("DELETE FROM users")

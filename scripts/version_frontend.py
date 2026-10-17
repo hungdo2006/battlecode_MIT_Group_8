@@ -19,7 +19,10 @@ ASSET_URL = re.compile(
 def versioned_html(source):
     def replace(match):
         name = match["name"]
-        digest = hashlib.sha256((FRONTEND / name).read_bytes()).hexdigest()[:12]
+        # Normalize CRLF checkout line endings so Windows and Git/Docker
+        # fingerprint the same canonical text bytes.
+        canonical = (FRONTEND / name).read_bytes().replace(b"\r\n", b"\n")
+        digest = hashlib.sha256(canonical).hexdigest()[:12]
         return f"/static/{name}?v={digest}"
     return ASSET_URL.sub(replace, source)
 

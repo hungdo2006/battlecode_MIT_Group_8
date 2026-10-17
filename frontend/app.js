@@ -286,7 +286,7 @@ function renderSession() {
 
 function applyPermissions() {
   const organizer = app.role === "organizer" && !app.readOnly;
-  const accountPlayer = app.accountOnly && app.accountAudience !== "admin";
+  const accountPlayer = app.accountOnly && app.accountAudience === "player";
   const allowed = organizer && app.competition?.can_edit && !app.competitionBusy && !app.rulesBusy;
   $$("#rules-form input, #rules-form textarea, #rules-form select, #rules-form [type=submit], #default-rules").forEach(node => {
     node.disabled = !allowed; node.title = allowed ? "" : "Cần quyền Organizer và cuộc thi đang ở trạng thái cấu hình";
@@ -309,7 +309,7 @@ function applyPermissions() {
     } else {
       $("#account-team-panel").classList.add("hidden");
     }
-    if (["#upload", "#create"].includes(location.hash)) location.hash = "home";
+    if (location.hash === "#create" || (!accountPlayer && location.hash === "#upload")) location.hash = "home";
   }
   $('.nav-item[data-view="create"]').classList.toggle("hidden", app.accountOnly);
   $('.nav-item[data-view="watch"]').classList.toggle("hidden", accountPlayer);
@@ -323,8 +323,9 @@ function applyPermissions() {
     node.title = node.disabled ? app.competition?.phase !== "open" ? "Cuộc thi cần được mở trước khi gửi lời mời" : "Cần hai Player đang online, có Active Bot và sẵn sàng" : "Hai Player sẽ tự xác nhận lời mời";
   });
   $("#upload-form [type=submit]").disabled = organizer || app.readOnly || app.uploading || !app.selectedGameId;
-  $("#seed-samples").disabled = organizer || app.readOnly || app.seeding || !app.selectedGameId;
-  $$('[data-sample]').forEach(node => { node.disabled = organizer || app.readOnly || app.seeding || app.sampleBusy.has(`${node.dataset.gameId}:${node.dataset.sample}`); });
+  $("#seed-samples").disabled = app.accountOnly || organizer || app.readOnly || app.seeding || !app.selectedGameId;
+  $("#seed-samples").classList.toggle("hidden", app.accountOnly);
+  $('[data-sample]').forEach(node => { node.disabled = app.accountOnly || organizer || app.readOnly || app.seeding || app.sampleBusy.has(`${node.dataset.gameId}:${node.dataset.sample}`); });
   $$(".game-select, .game-card").forEach(node => { node.title = allowed ? "Chọn game của cuộc thi" : app.competition?.competition_locked ? "Game đã khóa; đóng cuộc thi để cấu hình lại" : "Chỉ Organizer được chọn game"; });
   renderCompetitionBanner();
 }
@@ -336,7 +337,7 @@ function renderCompetitionBanner() {
   $("#competition-banner").classList.toggle("competition-live", state?.competition_locked === true);
   setText("#competition-game", app.games.find(game => game.game_id === state?.selected_game_id)?.name || "Đang tải game…");
   const legacyMessage = state?.phase === "open" ? "Game và luật đã khóa. Organizer mời hai Player READY; trận bắt đầu sau hai lượt ACCEPT." : state?.phase === "draining" ? `Đã chặn trận mới. Đang chờ ${state.pending_matches} trận/bot kết thúc trước khi mở khóa cấu hình.` : "Ban tổ chức đang chuẩn bị game và luật. Có thể nộp bot cho game hiện tại; chưa thể tạo trận.";
-  const accountMessage = state?.phase === "open" ? "Game và luật đã khóa. Nộp bot theo Team và Official Match sẽ được mở ở Phase 4.2C–D." : state?.phase === "draining" ? `Đã chặn trận mới. Đang chờ ${state.pending_matches} tác vụ hiện có kết thúc trước khi mở khóa cấu hình.` : "Admin đang chuẩn bị game và luật. Chức năng Team submission hiện được khóa an toàn.";
+  const accountMessage = state?.phase === "open" ? "Game và luật đã khóa. Team có thể nộp bot, Captain chọn Active Bot; Official Match ở Phase 4.2D." : state?.phase === "draining" ? `Đã chặn trận mới. Đang chờ ${state.pending_matches} tác vụ hiện có kết thúc trước khi mở khóa cấu hình.` : "Admin đang chuẩn bị game và luật. Team có thể nộp bot cho game hiện tại; Official Match chưa mở.";
   setText("#competition-message", app.accountOnly ? accountMessage : legacyMessage);
 }
 

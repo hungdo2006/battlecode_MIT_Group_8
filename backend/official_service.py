@@ -88,14 +88,16 @@ def lock_due_matches(connection, store, now):
                 reason="SOURCE_CHANGED";break
             slots.append((request["id"],side,tid,team["display_name"],
                           request["game_id"],bot["id"],bot["name"],bot["language"],
-                          digest,selected["revision"],now))
+                          digest,bot.get("artifact_id"),bot.get("artifact_digest"),
+                          selected["revision"],now))
         if reason is None:
             # Slots and transition are in one SQLite transaction; nothing half-locked
             # becomes visible to readers.
             connection.executemany("""INSERT INTO official_match_slots
                 (request_id,side,team_id,team_name_snapshot,game_id,bot_id,
-                 bot_name_snapshot,bot_language,source_sha256,bot_revision,locked_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?)""",slots)
+                 bot_name_snapshot,bot_language,source_sha256,
+                 artifact_id,artifact_digest,bot_revision,locked_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",slots)
             connection.execute("""UPDATE official_match_requests
                 SET status='LOCKED',locked_at=?,revision=revision+1 WHERE id=?""",
                 (now,request["id"]))
@@ -272,7 +274,9 @@ class OfficialSchedule:
                         or bot.get("language") != slot["bot_language"]
                         or bot.get("status") != "ready"
                         or bot.get("execution_backend") != "sandbox"
-                        or not bot.get("artifact_id") or not bot.get("artifact_digest")):
+                        or not slot.get("artifact_id") or not slot.get("artifact_digest")
+                        or bot.get("artifact_id") != slot["artifact_id"]
+                        or bot.get("artifact_digest") != slot["artifact_digest"]):
                         reason = "FROZEN_ARTIFACT_UNAVAILABLE"
                         break
                     actual = snapshot_source(self.store, slot, bot)

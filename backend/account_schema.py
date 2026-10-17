@@ -210,6 +210,8 @@ MIGRATIONS = (
             bot_name_snapshot TEXT NOT NULL,
             bot_language TEXT NOT NULL,
             source_sha256 TEXT NOT NULL CHECK (length(source_sha256)=64),
+            artifact_id TEXT,
+            artifact_digest TEXT,
             bot_revision INTEGER NOT NULL CHECK (bot_revision > 0),
             locked_at INTEGER NOT NULL CHECK (locked_at >= 0),
             PRIMARY KEY (request_id,side),

@@ -56,6 +56,14 @@ class MatchManager:
         bots = {"A": self.store.get_bot(request.bot_a), "B": self.store.get_bot(request.bot_b)}
         if any(not bot or bot["status"] != "ready" for bot in bots.values()):
             raise ValueError("Cả hai bot phải tồn tại và đã biên dịch thành công.")
+        if official:
+            for side, bot in bots.items():
+                slot = official["slots"][side]
+                if (bot.get("team_id") != slot["team_id"]
+                    or bot.get("game_id") != slot["game_id"]
+                    or bot.get("artifact_id") != slot["artifact_id"]
+                    or bot.get("artifact_digest") != slot["artifact_digest"]):
+                    raise ValueError("Frozen Official artifact changed before launch")
         adapter = self.registry.get(game_id)
         if any(bot["game_id"] != game_id for bot in bots.values()):
             raise ValueError("Cả hai submission phải thuộc game đã chọn.")

@@ -115,20 +115,20 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
                 app.state.upload_lock = asyncio.Lock()
                 if account_settings.account_only:
                     from backend.bot_service import TeamBots
-                    from backend.official_service import OfficialSchedule
+                    from backend.official_dispatcher import OfficialDispatcher
                     await auth_runtime.run(lambda auth, conn: TeamBots(
                         auth, conn, writer, app.state.store, installed).reconcile())
-                    await auth_runtime.run(lambda auth, conn: OfficialSchedule(
-                        conn, writer, auth, app.state.store, installed).freeze_due())
+                    dispatcher = app.state.official_dispatcher = OfficialDispatcher(
+                        auth_runtime, writer, app.state.store, installed, manager)
+                    await dispatcher.recover()
                     async def official_deadline_worker():
                         while True:
-                            await asyncio.sleep(1)
                             try:
-                                await auth_runtime.run(lambda auth, conn: OfficialSchedule(
-                                    conn, writer, auth, app.state.store, installed).freeze_due())
+                                await dispatcher.tick()
                             except Exception:
                                 import logging
-                                logging.getLogger(__name__).exception("Official deadline worker failed")
+                                logging.getLogger(__name__).exception("Official dispatcher tick failed")
+                            await asyncio.sleep(1)
                     app.state.official_deadline_task = asyncio.create_task(
                         official_deadline_worker(), name="official-deadlines")
                 await asyncio.to_thread(Store._write, app.state.store.data / MODE_FILE,

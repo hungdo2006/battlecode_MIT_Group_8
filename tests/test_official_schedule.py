@@ -253,3 +253,127 @@ def test_unreadable_source_does_not_starve_unrelated_due_request(room,monkeypatc
     assert failed["slots"]==[]
     assert len(healthy["slots"])==2
     assert {slot["bot_id"] for slot in healthy["slots"]}=={"b"*16,"c"*16}
+
+
+
+def make_sandbox_artifact(room, bot_id):
+    """QA-only sandbox metadata; no Docker process or real artifact is created."""
+    bot = room.app.state.store.get_bot(bot_id)
+    bot.update(execution_backend="sandbox",
+               artifact_id="a" * 32, artifact_digest="d" * 64)
+    room.app.state.store.save_bot(bot)
+
+
+def test_d2_claim_is_single_use_and_restart_never_reexecutes(room):
+    ta=create_team(room,"alice","alpha-d2once")
+    tb=create_team(room,"bob","beta-d2once")
+    for user,tid,bot_id in (("alice",ta,"a"*16),("bob",tb,"b"*16)):
+        seed_ready_bot(room,tid,user,bot_id)
+        make_sandbox_artifact(room,bot_id)
+        select_bot(room,user,bot_id)
+    deadline=room.clock.now+10
+    res=schedule(room,ta,tb,bot_lock_at=deadline,scheduled_at=deadline)
+    assert res.status_code==201,res.text
+    request_id=res.json()["request"]["id"]
+    room.clock.now=deadline
+    rt=room.app.state.account_http
+    from backend.official_service import OfficialSchedule
+    from backend.auth_service import AuthService
+    from backend.auth_limits import AuthRateLimiter
+    with rt.database.writer_connection(rt.writer) as conn:
+        svc=OfficialSchedule(conn,rt.writer,
+            AuthService(conn,rt.writer,clock=room.clock,login_limiter=AuthRateLimiter()),
+            room.app.state.store,room.app.state.registry)
+        svc.freeze_due()
+        first=svc.claim_due()
+        assert first["id"]==request_id
+        assert first["match_id"]=="o"+request_id[:15]
+        assert svc.claim_due() is None
+        # A crash after a durable claim but before writing a replay must not
+        # cause the match to be resubmitted; restart is fail-closed.
+        assert svc.recover_uncertain()==1
+        assert svc.claim_due() is None
+        request=svc._get(request_id)
+        assert request["status"]=="INTERRUPTED"
+        assert request["status_reason"]=="SERVER_RESTART"
+        assert svc.recover_uncertain()==0
+
+
+def test_d3_replay_scoped_to_participating_team_and_admin(room):
+    ta=create_team(room,"alice","alpha-d3private")
+    tb=create_team(room,"bob","beta-d3private")
+    for user,tid,bot_id in (("alice",ta,"a"*16),("bob",tb,"b"*16)):
+        seed_ready_bot(room,tid,user,bot_id)
+        make_sandbox_artifact(room,bot_id)
+        select_bot(room,user,bot_id)
+    deadline=room.clock.now+8
+    response=schedule(room,ta,tb,bot_lock_at=deadline,scheduled_at=deadline)
+    assert response.status_code==201,response.text
+    request_id=response.json()["request"]["id"]
+    room.clock.now=deadline
+    rt=room.app.state.account_http
+    from backend.official_service import OfficialSchedule
+    from backend.auth_service import AuthService
+    from backend.auth_limits import AuthRateLimiter
+    with rt.database.writer_connection(rt.writer) as conn:
+        svc=OfficialSchedule(conn,rt.writer,
+            AuthService(conn,rt.writer,clock=room.clock,login_limiter=AuthRateLimiter()),
+            room.app.state.store,room.app.state.registry)
+        svc.freeze_due()
+        claim=svc.claim_due()
+        match_id=claim["match_id"]
+        room.app.state.store.save_match({
+            "id":match_id,"official_request_id":request_id,"game_id":GAME,
+            "status":"completed","result":{"winner":"A","reason":"goal"},
+            "turn":1,"bots":{"A":{"id":"a"*16,"name":"A","language":"py"},
+                             "B":{"id":"b"*16,"name":"B","language":"py"}},
+            "command":["private"],"artifact_digest":"secret"})
+        room.app.state.store.start_replay(match_id,{"turn":0,"game_id":GAME})
+        room.app.state.store.append_replay_frame(match_id,{"turn":1,"game_id":GAME})
+        assert svc.sync_execution()==[request_id]
+        saved=svc._get(request_id)
+        assert saved["status"]=="COMPLETED"
+        assert svc.sync_execution()==[]
+        assert svc.recover_uncertain()==0
+    login(room,"admin","admin")
+    path="/api/admin/official-matches/"+request_id+"/replay"
+    admin=room.client.get(path)
+    assert admin.status_code==200,admin.text
+    assert len(admin.json()["frames"])==2
+    assert "command" not in admin.json()["match"]
+    assert "artifact_digest" not in admin.json()["match"]
+    login(room,"player","charlie")
+    denied=room.client.get("/api/player/official-matches/"+request_id+"/replay")
+    assert denied.status_code==404
+    login(room,"player","alice")
+    allowed=room.client.get("/api/player/official-matches/"+request_id+"/replay")
+    assert allowed.status_code==200,allowed.text
+    assert len(allowed.json()["frames"])==2
+    assert allowed.json()["match"]["status"]=="completed"
+
+
+def test_d2_no_legacy_runner_dispatch_for_locked_official(room):
+    """The native/legacy runner must never execute an Official match."""
+    ta=create_team(room,"alice","alpha-legacy-d2")
+    tb=create_team(room,"bob","beta-legacy-d2")
+    for user,tid,bot_id in (("alice",ta,"a"*16),("bob",tb,"b"*16)):
+        seed_ready_bot(room,tid,user,bot_id)
+        select_bot(room,user,bot_id)
+    deadline=room.clock.now+2
+    response=schedule(room,ta,tb,bot_lock_at=deadline,scheduled_at=deadline)
+    assert response.status_code==201
+    request_id=response.json()["request"]["id"]
+    room.clock.now=deadline
+    from backend.official_service import OfficialSchedule
+    from backend.auth_service import AuthService
+    from backend.auth_limits import AuthRateLimiter
+    rt=room.app.state.account_http
+    with rt.database.writer_connection(rt.writer) as conn:
+        svc=OfficialSchedule(conn,rt.writer,
+            AuthService(conn,rt.writer,clock=room.clock,login_limiter=AuthRateLimiter()),
+            room.app.state.store,room.app.state.registry)
+        svc.freeze_due()
+        assert svc._get(request_id)["status"]=="LOCKED"
+    # The official worker must leave it locked until an enabled sandbox exists.
+    assert room.app.state.manager.runner.mode=="legacy"
+    assert room.app.state.store.get_match("o"+request_id[:15]) is None

@@ -176,3 +176,31 @@ def test_v4_to_v5_upgrade_is_append_only_and_idempotent(tmp_path,monkeypatch):
         assert connection.execute("SELECT count(*) FROM schema_migrations").fetchone()[0]==5
         assert connection.execute("SELECT count(*) FROM official_match_requests").fetchone()[0]==0
         check_integrity(connection)
+
+
+def test_official_attestation_requires_valid_digest_and_ownership(tmp_path):
+    import sqlite3
+    db=AccountDatabase(tmp_path)
+    db.migrate()
+    with db.maintenance() as connection:
+        connection.execute("""INSERT INTO users
+            (id,username,display_name,system_role,status,password_hash,created_at,updated_at)
+            VALUES ('u1','alice','Alice','PLAYER','INVITED',NULL,100,100)""")
+        connection.execute("""INSERT INTO teams
+            (id,slug,display_name,created_by,created_at,updated_at)
+            VALUES ('t1','team-one','Team One','u1',100,100)""")
+        connection.execute("""INSERT INTO submission_ownership
+            (bot_id,team_id,game_id,uploaded_by,origin,created_at)
+            VALUES ('bot1','t1','robot_battle','u1','NEW',100)""")
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute("""INSERT INTO official_source_attestations
+                (bot_id,source_sha256,attested_at) VALUES ('missing',?,100)""",("a"*64,))
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute("""INSERT INTO official_source_attestations
+                (bot_id,source_sha256,attested_at) VALUES ('bot1','bad',100)""")
+        connection.execute("""INSERT INTO official_source_attestations
+            (bot_id,source_sha256,attested_at) VALUES ('bot1',?,100)""",("a"*64,))
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute("""INSERT INTO official_source_attestations
+                (bot_id,source_sha256,attested_at) VALUES ('bot1',?,101)""",("b"*64,))
+        check_integrity(connection)

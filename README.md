@@ -2,6 +2,18 @@
 
 ## Phase 4.2D — Official Match Scheduling (D1 work in progress)
 
+**D1 source attestation:** A ready bot uploaded after this feature is installed
+receives a SHA-256 attestation of the original submitted source in SQLite as part
+of the submission-ownership transaction. An Official Match only locks a bot if
+its current source matches this original recorded digest. Existing C2/C3
+submissions without an attestation remain accessible/selectable for ordinary
+Team workflows, but cannot enter Official Match until re-submitted and compiled.
+When source is changed, unreadable or missing, only the affected Official request
+becomes BLOCKED; other due requests continue. The v5 migration definition was
+updated while PR #7 was still unmerged; QA must use **fresh disposable data**
+rather than reusing an earlier v5 test database with a different checksum.
+
+
 **Nhánh phát triển:** `feature/official-match-scheduling`. Phase 4.2C đã merge; D1 là thay đổi đang đợi Codex QA, **chưa merge và chưa tự chạy trận**.
 
 D1 bổ sung migration SQLite v5 (append-only), `official_match_requests` và `official_match_slots`, API Admin lên lịch/cancel, lịch đọc chỉ cho Admin hoặc Player thuộc Team liên quan, bot deadline UTC Unix seconds, snapshot luật khi xếp lịch, và source checksum cùng Active Bot revision khi khóa bot. Khi bot thiếu/sai game/chưa ready hoặc Team bị archive lúc khóa, trạng thái `BLOCKED` rõ nguyên nhân (không xử thua, không lựa chọn bot mới sau deadline). Tick nền xử lý deadline và thao tác Captain chọn Active Bot cũng xử lý deadline quá hạn **trước khi** thay lựa chọn trong cùng SQLite transaction.

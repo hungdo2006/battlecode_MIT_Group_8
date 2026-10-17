@@ -163,3 +163,93 @@ def test_cancel_is_admin_only_and_audited(room):
     with runtime.database.writer_connection(runtime.writer) as db:
         assert db.execute("""SELECT count(*) FROM audit_events
             WHERE target_id=? AND action='OFFICIAL_MATCH_CANCELLED'""",(request_id,)).fetchone()[0]==1
+
+
+def freeze_official_requests(room):
+    from backend.official_service import OfficialSchedule
+    from backend.auth_service import AuthService
+    from backend.auth_limits import AuthRateLimiter
+    rt=room.app.state.account_http
+    with rt.database.writer_connection(rt.writer) as conn:
+        service=OfficialSchedule(conn,rt.writer,
+            AuthService(conn,rt.writer,clock=room.clock,login_limiter=AuthRateLimiter()),
+            room.app.state.store,room.app.state.registry)
+        return service.freeze_due()
+
+
+def test_compiled_source_mutation_blocks_official_snapshot(room):
+    ta=create_team(room,"alice","alpha-tamper")
+    tb=create_team(room,"bob","beta-tamper")
+    a=seed_ready_bot(room,ta,"alice","a"*16)
+    b=seed_ready_bot(room,tb,"bob","b"*16)
+    select_bot(room,"alice",a)
+    select_bot(room,"bob",b)
+    deadline=room.clock.now+4
+    response=schedule(room,ta,tb,bot_lock_at=deadline)
+    assert response.status_code==201,response.text
+    request_id=response.json()["request"]["id"]
+    (room.app.state.store.uploads/a/"bot.py").write_bytes(b"print('TAMPERED')\n")
+    room.clock.now=deadline
+    assert freeze_official_requests(room)==[(request_id,"BLOCKED")]
+    login(room,"admin","admin")
+    locked=room.client.get(f"/api/admin/official-matches/{request_id}").json()["request"]
+    assert locked["status"]=="BLOCKED"
+    assert locked["status_reason"]=="SOURCE_CHANGED"
+    assert locked["slots"]==[]
+
+
+def test_old_unattested_bot_is_rejected_for_official_match(room):
+    ta=create_team(room,"alice","alpha-unverified")
+    tb=create_team(room,"bob","beta-unverified")
+    a=seed_ready_bot(room,ta,"alice","a"*16)
+    b=seed_ready_bot(room,tb,"bob","b"*16)
+    select_bot(room,"alice",a)
+    select_bot(room,"bob",b)
+    deadline=room.clock.now+2
+    response=schedule(room,ta,tb,bot_lock_at=deadline)
+    assert response.status_code==201,response.text
+    request_id=response.json()["request"]["id"]
+    rt=room.app.state.account_http
+    with rt.database.writer_connection(rt.writer) as conn,transaction(conn):
+        conn.execute("DELETE FROM official_source_attestations WHERE bot_id=?",(a,))
+    room.clock.now=deadline
+    assert freeze_official_requests(room)==[(request_id,"BLOCKED")]
+    login(room,"admin","admin")
+    locked=room.client.get(f"/api/admin/official-matches/{request_id}").json()["request"]
+    assert locked["status_reason"]=="SOURCE_UNVERIFIED"
+    assert locked["slots"]==[]
+
+
+def test_unreadable_source_does_not_starve_unrelated_due_request(room,monkeypatch):
+    ta=create_team(room,"alice","alpha-unread")
+    tb=create_team(room,"bob","beta-unread")
+    tc=create_team(room,"charlie","gamma-unread")
+    for user,tid,bot_id in (("alice",ta,"a"*16),("bob",tb,"b"*16),
+                            ("charlie",tc,"c"*16)):
+        seed_ready_bot(room,tid,user,bot_id)
+        select_bot(room,user,bot_id)
+    deadline=room.clock.now+3
+    bad=schedule(room,ta,tb,bot_lock_at=deadline)
+    good=schedule(room,tb,tc,bot_lock_at=deadline)
+    assert bad.status_code==201 and good.status_code==201
+    bad_id,good_id=bad.json()["request"]["id"],good.json()["request"]["id"]
+    source_file=(room.app.state.store.uploads/("a"*16)/"bot.py").resolve()
+    original_read=Path.read_bytes
+
+    def faulty_read(self):
+        if self.resolve()==source_file:
+            raise PermissionError("QA fault injection: one unreadable source")
+        return original_read(self)
+
+    monkeypatch.setattr(Path,"read_bytes",faulty_read)
+    room.clock.now=deadline
+    updates=freeze_official_requests(room)
+    assert dict(updates)=={bad_id:"BLOCKED",good_id:"LOCKED"}
+    assert freeze_official_requests(room)==[]
+    login(room,"admin","admin")
+    failed=room.client.get(f"/api/admin/official-matches/{bad_id}").json()["request"]
+    healthy=room.client.get(f"/api/admin/official-matches/{good_id}").json()["request"]
+    assert failed["status_reason"]=="SOURCE_UNAVAILABLE"
+    assert failed["slots"]==[]
+    assert len(healthy["slots"])==2
+    assert {slot["bot_id"] for slot in healthy["slots"]}=={"b"*16,"c"*16}

@@ -88,6 +88,10 @@ async function api(path, options = {}) {
     throw new Error("Đường dẫn API không hợp lệ.");
   }
   path = scopedApiPath(path);
+  const requestUrl = new URL(path, window.location.origin);
+  if (requestUrl.origin !== window.location.origin || !requestUrl.pathname.startsWith("/api/")) {
+    throw new Error("Đường dẫn API không hợp lệ.");
+  }
   const method = (options.method || "GET").toUpperCase();
   if (app.accountOnly && !["GET", "HEAD", "OPTIONS"].includes(method) && !path.includes("/auth/login")
       && !path.includes("/auth/activate")) {
@@ -99,7 +103,7 @@ async function api(path, options = {}) {
     }
   }
   let response;
-  try { response = await fetch(path, options); }
+  try { response = await fetch(requestUrl.toString(), options); }
   catch { throw new Error("Mất kết nối với máy chủ. Kiểm tra mạng và thử lại."); }
   const raw = await response.text();
   let data;

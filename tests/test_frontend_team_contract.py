@@ -13,7 +13,7 @@ def test_account_only_permissions_operate_on_node_lists():
     assert 'document.querySelectorAll(\'[data-sample]\')' in js
     # A single-node selector cannot be followed by NodeList.forEach. Guard
     # the entire script so legacy and account-only branches are covered.
-    assert not re.search(r"(?<!\\$)\\$\\([^;\\n]*?\\)\\.forEach\\(", js)
+    assert not re.search(r"(?<!\$)\$\([^;\n]*?\)\.forEach\(", js)
     assert '(!accountPlayer && location.hash === "#upload")' in js
 
 

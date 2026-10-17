@@ -144,6 +144,10 @@ class TeamBots:
         with transaction(self.db):
             now = self.auth._now()
             user, member = self._member(actor, now, captain=True)
+            # Freeze every overdue Official Match *before* changing Active Bot,
+            # under the same serialized SQLite transaction.
+            from .official_service import lock_due_matches
+            lock_due_matches(self.db, self.store, now)
             if member["status"] != "ACTIVE":
                 raise TeamConflict("Activate Team before selecting official active bot")
             row = self.db.execute("""SELECT 1 FROM submission_ownership

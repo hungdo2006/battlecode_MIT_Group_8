@@ -1183,3 +1183,7 @@ Tất cả các route chỉ hoạt động trong chế độ Account-Only (`AREN
 - `python -m pytest tests controller_tests -ra --tb=short -p no:cacheprovider --basetemp=.tmp_pytest`: 398 passed.
 - `python -m pip check`: Pass (No broken dependencies).
 - `git diff --check`: Pass.
+
+### 15.10 C1 review corrections
+
+Team GET validates an actor with `touch=False`, preserving session idle expiry. Invitation usernames use `normalize_username`, including "." and "_"; membership eligibility is checked both on issue and accept. Expired acceptance commits EXPIRED before returning an error. Admin recovery rejects an eligible ACTIVE Captain. No current Team is represented as HTTP 200 with `team: null`. Schema table names are `users`, `auth_sessions`, `team_memberships`, and `audit_events`.

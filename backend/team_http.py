@@ -111,7 +111,7 @@ def install_team_http(app):
             lambda auth, conn: TeamService(conn, runtime.writer, auth_service=auth, clock=runtime.settings.clock).get_my_team(principal)
         )
         if not my_team:
-            raise HTTPException(404, "You do not belong to an active team")
+            return {"team": None, "my_role": None, "my_membership_id": None}
         return {
             "team": team_json(my_team.team),
             "my_role": my_team.my_role,

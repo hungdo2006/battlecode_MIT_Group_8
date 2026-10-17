@@ -11,7 +11,7 @@ from backend.account_database import AccountDatabase, check_integrity
 from backend.admin_cli import bootstrap_admin
 from backend.auth_service import AuthService, PermissionDenied
 from backend.team_service import (
-    TeamConflict, TeamNotFound, TeamPermissionDenied, TeamService, TeamValidationError
+    InvalidInvitation, TeamConflict, TeamNotFound, TeamPermissionDenied, TeamService, TeamValidationError
 )
 from backend.writer_lock import WriterLock
 
@@ -440,3 +440,37 @@ def test_stale_or_revoked_session_rejected(env):
     with pytest.raises(PermissionDenied):
         env.team.update_team(alice, t.id, display_name="New Name")
 
+
+def test_normalize_invitee_username_and_global_eligibility(env):
+    captain = make_player(env, "alice")
+    dotted = make_player(env, "john.doe")
+    under = make_player(env, "john_doe")
+    other = make_player(env, "other")
+    team = env.team.create_team(captain, "username-qa", "Username QA")
+    assert env.team.invite_member(captain, team.id, username=dotted.account.username).status == "PENDING"
+    assert env.team.invite_member(captain, team.id, username=under.account.username).status == "PENDING"
+    env.team.create_team(other, "other-qa", "Other QA")
+    with pytest.raises(TeamConflict, match="active team"):
+        env.team.invite_member(captain, team.id, username="other")
+
+
+def test_expired_accept_persists_status(env):
+    captain = make_player(env, "alice")
+    invitee = make_player(env, "bob")
+    team = env.team.create_team(captain, "expire-qa", "Expire QA")
+    inv = env.team.invite_member(captain, team.id, username="bob", ttl_seconds=1)
+    env.clock.now += 2
+    with pytest.raises(InvalidInvitation):
+        env.team.accept_invitation(invitee, inv.id)
+    status = env.connection.execute("SELECT status FROM team_invitations WHERE id=?", (inv.id,)).fetchone()[0]
+    assert status == "EXPIRED"
+
+
+def test_admin_recovery_denies_healthy_captain(env):
+    captain = make_player(env, "alice")
+    member = make_player(env, "bob")
+    team = env.team.create_team(captain, "recovery-qa", "Recovery QA")
+    inv = env.team.invite_member(captain, team.id, username="bob")
+    env.team.accept_invitation(member, inv.id)
+    with pytest.raises(TeamConflict, match="Active Captain"):
+        env.team.admin_transfer_captain(env.admin, team.id, member.account.id)

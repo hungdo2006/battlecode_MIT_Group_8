@@ -239,7 +239,7 @@ class AuthService:
             raise InvalidSession()
         return session, user
 
-    def _require_actor(self, actor, now, *, admin=False):
+    def _require_actor(self, actor, now, *, admin=False, touch=True):
         if (not isinstance(actor, Principal) or not isinstance(actor.account, Account)
                 or actor._proof is not _PRINCIPAL_PROOF):
             raise PermissionDenied()
@@ -250,10 +250,11 @@ class AuthService:
         # Claimed role/status in a DTO grant no rights. Re-query the real account.
         if user["id"] != actor.account.id or (admin and user["system_role"] != "ADMIN"):
             raise PermissionDenied()
-        self._db.execute("UPDATE auth_sessions SET last_seen_at = ? WHERE id = ?", (now, session["id"]))
+        if touch:
+            self._db.execute("UPDATE auth_sessions SET last_seen_at = ? WHERE id = ?", (now, session["id"]))
         return user
 
-    def require_actor(self, actor, now=None, *, admin=False, player_only=False):
+    def require_actor(self, actor, now=None, *, admin=False, player_only=False, touch=True):
         """Cross-service actor authorization for domain services (e.g. TeamService).
 
         Validates authenticated Principal proof, session validity, user status and role.
@@ -261,7 +262,7 @@ class AuthService:
         Returns the validated user row.
         """
         current_time = self._now() if now is None else now
-        user = self._require_actor(actor, current_time, admin=admin)
+        user = self._require_actor(actor, current_time, admin=admin, touch=touch)
         if player_only and user["system_role"] != "PLAYER":
             raise PermissionDenied()
         return user

@@ -217,12 +217,12 @@ class HTTPAuthRuntime:
             raise HTTPException(503, "Authentication capacity unavailable", headers={"Retry-After": "1"}) from None
         except (AuthenticationFailed, InvalidSession):
             raise HTTPException(401, "Invalid credentials or session") from None
-        except PermissionDenied as exc:
-            raise HTTPException(403, str(exc) or "Not authorized") from None
-        except InvalidInvitation as exc:
-            raise HTTPException(400, str(exc) or "Invalid or unavailable invitation") from None
-        except AccountConflict as exc:
-            raise HTTPException(409, str(exc) or "Account operation conflicts with current state") from None
+        except PermissionDenied:
+            raise HTTPException(403, "Not authorized") from None
+        except InvalidInvitation:
+            raise HTTPException(400, "Invalid or unavailable invitation") from None
+        except AccountConflict:
+            raise HTTPException(409, "Account operation conflicts with current state") from None
         except (SchemaError, sqlite3.Error, HashingError, RuntimeError):
             raise HTTPException(503, "Authentication service unavailable") from None
         except ValueError:

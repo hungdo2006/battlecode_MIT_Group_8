@@ -296,7 +296,7 @@ def test_session_expiry_and_revocation_on_team_http(room):
 
     # Valid request
     res = room.client.get("/api/player/team")
-    assert res.status_code == 404  # No team yet, but authenticated!
+    assert res.status_code == 200 and res.json()["team"] is None  # No Team yet
 
     # Expire session by advancing clock past absolute TTL
     room.clock.now += 8 * 3600 + 1
@@ -336,3 +336,16 @@ def test_duplicate_team_slug_and_player_in_two_teams_http(room):
     assert res.status_code == 409
     assert "slug is already in use" in res.text
 
+
+def test_get_team_does_not_extend_idle_session(room):
+    login(room, "player", "alice")
+    h = csrf(room, "player")
+    assert room.client.post("/api/player/teams", json={"slug":"idle-qa", "display_name":"Idle QA"}, headers=h).status_code == 201
+    runtime = room.app.state.account_http
+    with runtime.database.writer_connection(runtime.writer) as conn:
+        since = conn.execute("SELECT s.last_seen_at FROM auth_sessions s JOIN users u ON s.user_id=u.id WHERE u.username='alice' ORDER BY s.created_at DESC LIMIT 1").fetchone()[0]
+    for seconds in (20, 40, 80):
+        room.clock.now = since + seconds
+        assert room.client.get("/api/player/team").status_code == 200
+    with runtime.database.writer_connection(runtime.writer) as conn:
+        assert conn.execute("SELECT s.last_seen_at FROM auth_sessions s JOIN users u ON s.user_id=u.id WHERE u.username='alice' ORDER BY s.created_at DESC LIMIT 1").fetchone()[0] == since

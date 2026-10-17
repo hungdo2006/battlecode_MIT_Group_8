@@ -185,7 +185,7 @@ class TeamService:
     def get_my_team(self, actor: Principal) -> MyTeam | None:
         self._ready()
         now = self._now()
-        user = self._auth.require_actor(actor, now, player_only=True)
+        user = self._auth.require_actor(actor, now, player_only=True, touch=False)
         membership = self._db.execute(
             "SELECT * FROM team_memberships WHERE user_id = ? AND left_at IS NULL",
             (user["id"],)).fetchone()
@@ -200,7 +200,7 @@ class TeamService:
     def get_team(self, actor: Principal, team_id: str) -> Team:
         self._ready()
         now = self._now()
-        user = self._auth.require_actor(actor, now)
+        user = self._auth.require_actor(actor, now, touch=False)
         team_row = self._db.execute("SELECT * FROM teams WHERE id = ?", (team_id,)).fetchone()
         if not team_row:
             raise TeamNotFound("Team not found")
@@ -301,7 +301,7 @@ class TeamService:
     def list_members(self, actor: Principal, team_id: str, *, include_history: bool = False) -> list[TeamMember]:
         self._ready()
         now = self._now()
-        user = self._auth.require_actor(actor, now)
+        user = self._auth.require_actor(actor, now, touch=False)
         team_row = self._db.execute("SELECT * FROM teams WHERE id = ?", (team_id,)).fetchone()
         if not team_row:
             raise TeamNotFound("Team not found")
@@ -331,7 +331,6 @@ class TeamService:
 
     def invite_member(self, actor: Principal, team_id: str, *, username: str, ttl_seconds: int | None = None) -> TeamInvitation:
         self._ready()
-        canonical_target_username = normalize_slug(username)  # Usernames use normalize_username canonical form
         from .account_identity import normalize_username
         canonical_target_username = normalize_username(username)
         ttl = ttl_seconds if ttl_seconds is not None else self._invitation_ttl
@@ -359,12 +358,12 @@ class TeamService:
             target_id = target["id"]
             if target_id == user["id"]:
                 raise TeamConflict("Cannot invite yourself to your own team")
-            # Check if target is already an active member of this team
+            # Check across all Teams at issuance; acceptance repeats this check.
             already_member = self._db.execute(
-                "SELECT 1 FROM team_memberships WHERE team_id = ? AND user_id = ? AND left_at IS NULL",
-                (team_id, target_id)).fetchone()
+                "SELECT 1 FROM team_memberships WHERE user_id = ? AND left_at IS NULL",
+                (target_id,)).fetchone()
             if already_member:
-                raise TeamConflict("User is already an active member of this team")
+                raise TeamConflict("Player already has an active team membership")
             # Check existing pending invitation
             pending = self._db.execute(
                 "SELECT * FROM team_invitations WHERE team_id = ? AND invited_user_id = ? AND status = 'PENDING'",
@@ -395,7 +394,7 @@ class TeamService:
     def list_my_invitations(self, actor: Principal) -> list[TeamInvitation]:
         self._ready()
         now = self._now()
-        user = self._auth.require_actor(actor, now, player_only=True)
+        user = self._auth.require_actor(actor, now, player_only=True, touch=False)
         with transaction(self._db):
             # Clean up expired pending invitations
             self._db.execute("""UPDATE team_invitations SET status = 'EXPIRED', responded_at = ?
@@ -426,10 +425,11 @@ class TeamService:
 
     def accept_invitation(self, actor: Principal, invitation_id: str) -> tuple[Team, TeamMember]:
         self._ready()
+        terminal = None
         with transaction(self._db):
             now = self._now()
             user = self._auth.require_actor(actor, now, player_only=True)
-            invitation = self._db.execute("SELECT * FROM team_invitations WHERE id = ?", (invitation_id,)).fetchone()
+            invitation = self._db.execute("SELECT * FROM team_invitations WHERE id=?", (invitation_id,)).fetchone()
             if not invitation:
                 raise InvalidInvitation("Invitation not found")
             if invitation["invited_user_id"] != user["id"]:
@@ -437,37 +437,40 @@ class TeamService:
             if invitation["status"] != "PENDING":
                 raise TeamConflict("Invitation is not pending")
             if invitation["expires_at"] <= now:
-                self._db.execute("UPDATE team_invitations SET status = 'EXPIRED', responded_at = ? WHERE id = ?",
-                                 (now, invitation_id))
-                raise InvalidInvitation("Invitation has expired")
-            team_row = self._db.execute("SELECT * FROM teams WHERE id = ?", (invitation["team_id"],)).fetchone()
-            if not team_row or team_row["status"] == "ARCHIVED":
-                self._db.execute("UPDATE team_invitations SET status = 'REVOKED', responded_at = ? WHERE id = ?",
-                                 (now, invitation_id))
-                raise TeamConflict("Team is archived or no longer available")
-            # Global active membership constraint check
-            active_m = self._db.execute(
-                "SELECT team_id FROM team_memberships WHERE user_id = ? AND left_at IS NULL",
-                (user["id"],)).fetchone()
-            if active_m:
-                raise TeamConflict("Player already has an active team membership")
-            membership_id = uuid.uuid4().hex
-            self._db.execute("""UPDATE team_invitations SET status = 'ACCEPTED', responded_at = ?
-                WHERE id = ? AND status = 'PENDING'""", (now, invitation_id))
-            self._db.execute("""INSERT INTO team_memberships (
-                id, team_id, user_id, team_role, joined_at, left_at)
-                VALUES (?, ?, ?, 'MEMBER', ?, NULL)""",
-                (membership_id, team_row["id"], user["id"], now))
-            self._audit(now, user["id"], "TEAM_INVITATION_ACCEPTED", "team_invitation", invitation_id,
-                        team_id=team_row["id"])
-            self._audit(now, user["id"], "TEAM_MEMBER_JOINED", "team_membership", membership_id,
-                        team_id=team_row["id"], user_id=user["id"], team_role="MEMBER")
-            team_dto = self._team_dto(team_row)
-            member_dto = TeamMember(
-                id=membership_id, team_id=team_row["id"], user_id=user["id"],
-                username=user["username"], display_name=user["display_name"],
-                team_role="MEMBER", joined_at=now, left_at=None)
-            return team_dto, member_dto
+                self._db.execute("UPDATE team_invitations SET status='EXPIRED', responded_at=? WHERE id=?", (now, invitation_id))
+                self._audit(now, user["id"], "TEAM_INVITATION_EXPIRED", "team_invitation", invitation_id)
+                terminal = "EXPIRED"
+            else:
+                team_row = self._db.execute("SELECT * FROM teams WHERE id=?", (invitation["team_id"],)).fetchone()
+                if not team_row or team_row["status"] == "ARCHIVED":
+                    self._db.execute("UPDATE team_invitations SET status='REVOKED', responded_at=? WHERE id=?", (now, invitation_id))
+                    self._audit(now, user["id"], "TEAM_INVITATION_REVOKED_ARCHIVE", "team_invitation", invitation_id)
+                    terminal = "ARCHIVED"
+                else:
+                    active = self._db.execute("SELECT team_id FROM team_memberships WHERE user_id=? AND left_at IS NULL",
+                                              (user["id"],)).fetchone()
+                    if active:
+                        raise TeamConflict("Player already has an active team membership")
+                    membership_id = uuid.uuid4().hex
+                    self._db.execute("UPDATE team_invitations SET status='ACCEPTED', responded_at=? WHERE id=? AND status='PENDING'",
+                                     (now, invitation_id))
+                    self._db.execute("""INSERT INTO team_memberships
+                        (id, team_id, user_id, team_role, joined_at, left_at)
+                        VALUES (?, ?, ?, 'MEMBER', ?, NULL)""", (membership_id, team_row["id"], user["id"], now))
+                    self._audit(now, user["id"], "TEAM_INVITATION_ACCEPTED", "team_invitation", invitation_id,
+                                team_id=team_row["id"])
+                    self._audit(now, user["id"], "TEAM_MEMBER_JOINED", "team_membership", membership_id,
+                                team_id=team_row["id"], user_id=user["id"], team_role="MEMBER")
+                    terminal = (self._team_dto(team_row), TeamMember(
+                        id=membership_id, team_id=team_row["id"], user_id=user["id"],
+                        username=user["username"], display_name=user["display_name"],
+                        team_role="MEMBER", joined_at=now, left_at=None))
+        # Raise AFTER committing terminal invitation state; raising inside transaction rolls back.
+        if terminal == "EXPIRED":
+            raise InvalidInvitation("Invitation has expired")
+        if terminal == "ARCHIVED":
+            raise TeamConflict("Team is archived or no longer available")
+        return terminal
 
     def decline_invitation(self, actor: Principal, invitation_id: str) -> bool:
         self._ready()
@@ -609,14 +612,14 @@ class TeamService:
     def admin_list_teams(self, actor: Principal) -> list[Team]:
         self._ready()
         now = self._now()
-        self._auth.require_actor(actor, now, admin=True)
+        self._auth.require_actor(actor, now, admin=True, touch=False)
         rows = self._db.execute("SELECT * FROM teams ORDER BY created_at DESC").fetchall()
         return [self._team_dto(row) for row in rows]
 
     def admin_get_team(self, actor: Principal, team_id: str) -> dict:
         self._ready()
         now = self._now()
-        self._auth.require_actor(actor, now, admin=True)
+        self._auth.require_actor(actor, now, admin=True, touch=False)
         team_row = self._db.execute("SELECT * FROM teams WHERE id = ?", (team_id,)).fetchone()
         if not team_row:
             raise TeamNotFound("Team not found")
@@ -667,6 +670,10 @@ class TeamService:
             old_cap = self._db.execute(
                 "SELECT * FROM team_memberships WHERE team_id = ? AND left_at IS NULL AND team_role = 'CAPTAIN'",
                 (team_id,)).fetchone()
+            if old_cap:
+                captain = self._db.execute("SELECT status, system_role FROM users WHERE id=?", (old_cap["user_id"],)).fetchone()
+                if captain and captain["status"] == "ACTIVE" and captain["system_role"] == "PLAYER":
+                    raise TeamConflict("Active Captain does not require Admin recovery")
             demoted = None
             if old_cap:
                 self._db.execute("UPDATE team_memberships SET team_role = 'MEMBER' WHERE id = ?", (old_cap["id"],))

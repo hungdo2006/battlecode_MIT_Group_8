@@ -157,7 +157,7 @@ class AccountDatabase:
             pass
 
     @contextmanager
-    def writer_connection(self, writer_lock):
+    def writer_connection(self, writer_lock, *, integrity=True):
         """Borrow an EXISTING outer WriterLock; never initialize or migrate.
 
         Future FastAPI callers keep the outer lock for the entire lifespan and
@@ -167,7 +167,8 @@ class AccountDatabase:
         connection = self._connect()
         try:
             validate_service_connection(connection, writer_lock)
-            check_integrity(connection)
+            if integrity:
+                check_integrity(connection)
             yield connection
         finally:
             connection.close()

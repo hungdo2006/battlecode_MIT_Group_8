@@ -6,6 +6,14 @@ Nền tảng thi đấu bot đa game dành cho bài tập nhóm môn Lập trìn
 
 > **Chỉ dùng local/LAN riêng.** Legacy runner (`start.bat`/Phase1) chỉ dành cho code tin cậy: subprocess có quyền của tài khoản server, không phải sandbox. Phase2 bổ sung cách ly Docker nhưng không bảo đảm an toàn tuyệt đối. Không công khai tính năng thực thi code lên Internet.
 
+## Phase 4.2B.3.1 — HTTP authentication foundation (opt-in)
+
+Đã có activation, Player/Admin login/logout/me, Admin account invitations và HTTP
+security tests. `ARENA_ACCOUNT_AUTH` mặc định **OFF**; bật chỉ cho QA local/LAN với
+DB đã migrate offline và exact origin allowlist. **Login mới chỉ bảo vệ `/api/auth/*`**,
+chưa bảo vệ bot/match hoặc WebSocket legacy, chưa thay Organizer code và chưa cho
+phép public Internet. Xem [gate, endpoints, cookie/CSRF, rate limits và ma trận legacy](docs/PHASE_4_2_DESIGN.md#13-b31--http-authentication-foundation).
+
 ## Phase 4.2B.1 — Account foundation (offline)
 
 SQLite schema, Argon2id và CLI tạo Admin offline đã có; **chưa bật web login/RBAC**

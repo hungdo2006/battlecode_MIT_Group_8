@@ -25,24 +25,32 @@ from backend.runner import MAX_SOURCE_BYTES, prepare_submission, toolchains
 from backend.sessions import COOKIE_NAME, SESSION_SECONDS, Sessions
 from backend.storage import Store
 from backend.writer_lock import WriterLock
+from backend.account_database import AccountDatabase
+from backend.auth_http import HTTPAuthSettings, HTTPAuthRuntime, auth_path, install_auth_http
 
 PROJECT = Path(__file__).resolve().parent.parent
 TERMINAL = {"completed", "interrupted"}
 
 
 def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
-               registry: GameRegistry | None = None, network: NetworkSettings | None = None) -> FastAPI:
+               registry: GameRegistry | None = None, network: NetworkSettings | None = None,
+               account_http: HTTPAuthSettings | None = None) -> FastAPI:
     installed = registry or create_registry()
     settings = network or NetworkSettings.from_environment()
+    account_settings = HTTPAuthSettings.from_environment() if account_http is None else account_http
     admin_code = os.environ.get("ARENA_ADMIN_CODE", "")
     admin_digest = hashlib.sha256(admin_code.encode("utf-8")).digest() if admin_code else None
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         # Must precede Store (startup writes JSON) AND the controller lease claim.
         # /app/data is a shared named volume in both sandbox and legacy Compose.
-        with WriterLock((base_dir or PROJECT).resolve() / "data"):
-            runner = manager = lobby = None
+        with WriterLock((base_dir or PROJECT).resolve() / "data") as writer:
+            runner = manager = lobby = auth_runtime = None
             try:
+                if account_settings.enabled:
+                    auth_runtime = HTTPAuthRuntime(AccountDatabase(writer.path.parent), writer, account_settings)
+                    await asyncio.to_thread(auth_runtime.startup)
+                    app.state.account_http = auth_runtime
                 app.state.registry = installed
                 app.state.store = Store((base_dir or PROJECT).resolve(), installed)
                 app.state.sessions = Sessions(app.state.store.data / "sessions.json")
@@ -66,8 +74,13 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
                         if manager is not None:
                             await manager.shutdown()
                     finally:
-                        if runner is not None:
-                            await asyncio.to_thread(runner.shutdown)
+                        try:
+                            if runner is not None:
+                                await asyncio.to_thread(runner.shutdown)
+                        finally:
+                            if auth_runtime is not None:
+                                with anyio.CancelScope(shield=True):
+                                    await auth_runtime.close()
 
     app = FastAPI(title="NEON ARENA", version="3.0.0", lifespan=lifespan)
 
@@ -81,6 +94,10 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
 
     @app.middleware("http")
     async def trusted_demo_network(request, call_next):
+        if account_settings.enabled and auth_path(request.url.path):
+            # AccountAuthBoundary enforces stricter LAN/Host/Origin policy here.
+            # Do not resolve/create legacy browser identities on account routes.
+            return await call_next(request)
         host = request.headers.get("host", "")
         if not settings.allows_host(host):
             return JSONResponse({"detail": "Hostname không được phép. Demo mặc định chỉ hỗ trợ local/LAN."}, status_code=403)
@@ -543,6 +560,7 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
     async def lan_guide():
         return FileResponse(PROJECT / "frontend" / "lan.html")
 
+    install_auth_http(app, account_settings, settings)
     return app
 
 

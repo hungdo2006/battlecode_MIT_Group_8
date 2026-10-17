@@ -18,7 +18,8 @@ chính; các đề xuất kỹ thuật bên dưới không có nghĩa API tươn
 | Hash/verify Argon2id, bootstrap Admin offline | Đã triển khai B.1 |
 | Account invitation/activation, credential verify, opaque sessions | Đã triển khai B.2 ở service Python độc lập; xem mục 12 |
 | SQLite migration v2: idle timeout lưu theo session | Đã triển khai B.2; v1 giữ nguyên, chỉ migrate offline |
-| Login/logout HTTP, cookies, authorization REST/WebSocket | Chỉ thiết kế; B.3 trở đi |
+| HTTP Account Auth, cookie/CSRF/Origin, limiter thực tế dưới `/api/auth/*` | Đã triển khai B.3.1; feature gate mặc định OFF; xem mục 13 |
+| Account RBAC trên toàn bộ REST/WebSocket | Chưa triển khai; B.3.2 và C/E |
 | Public HTTPS, private Admin qua Tailscale | Chỉ thiết kế; gateway Phase 4.3 |
 
 B.1 **không** tích hợp database vào lifespan FastAPI, không tự tạo Admin khi
@@ -167,10 +168,10 @@ Dockerfile hoặc sandbox. Sau này operator có thể rebuild và chạy CLI on
 service backend đã stop, cùng volume `/app/data`. Chưa chạy Docker QA B.1; không
 coi các hướng dẫn này là chứng nhận đã bootstrap trên Docker hoặc AWS.
 
-## 6. Target HTTP authentication/session — B.3 trở đi
+## 6. Target authentication/session — phân biệt core, HTTP và cutover
 
-Service core B.2 đã triển khai phần dữ liệu/credential/session được mô tả cụ thể
-ở mục 12. Các bảo vệ HTTP/WS/gateway sau đây vẫn là thiết kế, chưa thay runtime.
+Service core B.2 được mô tả ở mục 12. HTTP foundation B.3.1 trong mục 13 chỉ áp
+dụng namespace `/api/auth/*`; WS/cutover toàn API và gateway dưới đây còn là thiết kế.
 
 - Tài khoản cá nhân ADMIN/PLAYER. Không đăng ký tự do; Admin cấp account invitation
   một lần, server chỉ lưu hash token; expiry, consumed_at/revoked_at được kiểm tra
@@ -193,7 +194,7 @@ Service core B.2 đã triển khai phần dữ liệu/credential/session đượ
   không lộ có/không username qua public endpoints.
 
 TTL service đã có mặc định đề xuất, xem mục 12; cookie policy, rate-limit cụ thể
-và recovery cần chốt ở B.3. Hiện **chưa có** các biện pháp HTTP mới này.
+và recovery còn cần review trước deployment. Không suy ra toàn bộ REST/WS đã được bảo vệ.
 
 ## 7. Team/Bot ownership và RBAC dự kiến
 
@@ -602,3 +603,263 @@ fake cho TTL/race, không sleep chờ expiry. Đã kiểm tra import/construct a
 process riêng không mở SQLite, dữ liệu legacy giữ nguyên và không tạo DB thiếu.
 Chưa kiểm thử Docker/Linux, trình duyệt authentication, Internet hoặc AWS trong
 lượt này; không bootstrap/migrate trên dữ liệu hoặc Docker volumes thật.
+
+## 13. B.3.1 — HTTP Authentication Foundation
+
+Base được review: `3938e680a340b7b2c9fb97d48682a93961eed40a`. Chỉ tích hợp
+authentication dưới `/api/auth/*`; **không phải account-mode cutover cho toàn ứng
+dụng**, không triển khai public Internet, gateway, Team hoặc Official Match.
+
+### 13.1 Feature gate, startup và tương thích
+
+| Cấu hình | Mặc định / ý nghĩa |
+| --- | --- |
+| `ARENA_ACCOUNT_AUTH` | `0`: OFF; chỉ `0/1/false/true` |
+| `ARENA_AUTH_ORIGINS` | Khi ON bắt buộc danh sách exact origins, phân tách bằng dấu phẩy; scheme/host/port, không path, wildcard hoặc public hostname |
+| `ARENA_AUTH_ALLOW_HTTP` | `0`: chỉ HTTPS; `1` cho phép HTTP local/LAN trong QA một cách có chủ đích |
+
+OFF: không đăng ký auth routes, không tạo runtime/thread pool, không mở/tạo/
+migrate SQLite hoặc tạo Admin. Legacy browser session/Organizer workflow giữ
+nguyên. ON: chỉ trusted local/LAN mode; từ chối NetworkSettings read-only/public
+mode. Vẫn giữ NetworkSettings và không nới danh sách public hosts.
+
+Lifespan lấy WriterLock rồi preflight account DB **trước Store và Controller**.
+Yêu cầu DB đã tồn tại, migrate offline đúng schema v2, identity/checksum/fingerprint/
+integrity/FK hợp lệ. Thiếu hoặc sai DB làm startup fail closed, không fallback
+legacy để giả làm account login và không khởi tạo JSON Store trước lỗi đó.
+
+Auth namespace bỏ qua xử lý identity legacy trong HTTP middleware; có middleware
+riêng chặt hơn. Gọi login/activation/me không resolve/create `arena_session`, không
+ghi `sessions.json`. Account ADMIN không được cấp Organizer grant. Cookie account
+và dữ liệu Account không được đưa vào lobby/competition hoặc match WS snapshots.
+Legacy routes vẫn xử lý **cookie legacy riêng**, không nhìn account role.
+
+### 13.2 Ma trận HTTP endpoints mới
+
+Mọi route dưới đây chỉ tồn tại khi gate ON. `{audience}` trong bảng là hai route
+literal `player` và `admin`; không nhận role/audience từ body.
+
+| Method | Endpoint | Quyền và input |
+| --- | --- | --- |
+| POST | `/api/auth/activate` | Token invitation hợp lệ + password; chỉ activate PLAYER; không tự login |
+| POST | `/api/auth/player/login` | Username/password của ACTIVE PLAYER |
+| POST | `/api/auth/admin/login` | Username/password của ACTIVE ADMIN |
+| GET | `/api/auth/{audience}/me` | Session cookie cùng audience, validate server-side |
+| GET | `/api/auth/{audience}/csrf` | Session hợp lệ; trả CSRF token gắn với session/audience |
+| POST | `/api/auth/{audience}/logout` | Session hợp lệ + CSRF header; body `{}`; revoke DB, xóa cookie |
+| POST | `/api/auth/admin/invitations` | ADMIN session + CSRF; body username và name tùy chọn; trả 201 |
+| POST | `/api/auth/admin/invitations/{invitation_id}/reissue` | ADMIN session + CSRF; body `{}`; server tra target từ invitation ID; trả 201 |
+| POST | `/api/auth/admin/invitations/{invitation_id}/revoke` | ADMIN session + CSRF; body `{}` |
+
+DTO strict/extra-forbid, không nhận role/user_id/auth_version/session_id từ body.
+Public response Account dùng whitelist, không trả password_hash/auth_version,
+session ID hoặc proof nội bộ. Login chỉ set cookie, không trả session token trong
+JSON. Invitation raw token chỉ xuất hiện trong response tạo/reissue cho Admin
+đã xác thực; không tạo link chứa token, không log token hoặc gửi qua URL.
+
+Response login/me/activation có `scope=account_auth_only` và
+`legacy_api_account_rbac=false`. Không coi đăng nhập account là đã bảo vệ upload,
+match hoặc Organizer API. Không thêm màn hình Login/frontend trong B.3.1.
+
+### 13.3 Cookie, CSRF, Host/Origin và error policy
+
+| Audience | Tên cookie | Path |
+| --- | --- | --- |
+| PLAYER | `arena_account_player` | `/api/auth/player` |
+| ADMIN | `arena_account_admin` | `/api/auth/admin` |
+
+Host-only (không Domain), HttpOnly, SameSite=Strict, Max-Age theo absolute TTL còn
+lại. HTTPS luôn Secure, kể cả khi HTTP QA opt-in; HTTP chỉ được phép khi origin
+HTTP được cấu hình và allow_http=true. Logout delete đúng tên/path/HttpOnly/
+Secure/SameSite. Path riêng giúp browser không gửi account cookies tới legacy
+routes; đây không thay thế authorization server-side. Re-label cookie sang audience
+khác vẫn bị từ chối bởi AuthService.
+
+Auth boundary yêu cầu đúng một Host, match origin allowlist theo scheme/hostname/
+port (chuẩn hóa default port), NetworkSettings cho phép và peer IP thực thuộc
+loopback/private/link-local LAN. Mọi mutation, kể cả login/activation, bắt buộc
+Origin cùng exact target; không có fallback Referer/allow-all khi thiếu Origin.
+GET/HEAD/OPTIONS cho phép thiếu Origin để dùng CLI, nhưng nếu có thì phải khớp.
+Không thêm CORS wildcard; OPTIONS không mở cross-origin access.
+
+B.3.1 **không tin proxy nào cho account routes**: từ chối `Forwarded`,
+`X-Forwarded-*`, `X-Real-IP`, kể cả khi một ProxyHeadersMiddleware phía ngoài đã
+rewrite client/scheme. Source limit lấy ASGI client sau kiểm tra header. Proxy/
+Tailscale Serve/Caddy chỉ được hỗ trợ sau thiết kế và kiểm chứng Phase 4.3; không
+cho phép dùng `trusted_hosts=*` để coi account auth đã public an toàn. Peer-IP
+filter không thay firewall/gateway, nhất là khi Docker/NAT có thể che địa chỉ gốc.
+
+Authenticated mutations (logout và Admin invitations) bắt buộc `X-CSRF-Token`.
+GET csrf validate session rồi trả HMAC-SHA256 với key ngẫu nhiên riêng trong RAM,
+bind audience và opaque session token. Không có CSRF cookie double-submit ngây
+thơ; không tin token tự khai không gắn session. Session rotation/audience khác
+làm CSRF cũ không hợp lệ. Restart đổi key; client lấy CSRF mới qua GET sau khi
+validate session. So sánh constant-time, reject malformed/non-ASCII header.
+Login/activation dùng mandatory Origin + JSON, không lấy cookie làm authority.
+SameSite chỉ là một lớp bổ sung, theo [OWASP CSRF guidance](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html).
+
+Toàn bộ auth namespace, cả lỗi/404, có no-store/no-cache, nosniff, DENY framing
+và no-referrer. Body bị chặn ở 4096 bytes trước parse, kể cả chunked body; chỉ
+application/json cho mutation. Không nhận query parameters cho auth routes.
+Validation errors được sanitize, không echo `input` chứa password/token như
+FastAPI error mặc định. Không log body/cookies/CSRF hoặc dump SQL credential.
+
+| Status | Ý nghĩa |
+| --- | --- |
+| 400 | Invitation không hợp lệ hoặc request auth không hỗ trợ |
+| 401 | Generic invalid credentials/session; không tiết lộ username tồn tại |
+| 403 | Host/Origin/network/proxy/CSRF không hợp lệ hoặc thiếu quyền |
+| 409 | Account/invitation state conflict |
+| 413 / 415 / 422 | Body quá lớn / sai content type / DTO hoặc policy không hợp lệ |
+| 429 | Rate limit, có Retry-After |
+| 503 | Password/worker capacity hoặc SQLite/hạ tầng không sẵn sàng; không giả làm password sai |
+
+### 13.4 Limiter thực tế và concurrency
+
+`backend/auth_limits.py:AuthRateLimiter` thread-safe, fixed window 60 giây:
+
+| Bucket | Mức mặc định QA |
+| --- | --- |
+| Toàn bộ auth requests theo source | 120/phút |
+| Login theo source + audience | 20/phút |
+| Login theo account canonical hash + audience, qua mọi source | 10/phút |
+| Activation theo source / theo token hash | 10/phút / 5/phút |
+| Cookie-token requests theo audience/token hash | 60/phút |
+
+Tính cả thành công lẫn thất bại; không reset bucket khi login. Token/account keys
+được hash, không giữ raw credentials. Tối đa 8192 keys; hết chỗ thì fail closed,
+không evict bucket đang hiệu lực để attacker đổi key vượt hạn mức. Bucket tự hết
+hạn bằng clock monotonic inject được. Đây là **in-memory single-process limiter**,
+reset khi restart, không phải distributed/persistent protection cho Internet.
+Mức QA phải review lại trước deployment; không thêm Redis hoặc database server.
+
+Password-work semaphore B.2 vẫn dùng chung toàn process, mặc định 1 Argon2 work.
+HTTP runtime có 4 worker threads, tối đa 8 jobs đang chạy/chờ; quá capacity trả
+503. Toàn bộ AuthService operation (Argon2 và SQLite) chạy ngoài async event loop.
+Kết nối tạo/dùng/đóng trong cùng worker, không check_same_thread=False.
+
+Test đã phát hiện direct `asyncio.Task.cancel()` có thể làm bộ đếm giảm quá sớm
+nếu chỉ dựa finally của request quanh AnyIO worker. Đã sửa bằng bounded executor,
+shielded Future và completion callback: request bị hủy vẫn giữ job, counter chỉ
+giảm khi worker thực sự xong. Shutdown chặn job mới, đợi jobs/connection đóng và
+join workers trước khi lifespan nhả WriterLock. Không abandoned SQLite writer.
+
+### 13.5 DB lifecycle và giới hạn phạm vi
+
+`AccountDatabase.writer_connection(..., integrity=True)` giữ mặc định full checks
+cho offline/boundary. HTTP startup chạy full integrity/FK đúng một lần dưới outer
+WriterLock. Mỗi request mở DB đã tồn tại với integrity=False, vẫn kiểm tra schema/
+version/checksum/fingerprint, FK, journal/synchronous và active writer ownership;
+không full-scan integrity_check/foreign_key_check toàn DB mỗi request.
+
+Không gọi maintenance trong backend. Không auto migrate, không tạo Admin, không
+thêm migration ở B.3.1. Argon2 ngoài transaction; authorize/recheck/consume/revoke
+trong transaction ngắn như B.2. Mọi connection đóng trước khi trả kết quả worker.
+Không đổi JSON storage, Team/bot ownership, Engine, Sandbox hoặc replay format.
+
+### 13.6 Toàn bộ REST/WS legacy chưa được bảo vệ bởi Account Auth
+
+Các quyền trong bảng là **legacy**, không phải account RBAC; gate ON không đổi:
+
+| Method | Endpoint legacy | Bảo vệ hiện tại |
+| --- | --- | --- |
+| GET | `/api/health`, `/api/network` | NetworkSettings; không yêu cầu Account |
+| GET, PUT | `/api/session` | Legacy arena_session; có thể tự tạo browser identity |
+| POST, DELETE | `/api/session/organizer` | Mã ARENA_ADMIN_CODE / legacy grant, không phải ADMIN Account |
+| GET | `/api/players`, `/api/players/me` | Legacy lobby/participant |
+| PUT | `/api/players/active-bot` | Legacy Player + owner checks |
+| GET, POST | `/api/invitations` | Read legacy lobby; POST cần legacy Organizer |
+| POST | `/api/invitations/{invitation_id}/accept`, `/decline` | Legacy Player trong invitation |
+| POST | `/api/invitations/{invitation_id}/cancel` | Legacy Organizer |
+| GET | `/api/competition`, `/api/games`, `/api/games/{game_id}`, `/api/games/{game_id}/rules`, `/api/rules` | NetworkSettings, không yêu cầu Account |
+| POST | `/api/competition/open`, `/api/competition/close` | Legacy Organizer |
+| PUT | `/api/games/selected`, `/api/games/{game_id}/rules`, `/api/rules` | Legacy Organizer |
+| POST | `/api/games/{game_id}/rules/reset` | Legacy Organizer |
+| GET, POST | `/api/bots` | GET danh sách; POST legacy Player/upload checks |
+| GET | `/api/games/{game_id}/samples/{language}`, `/api/samples/{language}` | Download mẫu; không Account |
+| POST | `/api/games/{game_id}/samples/{language}/submit`, `/api/samples/{language}/submit` | Legacy Player |
+| GET | `/api/matches`, `/api/matches/{match_id}`, `/api/matches/{match_id}/replay` | Không Account; history/replay legacy |
+| POST | `/api/matches` | Giữ route nhưng luôn 403, chỉ tạo trận từ legacy Organizer invitation |
+| POST | `/api/matches/{match_id}/cancel` | Legacy Organizer |
+| WS | `/ws/competition` | Legacy cookie, Host/Origin guard; sends competition/ping, nhận heartbeat |
+| WS | `/ws/matches/{match_id}` | Host/Origin guard; hello/state/complete/ping; không Account session validation |
+
+`/`, `/lan`, `/static/*`, OpenAPI/docs cũng không Account-authenticated. Legacy
+Host/Origin policy vẫn giữ nguyên, không được coi là Internet gateway. Account
+ADMIN không giúp vượt require_organizer; biết legacy code vẫn có thể cấp grant
+qua workflow cũ. User Account và participant legacy chưa mapping; không tự nhận
+ownership bot của participant theo username/account.
+
+B.3.2 cần cutover rõ ràng legacy session/Organizer authority và REST/WS dependency,
+WebSocket expiration/revocation khi kết nối đang sống, public serializers và
+negative tests không còn đường legacy bypass. C/E mới gắn Team ownership/Captain,
+Official và invitation workflow tương ứng. Phase 4.3 mới public/private allowlist
+gateway, trusted proxy, HTTPS/WSS Internet và Tailscale Admin. Chưa hoàn tất những
+bước này thì **không public app**, dù `/api/auth/*` đã đăng nhập được.
+
+### 13.7 Chạy QA và vận hành thử sau review
+
+Kiểm thử được khuyến nghị trước, toàn bộ dữ liệu tạm, không cần bật server thật:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/test_auth_http.py -ra --tb=short
+.\.venv\Scripts\python.exe -m pytest tests controller_tests -ra --tb=short
+.\.venv\Scripts\python.exe -m pip check
+```
+
+Để thử native **trên bản sao QA, không dataset/volumes thật**: dừng backend của
+bản sao, dùng CLI offline migrate/check và bootstrap Admin như mục 5. Sau đó:
+
+```powershell
+$env:ARENA_ACCOUNT_AUTH = "1"
+$env:ARENA_AUTH_ALLOW_HTTP = "1"  # ngoại lệ HTTP QA local/LAN, password đi rõ trên mạng
+$env:ARENA_AUTH_ORIGINS = "http://127.0.0.1:8000"
+.\.venv\Scripts\python.exe run.py
+```
+
+Nếu dùng laptop LAN, thêm exact origin IP/port thực tế của QA server vào danh sách;
+không đổi thành wildcard. Tất cả POST gửi Origin và application/json; logout/
+Admin actions lấy CSRF từ GET tương ứng rồi gửi X-CSRF-Token. Giữ token invitation
+trong memory/body, không CLI args, URL hoặc log. Không có Login page trong lượt này.
+
+HTTPS yêu cầu TLS listener thực và origins HTTPS; không bật HTTP opt-in nếu không
+cần. Compose/gateway không sửa trong B.3.1: ba biến mới **chưa được compose.yaml
+tự chuyển từ .env vào container**; QA Docker sau này cần override environment
+tường minh trên project/volumes QA riêng. Không thay Caddy/Tailscale hoặc mở port
+để thử. Khi tắt gate, restart bằng ARENA_ACCOUNT_AUTH=0; giữ DB, không xóa dữ liệu.
+
+HTTP tests dùng TestClient/ASGI HTTPS scheme, không phải chứng nhận TLS/certificate
+hoặc trình duyệt thật. Chưa QA Docker/Linux/Internet hay hai laptop vật lý trong
+lượt này; không tác động AWS, dữ liệu thật hoặc .vscode.
+
+### 13.8 Kết quả kiểm thử B.3.1 thực tế
+
+Môi trường native Windows/Python 3.13.12/SQLite 3.51.1/argon2-cffi 25.1.0.
+
+| Lệnh / kiểm tra | Kết quả thực chạy |
+| --- | --- |
+| `python -m pytest tests/test_auth_http.py -ra --tb=short` | **50 PASS**, 0 FAIL, 0 SKIP; 23.20 giây |
+| `python -m pytest tests controller_tests -ra --tb=short` | **349 PASS**, 0 FAIL, 0 SKIP; 124.34 giây |
+| `python -m pip check` | PASS; không thêm dependency |
+| `git diff --check` | PASS (Git có thông báo LF/CRLF theo cấu hình Windows) |
+
+Có một StarletteDeprecationWarning về httpx/TestClient đã có từ trước. Suite cũ
+bao gồm Robot Battle/OTT v2, Python/C++/Java native, invitation/lobby, Live WS,
+Replay, WriterLock, backup helper và controller test doubles. Không coi kết quả
+này là Docker Engine QA, TLS/browser QA, hai laptop LAN thật hoặc kiểm chứng AWS.
+
+HTTP tests có đủ OFF/ON và fail-closed DB, activation/reissue/revoke/expiry/replay,
+Player/Admin login, cookie flags/path/logout, account/session invalidation, extra
+fields/secret redaction, generic errors, CSRF/Origin attacks, duplicate Host/Origin,
+proxy header spoofing và public peer, source/account/token rate limits, capacity
+503 vs 429, không block event loop và connection/thread ownership.
+
+Đã xác nhận và sửa vấn đề ở lớp worker mới trong quá trình triển khai: direct
+Task.cancel làm counter giảm trước worker hoàn tất. Regression kiểm tra cả
+CancelScope và Task.cancel, xác nhận shutdown chờ worker và WriterLock vẫn chặn
+bootstrap khi job chưa đóng connection. Test WS ban đầu dùng ws với HTTPS Origin
+bị guard từ chối đúng; sửa test thành wss, không nới guard legacy.
+
+Tests chỉ dùng temporary data directories. Không migrate/đọc credentials từ data
+thật, không sửa Docker volumes/AWS/.vscode, không commit/push/merge. Dừng tại B.3.1
+để review trước cutover B.3.2.

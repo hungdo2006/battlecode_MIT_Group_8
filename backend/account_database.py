@@ -111,10 +111,10 @@ class AccountDatabase:
         self.data_dir = Path(data_dir).resolve()
         self.path = self.data_dir / "arena.sqlite3"
 
-    def _connect(self, *, readonly=False):
+    def _connect(self, *, readonly=False, create=False):
         if sqlite3.sqlite_version_info < (3, 38, 0):
             raise SchemaError("SQLite 3.38+ is required (STRICT tables and built-in JSON support)")
-        if not readonly:
+        if create:
             # The writer already owns WriterLock. New databases contain password
             # hashes; do not rely on a potentially permissive Linux umask.
             try:
@@ -145,7 +145,7 @@ class AccountDatabase:
     def maintenance(self):
         """Explicit offline migration/bootstrap. Lock BEFORE even opening SQLite."""
         with WriterLock(self.data_dir):
-            connection = self._connect()
+            connection = self._connect(create=True)
             try:
                 _migrate(connection)
                 yield connection
@@ -157,6 +157,22 @@ class AccountDatabase:
             pass
 
     @contextmanager
+    def writer_connection(self, writer_lock):
+        """Borrow an EXISTING outer WriterLock; never initialize or migrate.
+
+        Future FastAPI callers keep the outer lock for the entire lifespan and
+        create/use each connection in its owning thread. Close before unlock.
+        """
+        require_writer(writer_lock, self.data_dir)
+        connection = self._connect()
+        try:
+            validate_service_connection(connection, writer_lock)
+            check_integrity(connection)
+            yield connection
+        finally:
+            connection.close()
+
+    @contextmanager
     def read(self):
         """No initialization or fallback when a DB is missing or incompatible."""
         connection = self._connect(readonly=True)
@@ -166,3 +182,28 @@ class AccountDatabase:
             yield connection
         finally:
             connection.close()
+
+
+def require_writer(writer_lock, data_dir):
+    if (not isinstance(writer_lock, WriterLock) or writer_lock.fd is None
+            or writer_lock.path != Path(data_dir).resolve() / ".writer.lock"):
+        raise RuntimeError("An active WriterLock for this database is required")
+
+
+def validate_service_connection(connection, writer_lock):
+    """DI boundary for trusted callers, not an authorization API."""
+    rows = connection.execute("PRAGMA database_list").fetchall()
+    main_path = next((row[2] for row in rows if row[1] == "main"), None)
+    if not main_path or Path(main_path).name != "arena.sqlite3":
+        raise SchemaError("Service requires a persisted arena.sqlite3 database")
+    require_writer(writer_lock, Path(main_path).parent)
+    if connection.in_transaction or connection.isolation_level is not None:
+        raise RuntimeError("Service requires an idle connection with explicit transactions")
+    if connection.execute("PRAGMA foreign_keys").fetchone()[0] != 1:
+        raise SchemaError("Service connection must enforce foreign keys")
+    if connection.execute("PRAGMA journal_mode").fetchone()[0] != "delete":
+        raise SchemaError("Service connection requires DELETE journal mode")
+    if connection.execute("PRAGMA synchronous").fetchone()[0] != 2:
+        raise SchemaError("Service connection requires synchronous=FULL")
+    if _validate_version(connection) != SCHEMA_VERSION:
+        raise SchemaError("Explicit offline migration is required")

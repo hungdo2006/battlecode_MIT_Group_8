@@ -95,28 +95,30 @@ def test_refuse_unrelated_unversioned_database(tmp_path):
 
 
 def test_failed_future_migration_rolls_back_ddl_and_version(database, monkeypatch):
+    next_version = SCHEMA_VERSION + 1
     migrations = account_database.MIGRATIONS + (
-        (2, "failing_example", ("CREATE TABLE migration_probe (id INTEGER)", "INVALID SQL")),)
+        (next_version, "failing_example", ("CREATE TABLE migration_probe (id INTEGER)", "INVALID SQL")),)
     monkeypatch.setattr(account_database, "MIGRATIONS", migrations)
-    monkeypatch.setattr(account_database, "SCHEMA_VERSION", 2)
+    monkeypatch.setattr(account_database, "SCHEMA_VERSION", next_version)
     with pytest.raises(sqlite3.OperationalError):
         database.migrate()
     with sqlite3.connect(database.path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 1
-        assert connection.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 1
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+        assert connection.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == SCHEMA_VERSION
         assert not connection.execute("SELECT name FROM sqlite_schema WHERE name='migration_probe'").fetchall()
 
 
 def test_append_only_future_migration_can_alter_existing_table(database, monkeypatch):
+    next_version = SCHEMA_VERSION + 1
     migrations = account_database.MIGRATIONS + (
-        (2, "example_upgrade", ("ALTER TABLE users ADD COLUMN example_note TEXT",)),)
+        (next_version, "example_upgrade", ("ALTER TABLE users ADD COLUMN example_note TEXT",)),)
     monkeypatch.setattr(account_database, "MIGRATIONS", migrations)
-    monkeypatch.setattr(account_database, "SCHEMA_VERSION", 2)
+    monkeypatch.setattr(account_database, "SCHEMA_VERSION", next_version)
     database.migrate()
     database.migrate()
     with database.read() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
-        assert connection.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 2
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == next_version
+        assert connection.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == next_version
         assert "example_note" in {row[1] for row in connection.execute("PRAGMA table_info(users)")}
         check_integrity(connection)
 
@@ -187,16 +189,16 @@ def test_submission_binding_prevents_cross_team_and_cross_game_active_bot(databa
 def test_token_and_session_constraints(database):
     with database.maintenance() as connection:
         add_user(connection)
-        valid = ("session1", "a" * 64, "alice", "PLAYER", 1, 100, 200, None, None)
-        connection.execute("INSERT INTO auth_sessions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", valid)
+        valid = ("session1", "a" * 64, "alice", "PLAYER", 1, 100, 200, None, None, 60)
+        connection.execute("INSERT INTO auth_sessions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", valid)
         for index, replacement in [(0, None), (1, "raw-token"), (2, "missing"), (3, "ROOT"), (6, 99)]:
             values = list(valid)
             values[0], values[1] = "session2", "b" * 64
             values[index] = replacement
             with pytest.raises(sqlite3.IntegrityError):
-                connection.execute("INSERT INTO auth_sessions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", values)
+                connection.execute("INSERT INTO auth_sessions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", values)
         with pytest.raises(sqlite3.IntegrityError):
-            connection.execute("INSERT INTO auth_sessions VALUES ('duplicate', ?, 'alice', 'PLAYER', 1, 100, 200, NULL, NULL)", ("a" * 64,))
+            connection.execute("INSERT INTO auth_sessions VALUES ('duplicate', ?, 'alice', 'PLAYER', 1, 100, 200, NULL, NULL, 60)", ("a" * 64,))
         connection.execute("INSERT INTO account_tokens VALUES ('t1', ?, 'ACCOUNT_INVITE', NULL, 'alice', 100, 200, NULL, NULL)", ("c" * 64,))
         with pytest.raises(sqlite3.IntegrityError):
             connection.execute("INSERT INTO account_tokens VALUES ('t2', ?, 'PASSWORD_RESET', NULL, 'alice', 100, 200, NULL, NULL)", ("d" * 64,))

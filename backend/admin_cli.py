@@ -5,7 +5,6 @@ There is deliberately no password flag, environment fallback, or startup hook.
 import argparse
 import getpass
 from pathlib import Path
-import re
 import sqlite3
 import sys
 import time
@@ -13,19 +12,13 @@ import uuid
 import warnings
 
 from .account_database import AccountDatabase, SchemaError, check_integrity, transaction
+from .account_identity import normalize_username
 from .passwords import hash_password
 from .writer_lock import WriterAlreadyRunning
 
 
 class AccountExistsError(ValueError):
     pass
-
-
-def normalize_username(username: str) -> str:
-    result = username.strip().lower()
-    if not re.fullmatch(r"[a-z0-9_.-]{3,32}", result, flags=re.ASCII):
-        raise ValueError("Username must be 3..32 ASCII letters, digits, '.', '_' or '-'")
-    return result
 
 
 def _ensure_available(connection, username):

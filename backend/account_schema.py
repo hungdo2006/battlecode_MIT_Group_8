@@ -127,4 +127,17 @@ FOUNDATION = (
     "CREATE INDEX audit_events_time ON audit_events(occurred_at, id)",
 )
 
-MIGRATIONS = ((1, "account_foundation", FOUNDATION),)
+# Append-only v2: pin idle policy per session. No B.1 issuer existed; any
+# pre-service/manual sessions lack an accepted idle policy and must be revoked.
+AUTH_SERVICE_CORE = (
+    """ALTER TABLE auth_sessions ADD COLUMN idle_timeout_seconds INTEGER NOT NULL
+        DEFAULT 1 CHECK (idle_timeout_seconds > 0)""",
+    """UPDATE auth_sessions SET
+        revoked_at = COALESCE(revoked_at, max(created_at, CAST(strftime('%s', 'now') AS INTEGER))),
+        last_seen_at = COALESCE(last_seen_at, created_at)""",
+)
+
+MIGRATIONS = (
+    (1, "account_foundation", FOUNDATION),
+    (2, "auth_service_core", AUTH_SERVICE_CORE),
+)

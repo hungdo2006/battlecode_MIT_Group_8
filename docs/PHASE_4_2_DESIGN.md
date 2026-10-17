@@ -16,7 +16,9 @@ chính; các đề xuất kỹ thuật bên dưới không có nghĩa API tươn
 | Scrimmage tự phục vụ, không cần hai bên online | Định hướng Phase 5; chưa triển khai |
 | SQLite version 1, migration có kiểm tra | Đã triển khai B.1, chỉ khởi chạy offline có chủ đích |
 | Hash/verify Argon2id, bootstrap Admin offline | Đã triển khai B.1 |
-| Login/logout, cookies, authorization REST/WebSocket | Chỉ thiết kế; B.2 trở đi |
+| Account invitation/activation, credential verify, opaque sessions | Đã triển khai B.2 ở service Python độc lập; xem mục 12 |
+| SQLite migration v2: idle timeout lưu theo session | Đã triển khai B.2; v1 giữ nguyên, chỉ migrate offline |
+| Login/logout HTTP, cookies, authorization REST/WebSocket | Chỉ thiết kế; B.3 trở đi |
 | Public HTTPS, private Admin qua Tailscale | Chỉ thiết kế; gateway Phase 4.3 |
 
 B.1 **không** tích hợp database vào lifespan FastAPI, không tự tạo Admin khi
@@ -119,7 +121,7 @@ FK hỏng. Không reset/xóa/import dữ liệu để sửa lỗi. `check` mở 
 khởi tạo DB thiếu. Fingerprint là phát hiện thay đổi/incompatibility, không phải
 chữ ký chống operator ác ý.
 
-Thêm migration mới, không chỉnh lại migration đã dùng. B.2 khi tích hợp FastAPI
+Thêm migration mới, không chỉnh lại migration đã dùng. B.3 khi tích hợp FastAPI
 phải tái sử dụng lifespan WriterLock đã giữ; **không** gọi `maintenance()` lồng
 trong lifespan vì đó là một writer thứ hai. Không auto migrate production ngầm.
 
@@ -165,7 +167,10 @@ Dockerfile hoặc sandbox. Sau này operator có thể rebuild và chạy CLI on
 service backend đã stop, cùng volume `/app/data`. Chưa chạy Docker QA B.1; không
 coi các hướng dẫn này là chứng nhận đã bootstrap trên Docker hoặc AWS.
 
-## 6. Authentication/session được thiết kế cho B.2, chưa triển khai
+## 6. Target HTTP authentication/session — B.3 trở đi
+
+Service core B.2 đã triển khai phần dữ liệu/credential/session được mô tả cụ thể
+ở mục 12. Các bảo vệ HTTP/WS/gateway sau đây vẫn là thiết kế, chưa thay runtime.
 
 - Tài khoản cá nhân ADMIN/PLAYER. Không đăng ký tự do; Admin cấp account invitation
   một lần, server chỉ lưu hash token; expiry, consumed_at/revoked_at được kiểm tra
@@ -187,8 +192,8 @@ coi các hướng dẫn này là chứng nhận đã bootstrap trên Docker ho�
   mỗi Argon2 dùng 64 MiB. Generic authentication errors, không log password/hash,
   không lộ có/không username qua public endpoints.
 
-TTL cookie/token, rate-limit cụ thể và chính sách recovery cần chốt ở B.2; schema
-chỉ cung cấp trường dữ liệu. Hiện **chưa có** các biện pháp HTTP mới này.
+TTL service đã có mặc định đề xuất, xem mục 12; cookie policy, rate-limit cụ thể
+và recovery cần chốt ở B.3. Hiện **chưa có** các biện pháp HTTP mới này.
 
 ## 7. Team/Bot ownership và RBAC dự kiến
 
@@ -293,7 +298,7 @@ phục hồi. Không copy riêng database đang ghi hoặc dùng SQLite backup �
 coi JSON/artifacts đã đồng bộ. Không xóa journal/WAL để "sửa" DB.
 
 B.1 kiểm thử cold snapshot/restore **thư mục tạm** chứa SQLite bằng helper hiện
-có, không chạy Docker volumes thật. B.2 cần nâng manifest lưu DB schema/version,
+có, không chạy Docker volumes thật. Trước deployment authentication cần nâng manifest lưu DB schema/version,
 kiểm tra integrity/FK và cross-store reconciliation sau restore, cùng policy revoke
 sessions/tokens sau phục hồi trước khi mở login. Chưa tự thêm các bước đó vào
 production backup script trong B.1. Nếu chuyển WAL sau này phải cập nhật runbook
@@ -307,11 +312,13 @@ coi rollback code đơn thuần là phục hồi quan hệ đã thay đổi.
 
 ## 10. Thứ tự B.2–E và tiêu chí review
 
-1. **B.1 (lượt này):** schema/migration, password primitives, offline Admin và test
+1. **B.1 (đã hoàn thành):** schema/migration, password primitives, offline Admin và test
    cách ly; review code và doc trước mọi tích hợp runtime.
-2. **B.2:** service accounts, invitation registration/login/logout/revoke,
-   dependency authentication, sessions và rate limits/CSRF/Origin; explicit migration
-   trong cửa sổ maintenance, tái sử dụng WriterLock backend; chưa public Internet.
+2. **B.2 (lượt này):** Account/Invitation/Authentication/Session core độc lập,
+   connection DI, Argon2 concurrency và contract rate limiting; chưa HTTP integration.
+   **B.3 (chưa làm):** dependency HTTP authentication, cookies/CSRF/Origin,
+   limiter thực tế, API/WS revocation; explicit offline migration và dùng lại
+   WriterLock backend; chưa public Internet.
 3. **C:** Team lifecycle/RBAC, bảo đảm Captain, Team invitation, immutable submission
    ownership và active bot theo game; cross-store recovery + IDOR/role tests.
 4. **D:** match_requests/deadline/frozen slots, Official điều phối qua MatchManager,
@@ -364,3 +371,234 @@ password thật trong terminal. Chưa chạy Docker/Linux QA hoặc tác động
 
 Chưa chứng nhận HTTP authentication/RBAC, Team lifecycle, scheduler/deadline thực
 tế hoặc public access: những chức năng đó chưa được triển khai trong B.1.
+
+## 12. B.2 — Authentication Service Core đã triển khai
+
+B.2 dựa commit B.1 `580dd6ef0187e662859ecaa5509ecc52db9a95e9`. Chỉ thêm service
+Python và tests, không tạo HTTP endpoints, middleware, frontend Login, Team CRUD,
+password reset HTTP hoặc public gateway. `backend/main.py`, `sessions.py`,
+NetworkSettings, ARENA_ADMIN_CODE, MatchManager, GameAdapter và Sandbox giữ nguyên.
+DB tại data directory thật không được khởi tạo/migrate trong lượt kiểm thử này.
+
+### 12.1 Account và invitation lifecycle
+
+`backend/auth_service.py:AuthService` làm việc trên schema đã migrate:
+
+- `get_account(id)` / `get_account_by_username(username)` trả Account whitelist
+  gồm id, username, display_name, system_role, status, auth_version; không trả hash.
+  Đây là internal API, không phải public account lookup/enumeration endpoint.
+- `issue_invitation(admin_actor, username, name?, ttl_seconds?)` kiểm tra Admin
+  session còn hợp lệ **trong transaction**, reserve username canonical và tạo
+  User **PLAYER/INVITED** với ID ngẫu nhiên do server sinh. Không có role/status/
+  acting-user-ID argument cho người đăng ký. Username đã tồn tại, kể cả INVITED,
+  bị từ chối; không promote hoặc overwrite User cũ.
+- Token 32 random bytes CSPRNG, encode base64url 43 ký tự; chỉ hash SHA-256 lưu
+  `account_tokens`. Token chỉ trả khi cấp mới trong InvitationGrant; repr ẩn token.
+  Invitation được bind sẵn vào User/username, không phải vé self-registration tự do.
+- `activate(token, password)` chỉ nhận bearer invitation và password. Kiểm tra
+  purpose ACCOUNT_INVITE, thời hạn, consumed/revoked và target PLAYER/INVITED trước
+  hash, rồi kiểm tra lại sau hash trong `BEGIN IMMEDIATE`. Consume token, đổi User
+  sang ACTIVE, ghi Argon2id, tăng auth_version và audit **cùng transaction**. Không
+  cấp session tự động. Hai activation cùng token chỉ một bên thắng.
+- `revoke_invitation(admin_actor, invitation_id)` revoke idempotent, không xóa
+  lịch sử. `reissue_invitation(admin_actor, invited_user_id)` chỉ cho PLAYER đang
+  INVITED; thu hồi mọi invitation cũ chưa dùng và cấp token mới nguyên tử, giữ
+  nguyên ID/username. ACTIVE/DISABLED/Admin không được dùng flow này.
+- `disable_account(admin_actor, target_user_id)` chuyển INVITED/ACTIVE -> DISABLED,
+  tăng auth_version, revoke sessions và các account tokens chưa consume, ghi audit
+  cùng transaction. Lặp disable trả false, không tạo bản ghi User mới.
+
+Account lifecycle B.2: INVITED -> ACTIVE qua activation, INVITED/ACTIVE -> DISABLED
+qua Admin. Không có tự đăng ký, Admin registration, re-enable, đổi system role,
+reset password hoặc ownership migration. Admin vẫn bootstrap offline bằng CLI.
+Invitation expired được xác định bằng expires_at, không cần scheduler cập nhật
+status. Reissue là cách cấp lại cho User INVITED khi token cũ hết hạn/bị revoke.
+
+### 12.2 Contract actor và authorization
+
+Admin mutations nhận **Principal đã được server tạo từ login/validate_session**.
+Principal là context nội bộ frozen, có marker trong process, không deserialize
+từ JSON, không serialize nguyên object ra HTTP và không giữ qua restart. Marker
+không phải chữ ký mật mã hay security boundary chống code Python trong backend;
+backend process/SQLite writer là thành phần đáng tin cậy.
+
+Service không tin claimed role/status/user ID: mỗi mutation query lại session và
+User trong transaction, kiểm tra audience, ACTIVE, role thực, auth_version,
+revocation, absolute/idle expiry và User ID khớp. Đổi role trong DTO, truyền dict
+`{"role":"ADMIN"}` hoặc dựng Principal từ field client không cấp quyền. Principal
+đã revoke/expire cũng không thể tiếp tục quản trị. Quyền Admin không vượt qua
+Team RBAC, vì Team APIs chưa được triển khai.
+
+`revoke_all(actor, user_id?)` cho phép User thu hồi tất cả sessions của chính mình,
+Admin được thu hồi User khác. Thao tác tăng auth_version và revoke các hàng session
+chưa revoke cùng audit; principal đang dùng cũng mất hiệu lực khi revoke chính nó.
+
+### 12.3 Credential verification và giới hạn password work
+
+`login(username, password, audience, source_key)` chuẩn hóa username, gọi limiter,
+verify qua `backend/passwords.py`. Unknown username, sai password, INVITED,
+DISABLED và sai audience đều là `AuthenticationFailed("Invalid credentials")`.
+Account không đủ điều kiện dùng dummy Argon2 hash để giảm khác biệt thời gian;
+không tuyên bố constant-time tuyệt đối. Hash malformed trả authentication failure;
+lỗi SQLite/capacity là lỗi hạ tầng, không giả làm password sai.
+
+Argon2 chạy **ngoài transaction**. Sau verify, transaction đọc lại status, role,
+password_hash và auth_version so với snapshot; disable/revoke-all/credential update
+trong lúc hash khiến login bị từ chối, không sinh session dựa dữ liệu cũ.
+Activation cũng recheck token/status/version và expiry sau hash. Hash/verify không
+ghi/log plaintext password và không thêm dependency ngoài B.1.
+
+`PasswordWorkLimiter` dùng semaphore dùng chung toàn process, mặc định tối đa **1**
+Argon2 work cùng lúc; không tạo hàng đợi không giới hạn. Quá capacity trả
+AuthenticationBusy. Có thể inject limiter dùng chung khác khi operator review
+RAM/CPU; không tạo limiter riêng cho từng request để lách giới hạn. Dummy hash
+khởi tạo lazy một lần ngoài transaction; import module không tính hash/khởi tạo DB.
+Chưa tự rehash/đổi password sau login; `needs_rehash` B.1 vẫn sẵn cho flow sau này.
+
+**Rate-limit contract, chưa phải HTTP rate limiter:** constructor bắt buộc inject
+LoginLimiter, không có allow-all default. `check(LoginAttempt)` trước verify có thể
+từ chối bằng AuthenticationBusy; `record(attempt, succeeded=...)` nhận kết quả,
+không được raise. Attempt chỉ có hash username canonical, audience và source key;
+không có password/raw token/token hash. Source key do trusted server/proxy adapter
+ở B.3 xác định, không lấy X-Forwarded-For không tin cậy hoặc field client tự nhận.
+Rate-limit cụ thể theo account + source, bảo vệ activation và mapping HTTP errors
+còn phải triển khai B.3. Test dùng limiter double được chỉ định rõ ràng.
+
+Generic errors, session expiration và server-side invalidation được đối chiếu
+với [OWASP Authentication](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html)
+và [OWASP Session Management](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html).
+Các nguồn này không phải bằng chứng ứng dụng đã public an toàn.
+
+### 12.4 Opaque session, TTL và revocation
+
+Session token độc lập mỗi login: 32 random bytes, không JWT. SQLite chỉ lưu SHA-256
+token hash và ID User ổn định. SessionGrant chỉ trả raw token ở thời điểm tạo;
+repr ẩn token. Không log grant bằng asdict hoặc đưa token/hash vào audit. HTTP B.3
+phải chuyển token vào cookie bảo vệ, không URL/localStorage/response logging.
+
+| Audience | System role bắt buộc | Absolute TTL đề xuất | Idle TTL đề xuất |
+| --- | --- | --- | --- |
+| PLAYER | PLAYER | 8 giờ | 60 phút |
+| ADMIN | ADMIN | 4 giờ | 15 phút |
+
+Đây là **mặc định để review**, không phải cấu hình production được nghiệm thu.
+AuthPolicy/SessionTTL inject được, TTL nguyên dương và idle không quá absolute.
+Mỗi TTL được giới hạn từ 1 giây đến 365 ngày để từ chối cấu hình vô hạn/sai kiểu.
+Invitation TTL mặc định đề xuất 24 giờ, có override khi Admin cấp, cũng cần review.
+
+Absolute expiry và idle_timeout_seconds được lưu theo **từng session**. Đổi cấu
+hình/reopen không tự kéo dài session cũ. `validate_session(token, audience, touch)`
+kiểm tra session/User/audience/auth_version/revoked_at, `now < expires_at` và
+`now < last_seen_at + idle_timeout_seconds`; fallback last_seen là created_at.
+Đúng boundary là hết hạn. Touch mặc định cập nhật last_seen; touch=false không
+kéo dài idle, không có sliding absolute expiry. Mutation có actor hợp lệ cũng
+ghi nhận hoạt động trong cùng transaction. Đồng hồ quay ngược trước created/last
+seen bị từ chối; vận hành cần server UTC ổn định.
+
+`logout(token, audience)` revoke đúng token/audience trong DB và audit nguyên tử,
+idempotent; token không tồn tại/đã revoke trả false. Token hết hạn vẫn có thể được
+thu hồi, không cấp lại quyền. `revoke_all` và `disable_account` làm session cũ
+mất hiệu lực cả khi caller còn giữ Principal snapshot. B.3/password reset tương
+lai bắt buộc tăng auth_version và revoke sessions trong cùng credential-change
+transaction; B.2 không cung cấp raw update password endpoint.
+
+### 12.5 Append-only migration v2
+
+Không sửa SQL/checksum migration v1 `account_foundation` đã commit. Migration 2
+`auth_service_core` thêm `auth_sessions.idle_timeout_seconds` NOT NULL > 0. Default
+1 giây chỉ là fallback an toàn cho raw/manual insert; service luôn ghi TTL cụ thể.
+
+B.1 chưa có session issuer; các hàng SQL tạo thủ công trước service không có idle
+policy được phê duyệt nên v2 **đánh dấu revoke**, giữ nguyên hàng, và điền last_seen
+thiếu bằng created_at. Không revoke/xóa `sessions.json` của browser legacy, không
+sửa User/password/ownership/Team/JSON/Replay/artifacts. Migration dùng cơ chế atomic
+version/checksum/fingerprint/integrity/FK B.1; chỉ chạy offline có chủ đích.
+
+Runtime service từ chối DB v1 hoặc DB thiếu, không tự migrate/create. Chưa chạy
+migration trên dataset thật/volumes/AWS. CLI migrate/check hiện hỗ trợ v2. Trước
+triển khai sau review phải cold backup đầy đủ, dừng writer, migrate offline đúng
+volume rồi check; không dùng down -v hoặc downgrade user_version thủ công. Code
+B.1 cũ sẽ từ chối DB v2; rollback DB cần bản backup, còn backend legacy chưa đọc
+SQLite vẫn hoạt động như cũ và không được xóa DB để giả làm rollback.
+
+### 12.6 SQLite ownership, transaction và boundary B.3
+
+`AccountDatabase.writer_connection(writer_lock)` mượn lock đã giữ, mở mode=rw với
+DB **đã tồn tại**, validate version/FK/journal/synchronous/integrity rồi yield
+connection. Không lấy WriterLock thứ hai, không gọi maintenance, không tự migrate.
+AuthService nhận connection + writer_lock; constructor kiểm tra đúng data dir,
+active lock, explicit transactions, schema/version và pragmas. Mỗi operation
+kiểm tra lock còn giữ, không cho caller bọc transaction bên ngoài; FK phải bật.
+
+Connection do caller sở hữu: service không đóng connection, không giữ lease riêng.
+Mỗi connection được tạo/dùng/đóng trong cùng thread. Nhiều connection **trong cùng
+backend đang sở hữu một WriterLock** có thể dùng BEGIN IMMEDIATE để serialize
+transaction ngắn; không phải cho phép nhiều process writer. Không dùng chung
+connection qua concurrent threads hoặc `check_same_thread=False` rồi bỏ khóa.
+
+Ví dụ boundary cho B.3, **chưa gắn vào FastAPI hiện tại**:
+
+```python
+# Schema phải được migrate offline trước; code dưới không tự khởi tạo.
+with WriterLock(data_dir) as writer:  # backend lifespan đã có lock này
+    # Trong synchronous worker, toàn bộ open/use/close cùng thread:
+    with AccountDatabase(data_dir).writer_connection(writer) as connection:
+        auth = AuthService(connection, writer, login_limiter=server_limiter)
+        # Principal lấy từ auth.validate_session(cookie_token, audience=...)
+        # rồi chuyển trực tiếp cho mutation; không parse Principal từ request.
+```
+
+B.3 cần truyền outer writer từ lifespan, tạo/đóng connection trong worker sở hữu
+nó, đợi công việc hoàn tất trước khi nhả lock. Giữ shared password limiter toàn
+process và dùng limiter HTTP thực. DB/schema lỗi phải fail closed, không fallback
+về legacy để cấp account permission. Những thao tác lõi không đổi JSON storage;
+chưa có transaction xuyên SQLite/JSON hoặc Team ownership migration.
+
+### 12.7 Kiểm thử và phần còn lại
+
+Tests mới ở `tests/test_auth_service.py` chỉ dùng tmp_path, clock inject và các
+limiter double rõ ràng. Expiration/race dùng clock/barrier, không sleep để chờ TTL.
+Kiểm tra activate cạnh tranh trên hai connection, actor giả/stale, audience,
+idle/absolute expiry, revoke/disable/version, không lưu/log raw secrets, rollback
+audit lỗi, migration v1 -> v2 giữ User/ledger v1 và bảo toàn JSON/replay. Có test
+import/construct app không mở SQLite và service không tạo DB thiếu, không dùng
+được sau unlock hoặc lồng transaction của caller.
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/test_auth_service.py -ra --tb=short
+.\.venv\Scripts\python.exe -m pytest tests/test_account_database.py tests/test_admin_bootstrap.py -ra --tb=short
+.\.venv\Scripts\python.exe -m pytest tests controller_tests -ra --tb=short
+.\.venv\Scripts\python.exe -m pip check
+```
+
+Giới hạn B.2: chưa có HTTP/cookie/CSRF/Origin/WS auth, limiter HTTP thực, account
+recovery/reset/re-enable, Team RBAC, xử lý session restore sau backup hoặc gateway.
+Không được đưa service ra Internet chỉ vì unit tests PASS. Không thay bảo vệ
+LAN/public-host hiện có. B.3 đề xuất chỉ tích hợp HTTP authentication có kiểm soát,
+cookie/CSRF/Origin, real rate limiting, dependency session và tests REST/WS, cùng
+review chuyển đổi legacy quyền rõ ràng; chưa Team/Official/Scrimmage hoặc public
+deployment. Dừng review B.2 trước khi triển khai B.3.
+
+### 12.8 Kết quả kiểm chứng B.2 thực tế
+
+Chạy native Windows, Python 3.13.12/SQLite 3.51.1/argon2-cffi 25.1.0, dữ liệu tạm:
+
+| Lệnh/kiểm tra | Kết quả |
+| --- | --- |
+| `python -m pytest tests/test_account_database.py tests/test_admin_bootstrap.py -ra --tb=short` | **44 PASS**, 0 FAIL, 0 SKIP, sau migration v2 |
+| Nhóm account + bootstrap + auth service trong lượt kiểm thử liên quan | **98 PASS** (54 test mới B.2 + 44 B.1) |
+| `python -m pytest tests controller_tests -ra --tb=short` trên code cuối | **299 PASS**, 0 FAIL, 0 SKIP; 74.75 giây |
+| `python -m pip check` | PASS; không có dependency hỏng, không thêm dependency B.2 |
+| So sánh AST/literal FOUNDATION với commit B.1 `580dd6e` | PASS; SQL migration v1 giữ nguyên |
+| `git diff --check`, syntax/whitespace của file Python mới | PASS |
+
+Suite đầy đủ chạy lại các tests hai game, Python/C++/Java native, lobby/invitation,
+WebSocket/Replay, writer lock và controller hiện có, bên cạnh service mới. Có một
+StarletteDeprecationWarning về httpx/TestClient như trước; không đổi dependency
+ngoài phạm vi. Controller tests dùng test doubles hiện có, không thay cho Docker QA.
+
+Đã kiểm tra activation cạnh tranh bằng hai thread/connection và barrier; clock
+fake cho TTL/race, không sleep chờ expiry. Đã kiểm tra import/construct app trong
+process riêng không mở SQLite, dữ liệu legacy giữ nguyên và không tạo DB thiếu.
+Chưa kiểm thử Docker/Linux, trình duyệt authentication, Internet hoặc AWS trong
+lượt này; không bootstrap/migrate trên dữ liệu hoặc Docker volumes thật.

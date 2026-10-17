@@ -31,3 +31,54 @@
 .match-result{overflow-wrap:anywhere}.match-names{white-space:normal;overflow-wrap:anywhere}.fighter-info strong{overflow-wrap:anywhere}.player-row .bot-description strong,.invitation-row .bot-description strong{display:block;font:600 14px var(--display)}.player-row .bot-description small,.invitation-row .bot-description small{display:block;font:10px var(--mono);color:var(--muted);margin-top:6px}
 .player-row,.invitation-row{display:flex;align-items:center;gap:18px;padding:18px 22px;border-bottom:1px solid var(--border);min-width:0}.player-row .bot-description,.invitation-row .bot-description{flex:1;min-width:0;overflow-wrap:anywhere}.invitation-dialog{width:min(620px,calc(100vw - 32px));border-color:#42e8ef77;box-shadow:0 0 60px #42e8ef12}.invitation-fighters{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:24px 0}.invitation-fighter{padding:18px;background:#08111d;border:1px solid #42e8ef44;overflow-wrap:anywhere}.invitation-fighter:nth-child(2){border-color:#b58aff66}.invitation-fighter h3{font:600 22px var(--display);color:var(--cyan)}.invitation-fighter:nth-child(2) h3{color:var(--purple)}.invitation-fighter small{font:9px var(--mono);color:var(--muted)}.invitation-fighter p{font-size:13px;margin:12px 0}.active-bot-panel strong{color:var(--cyan);overflow-wrap:anywhere}.active-bot-panel .button{margin-top:8px}.hp-label strong{overflow-wrap:anywhere}.bot-row{flex-wrap:wrap}
 @media(max-width:760px){.player-row,.invitation-row{padding:15px;gap:12px;flex-wrap:wrap}.invitation-fighters{gap:10px}.invitation-fighter{padding:12px}.invitation-fighter h3{font-size:18px}.invitation-dialog .form-buttons .button{flex:1}}
+.standings-panel {
+  margin-top: 25px;
+}
+
+.standings-table-wrap {
+  overflow-x: auto;
+}
+
+.standings-table {
+  width: 100%;
+  min-width: 560px;
+  border-collapse: collapse;
+}
+
+.standings-table th,
+.standings-table td {
+  padding: 13px 20px;
+  border-bottom: 1px solid #242a3980;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.standings-table th {
+  color: #79859a;
+  font: 8px var(--mono);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.standings-table td {
+  color: #a5b3ca;
+  font: 10px var(--mono);
+}
+
+.standings-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.standings-table tbody tr:hover {
+  background: #42e8ef08;
+}
+
+.standings-table th:nth-child(n+3),
+.standings-table td:nth-child(n+3) {
+  text-align: right;
+}
+
+.standings-table .standing-wins {
+  color: var(--cyan);
+  font-weight: 700;
+}

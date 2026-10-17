@@ -170,6 +170,75 @@ class Store:
         with self.lock:
             return deepcopy(list(reversed(self.matches.values())))
 
+    def get_standings(self) -> list[dict]:
+        with self.lock:
+            players = {}
+
+            for match in self.matches.values():
+                if match.get("status") != "completed":
+                    continue
+
+                player_ids = {
+                    "A": match.get("player_a_id"),
+                    "B": match.get("player_b_id"),
+                }
+
+                # Bỏ qua trận không gắn với đủ hai người chơi.
+                if not player_ids["A"] or not player_ids["B"]:
+                    continue
+
+                participants = match.get("participants") or {}
+
+                for side, player_id in player_ids.items():
+                    participant = participants.get(side) or {}
+                    name = (
+                        match.get(f"player_{side.lower()}_name_snapshot")
+                        or participant.get("name")
+                        or player_id[:6]
+                    )
+
+                    if player_id not in players:
+                        players[player_id] = {
+                            "player_id": player_id,
+                            "nickname": name,
+                            "played": 0,
+                            "wins": 0,
+                            "draws": 0,
+                            "losses": 0,
+                        }
+
+                    players[player_id]["played"] += 1
+                    # Dùng tên từ trận gần nhất trong lịch sử.
+                    players[player_id]["nickname"] = name
+
+                winner = (match.get("result") or {}).get("winner")
+
+                if winner == "A":
+                    players[player_ids["A"]]["wins"] += 1
+                    players[player_ids["B"]]["losses"] += 1
+                elif winner == "B":
+                    players[player_ids["B"]]["wins"] += 1
+                    players[player_ids["A"]]["losses"] += 1
+                else:
+                    players[player_ids["A"]]["draws"] += 1
+                    players[player_ids["B"]]["draws"] += 1
+
+            standings = sorted(
+                players.values(),
+                key=lambda player: (-player["wins"], player["nickname"].casefold()),
+            )
+
+            # Người bằng số trận thắng nhận cùng hạng.
+            previous_wins = None
+            for position, player in enumerate(standings, start=1):
+                if player["wins"] != previous_wins:
+                    player["rank"] = position
+                    previous_wins = player["wins"]
+                else:
+                    player["rank"] = standings[position - 2]["rank"]
+
+        return standings
+
     def save_match(self, match: dict):
         with self.lock:
             self.matches[match["id"]] = deepcopy(match)

@@ -3,7 +3,7 @@
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const app = {
-  bots: [], matches: [], games: [], selectedGameId: null, rules: {}, match: null, frames: [],
+  bots: [], matches: [], standings: [], games: [], selectedGameId: null, rules: {}, match: null, frames: [],
   cursor: 0, paused: false, speed: 1, socket: null, generation: 0,
   switchingGame: false, launching: false, transition: null, nextFrameAt: 0,
   victoryDismissed: false, displayedResult: false, reconnectTimer: null,
@@ -524,8 +524,49 @@ function renderMatches() {
   renderStats();
 }
 
+function renderStandings() {
+  const tbody = $("#standings-body");
+  tbody.replaceChildren();
+
+  if (!app.standings.length) {
+    const row = el("tr");
+    const cell = el("td", "empty-state", "Chưa có kết quả để xếp hạng.");
+    cell.colSpan = 6;
+    row.append(cell);
+    tbody.append(row);
+    return;
+  }
+
+  for (const player of app.standings) {
+    const row = el("tr");
+
+    [
+      player.rank,
+      player.nickname,
+      player.played,
+      player.wins,
+      player.draws,
+      player.losses,
+    ].forEach((value, index) => {
+      row.append(el("td", index === 3 ? "standing-wins" : "", String(value ?? 0)));
+    });
+
+    tbody.append(row);
+  }
+}
+
 async function refreshBots() { app.bots = await api("/api/bots"); renderBots(); }
-async function refreshMatches() { app.matches = await api("/api/matches"); renderMatches(); }
+async function refreshMatches() {
+  const [matches, standings] = await Promise.all([
+    api("/api/matches"),
+    api("/api/standings"),
+  ]);
+
+  app.matches = matches;
+  app.standings = standings;
+  renderMatches();
+  renderStandings();
+}
 $("#refresh-bots").addEventListener("click", () => refreshBots().catch(e => toast(e.message, true)));
 $("#refresh-matches").addEventListener("click", () => refreshMatches().catch(e => toast(e.message, true)));
 
@@ -869,11 +910,18 @@ async function bootstrap() {
     // Establish the cookie first; parallel startup requests then share one identity.
     const session = await api("/api/session");
     acceptSession(session);
-    const [health, bots, registry, matches, competition] = await Promise.all([api("/api/health"), api("/api/bots"), api("/api/games"), api("/api/matches"), api("/api/competition")]);
-    app.bots = bots; app.games = registry.games; app.matches = matches;
+    const [health, bots, registry, matches, standings, competition] = await Promise.all([
+      api("/api/health"),
+      api("/api/bots"),
+      api("/api/games"),
+      api("/api/matches"),
+      api("/api/standings"),
+      api("/api/competition"),
+    ]);
+    app.bots = bots; app.games = registry.games; app.matches = matches; app.standings = standings;
     await acceptCompetition(competition);
     setConnection(health.status === "ok");
-    renderBots(); renderRules(true); renderMatches();
+    renderBots(); renderRules(true); renderMatches(); renderStandings();
     applyPermissions();
     connectCompetitionSocket();
     const matchId = new URL(location.href).searchParams.get("match");

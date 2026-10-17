@@ -75,7 +75,33 @@
         </div>
 
         <section class="panel history-panel"><div class="panel-heading"><h2>RECENT BATTLES <span class="tag" id="history-count">0 MATCHES</span></h2><button class="text-button" data-go="watch">Xem tất cả ↗</button></div><div id="recent-matches" class="match-list"><div class="empty-state">Chưa có trận đấu. Chờ hai Player chấp nhận lời mời để bắt đầu.</div></div></section>
+              <section class="panel standings-panel">
+        <div class="panel-heading">
+          <h2>BẢNG XẾP HẠNG</h2>
+          <span class="tag">PLAYER STANDINGS</span>
+        </div>
+
+        <div class="standings-table-wrap">
+          <table class="standings-table">
+            <thead>
+              <tr>
+                <th>Hạng</th>
+                <th>Người chơi</th>
+                <th>Đã đấu</th>
+                <th>Thắng</th>
+                <th>Hòa</th>
+                <th>Thua</th>
+              </tr>
+            </thead>
+            <tbody id="standings-body">
+              <tr>
+                <td colspan="6" class="empty-state">Đang tải bảng xếp hạng…</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </section>
+            </section>
 
       <section class="view" id="view-upload">
         <div class="page-intro"><div class="eyebrow">01 / BOT LABORATORY</div><h1>DEPLOY YOUR <em>BOT.</em></h1><p>Mỗi submission thuộc một game. Một giao thức JSON Lines, ba ngôn ngữ.</p></div>

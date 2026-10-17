@@ -369,6 +369,10 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
     async def submit_sample(language: str, request: Request):
         return await submit_game_sample(app.state.store.selected_game_id, language, request)
 
+    @app.get("/api/standings")
+    async def standings():
+        return app.state.store.get_standings()
+    
     @app.get("/api/matches")
     async def matches():
         return app.state.manager.get_matches()

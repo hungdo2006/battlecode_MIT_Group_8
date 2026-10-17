@@ -16,6 +16,7 @@ USER root
 COPY requirements-dev.txt ./
 RUN pip install --no-cache-dir -r requirements-dev.txt
 COPY controller_tests/ ./controller_tests/
+COPY backend/sandbox_client.py backend/execution.py ./backend/
 USER 10001:10001
 CMD ["python", "-m", "pytest", "-p", "no:cacheprovider", "-q", "controller_tests"]
 

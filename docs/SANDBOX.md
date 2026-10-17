@@ -91,9 +91,11 @@ logs quay vòng5MiB ×2. Metadata/replay vẫn cần operator theo dõi dung lư
 
 ## Restart, cancellation và lỗi hạ tầng
 
-Backend heartbeat5s; lease hết hạn20s; reaper quét2s. Khi backend restart, lease
-mới đóng các job cũ. Controller restart thu hồi các container có đúng namespace label,
-backend hiện tại nối lại lease. ID job có tombstone120s để chặn startup đến muộn.
+Backend heartbeat5s; lease hết hạn20s; reaper quét2s. Backend mới không được chiếm
+lease còn sống; shutdown bình thường release lease, crash phải đợi hết hạn.
+Controller restart thu hồi container đúng namespace, đổi epoch và cấp lease mới;
+runtime cũ không được tiếp tục. Tombstone giữ120s tính từ closed_at; ledger compact
+chặn tái sử dụng ID suốt epoch. Xem [Security Foundation](SECURITY_FOUNDATION.md).
 Observation có sequence/hash: duplicate trả cache, không đưa lại vào stdin. Client
 không tự retry action khi mất response. Các request lệch thứ tự bị từ chối.
 
@@ -128,11 +130,12 @@ published ports và chỉ nối `runner_private`.
 ## Kiểm thử có thể chạy lại
 
 Host cần Python dependencies/requirements-dev; `--browser` cần Playwright + Chrome.
-Build các image trước bằng `docker compose build`, sau đó:
+Acceptance checker dùng tags image QA riêng, mặc định chỉ publish loopback;
+`--build` tạo đủ ba QA images mà không thay tags của ứng dụng thật:
 
 ```powershell
 py -3 -m pytest -o addopts="" -q
-py -3 scripts/check_docker.py --browser
+py -3 scripts/check_docker.py --build --browser
 py -3 scripts/check_sandbox_lifecycle.py
 ```
 
@@ -174,11 +177,14 @@ Sao lưu khi đã đóng cuộc thi và không còn job; script không chứa `.
 
 ```powershell
 docker compose stop arena
+docker compose stop controller
 py -3 scripts/backup_docker.py --output backups/neon-arena-phase2.tar.gz
-docker compose start arena
+docker compose up -d --no-build --wait
 ```
 
-Archive có data/, uploads/, artifacts/. Cất `.env` riêng ở nơi an toàn.
+Archive có data/, uploads/, artifacts/ và manifest hash; image archive + receipt
+đi kèm giữ exact toolchain IDs. Chỉ restore vào volumes mới theo
+[runbook](SECURITY_FOUNDATION.md). Cất `.env` riêng ở nơi an toàn.
 Rollback có chủ đích, chỉ bot đáng tin cậy:
 
 ```powershell

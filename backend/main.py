@@ -24,6 +24,7 @@ from backend.network import NetworkSettings, lan_addresses, same_origin
 from backend.runner import MAX_SOURCE_BYTES, prepare_submission, toolchains
 from backend.sessions import COOKIE_NAME, SESSION_SECONDS, Sessions
 from backend.storage import Store
+from backend.writer_lock import WriterLock
 
 PROJECT = Path(__file__).resolve().parent.parent
 TERMINAL = {"completed", "interrupted"}
@@ -37,23 +38,36 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
     admin_digest = hashlib.sha256(admin_code.encode("utf-8")).digest() if admin_code else None
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        app.state.registry = installed
-        app.state.store = Store((base_dir or PROJECT).resolve(), installed)
-        app.state.sessions = Sessions(app.state.store.data / "sessions.json")
-        app.state.runner = configured_runner(lambda *args: prepare_submission(*args))
-        await asyncio.to_thread(app.state.runner.startup)
-        app.state.manager = MatchManager(app.state.store, tick_seconds, app.state.runner)
-        app.state.competition = Competition(app.state.store, app.state.manager)
-        app.state.lobby = Lobby(app.state.store, app.state.sessions, app.state.manager, app.state.competition)
-        app.state.competition.lobby = app.state.lobby
-        app.state.manager.on_activity = app.state.lobby.activity
-        app.state.upload_lock = asyncio.Lock()
-        try:
-            yield
-        finally:
-            await app.state.lobby.shutdown()
-            await app.state.manager.shutdown()
-            await asyncio.to_thread(app.state.runner.shutdown)
+        # Must precede Store (startup writes JSON) AND the controller lease claim.
+        # /app/data is a shared named volume in both sandbox and legacy Compose.
+        with WriterLock((base_dir or PROJECT).resolve() / "data"):
+            runner = manager = lobby = None
+            try:
+                app.state.registry = installed
+                app.state.store = Store((base_dir or PROJECT).resolve(), installed)
+                app.state.sessions = Sessions(app.state.store.data / "sessions.json")
+                runner = app.state.runner = configured_runner(lambda *args: prepare_submission(*args))
+                await asyncio.to_thread(runner.startup)
+                manager = app.state.manager = MatchManager(app.state.store, tick_seconds, runner)
+                app.state.competition = Competition(app.state.store, manager)
+                lobby = app.state.lobby = Lobby(app.state.store, app.state.sessions, manager, app.state.competition)
+                app.state.competition.lobby = lobby
+                manager.on_activity = lobby.activity
+                app.state.upload_lock = asyncio.Lock()
+                yield
+            finally:
+                # Keep ownership until every cleanup has been attempted, including
+                # failed startup. A failed cleanup must not skip runner shutdown.
+                try:
+                    if lobby is not None:
+                        await lobby.shutdown()
+                finally:
+                    try:
+                        if manager is not None:
+                            await manager.shutdown()
+                    finally:
+                        if runner is not None:
+                            await asyncio.to_thread(runner.shutdown)
 
     app = FastAPI(title="NEON ARENA", version="3.0.0", lifespan=lifespan)
 

@@ -2,6 +2,7 @@
 import asyncio
 import json
 import os
+from pathlib import Path
 import subprocess
 import time
 from urllib.error import HTTPError
@@ -10,6 +11,52 @@ from uuid import uuid4
 
 from check_docker import DockerCheck
 from check_lan import Player, invited_match, presence
+
+
+def lease_policy(qa, active_backend):
+    """Probe private HTTP endpoints in the QA controller, never print tokens."""
+    script = """
+import base64,json,os,secrets
+from urllib.error import HTTPError
+from urllib.request import Request,urlopen
+token=os.environ['ARENA_RUNNER_TOKEN']
+def rpc(path,body=None,expected=200):
+    request=Request('http://127.0.0.1:9000'+path,
+                    data=json.dumps(body).encode() if body is not None else None,
+                    headers={'Authorization':'Bearer '+token,'Content-Type':'application/json'})
+    try:
+        with urlopen(request,timeout=15) as response:
+            assert expected==200
+            return json.load(response)
+    except HTTPError as exc:
+        assert exc.code==expected,(path,exc.code,expected)
+epoch=rpc('/health')['epoch']
+owner=secrets.token_hex(16)
+"""
+    if active_backend:
+        script += """
+rpc('/owner',{'owner':owner,'epoch':epoch},409)
+rpc('/heartbeat',{'owner':owner,'lease':secrets.token_hex(16)},409)
+print('PASS real Controller: live owner cannot be replaced by foreign claim/heartbeat')
+"""
+    else:
+        script += """
+lease=rpc('/owner',{'owner':owner,'epoch':epoch})['lease']
+assert rpc('/owner',{'owner':owner,'epoch':epoch})['lease']==lease
+old={'owner':owner,'lease':lease}
+rpc('/release',old)
+newowner=secrets.token_hex(16)
+newlease=rpc('/owner',{'owner':newowner,'epoch':epoch})['lease']
+rpc('/owner',{'owner':owner,'epoch':epoch},409)
+rpc('/heartbeat',old,409)
+rpc('/close/stale-never-start',old,409)
+rpc('/compile/stale-never-compile',{**old,'language':'py','source':base64.b64encode(b'pass').decode()},409)
+rpc('/release',old,409)
+rpc('/release',{'owner':newowner,'lease':newlease})
+print('PASS real Controller: duplicate claim idempotent; released/stale owner fenced on all operations')
+"""
+    result = qa.compose('exec', '-T', 'controller', 'python', '-B', '-c', script)
+    print(result.stdout.strip(), flush=True)
 
 
 def upload_wait(player):
@@ -95,10 +142,17 @@ def main():
     os.environ['ARENA_ADMIN_CODE'] = qa.code
     try:
         qa.up()
+        lease_policy(qa, active_backend=True)
         org, a, b = (Player(qa.url) for _ in range(3))
         org.prepare_competition('robot_battle', {'max_turns': 1000})
         bots = [upload_wait(p) for p in (a, b)]
         asyncio.run(lifecycle(qa, org, a, b, bots))
+        qa.compose('stop', 'arena')
+        lease_policy(qa, active_backend=False)
+        probe = Path(__file__).with_name('probe_sandbox.py').read_text(encoding='utf-8')
+        result = qa.compose('exec', '-T', '-e', 'SANDBOX_TEST_ACK=1', 'controller',
+                            'python', '-B', '-c', probe, 'languages')
+        print(result.stdout.strip(), flush=True)
     finally:
         if before is None:
             os.environ.pop('ARENA_ADMIN_CODE', None)

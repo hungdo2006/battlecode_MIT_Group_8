@@ -1,12 +1,13 @@
 """Isolated Docker Compose acceptance check (never uses normal app volumes).
 
-Requires a built neon-arena:4.0 image, Docker Engine, and Python requirements.
+Requires QA images (--build on first run), Docker Engine, and Python requirements.
 Creates random QA project/volumes, verifies persistence, then removes only its
 own labeled volumes. --browser also checks three Chrome sessions on the service.
 """
 import argparse
 import asyncio
 import json
+from ipaddress import IPv4Address
 import os
 from pathlib import Path
 import secrets
@@ -16,25 +17,42 @@ import tempfile
 import time
 from urllib.error import HTTPError
 
-from backup_docker import backup
-from check_lan import Player, invited_match, presence, watch
+try:
+    from .backup_docker import backup
+    from .check_lan import Player, invited_match, presence, watch
+except ImportError:
+    from backup_docker import backup
+    from check_lan import Player, invited_match, presence, watch
 
 ROOT = Path(__file__).resolve().parent.parent
 
 
 class DockerCheck:
     def __init__(self, lan_ip=None):
+        if lan_ip is not None:
+            address = IPv4Address(lan_ip)
+            if not address.is_private or address.is_unspecified or address.is_multicast:
+                raise ValueError('--lan-ip must be a specific local/LAN IPv4 address')
         self.project = "neon-arena-qa-" + secrets.token_hex(5)
         self.host = lan_ip or "127.0.0.1"
         self.code = secrets.token_urlsafe(32)
         self.env = {**os.environ, "ARENA_ADMIN_CODE": self.code, "ARENA_PORT": "0",
                     "ARENA_RUNNER_TOKEN": secrets.token_hex(32), "SANDBOX_NAMESPACE": self.project + "-test",
-                    "ARENA_BIND_IP": "0.0.0.0", "ARENA_READ_ONLY": "0", "ARENA_ALLOWED_HOSTS": ""}
+                    "ARENA_BIND_IP": self.host, "ARENA_READ_ONLY": "0", "ARENA_ALLOWED_HOSTS": ""}
+        # QA builds must not replace the normal application's image tags.
+        prefix = os.environ.get('ARENA_QA_IMAGE_PREFIX', 'neon-arena-qa')
+        self.images = {service: f'{prefix}-{service}:local' for service in ('arena', 'controller', 'bot-image')}
+        self.config_dir = tempfile.TemporaryDirectory(prefix='arena-qa-compose-')
+        self.override = Path(self.config_dir.name) / 'qa.json'
+        self.override.write_text(json.dumps({'services': {
+            'arena': {'image': self.images['arena']},
+            'controller': {'image': self.images['controller'], 'environment': {'SANDBOX_IMAGE': self.images['bot-image']}},
+            'bot-image': {'image': self.images['bot-image']}}}), encoding='utf-8')
         self.volumes = []
 
     def compose(self, *args, capture=True):
         return subprocess.run(["docker", "compose", "--env-file", str(ROOT / ".env.example"),
-                               "-f", str(ROOT / "compose.yaml"), "-p", self.project, *args],
+                               "-f", str(ROOT / "compose.yaml"), "-f", str(self.override), "-p", self.project, *args],
                               cwd=ROOT, env=self.env, check=True, text=True,
                               capture_output=capture)
 
@@ -55,6 +73,7 @@ class DockerCheck:
         assert record["Config"]["User"] == "arena:arena"
         assert not record["HostConfig"]["Privileged"]
         assert record["State"]["Health"]["Status"] == "healthy"
+        assert {binding['HostIp'] for binding in record['HostConfig']['PortBindings']['8000/tcp']} == {self.host}
         assert {m["Destination"] for m in mounts} == {"/app/data", "/app/uploads"}
         assert all(m["Type"] == "volume" and m["RW"] for m in mounts)
         self.volumes = [m["Name"] for m in mounts]
@@ -101,6 +120,7 @@ class DockerCheck:
             assert record["Labels"]["com.docker.compose.project"] == self.project
             assert volume.startswith(self.project + "_")
             subprocess.run(["docker", "volume", "rm", volume], env=self.env, check=True, capture_output=True)
+        self.config_dir.cleanup()
 
 
 def denied(player, path, body):
@@ -178,8 +198,15 @@ def main(args):
     qa = DockerCheck(args.lan_ip)
     print(f"QA project: {qa.project} (separate named volumes)", flush=True)
     try:
+        if args.build:
+            qa.compose('build', capture=False)
         qa.up()
         original_id = qa.inspect()
+        try:
+            from .check_foundation_storage import single_writer, restore_and_play
+        except ImportError:
+            from check_foundation_storage import single_writer, restore_and_play
+        single_writer(qa)
         print(f"Compose healthy / non-root / named volumes: {qa.url}", flush=True)
         org, a, b = [Player(qa.url) for _ in range(3)]
         for p, name in ((org, "Docker Organizer"), (a, "Hoang"), (b, "Minh")):
@@ -229,7 +256,7 @@ def main(args):
         for p in (org, a, b): p.url = qa.url
         verify_persistence(org, a, b, expected, hashes, qa)
         print("PASS down/up: new container, same volumes; compiled submissions reused", flush=True)
-        qa.compose("stop", "arena")
+        qa.compose("stop", "arena", "controller")
         with tempfile.TemporaryDirectory(prefix="arena-volume-backup-") as folder:
             archive = backup(Path(folder) / "arena.tar.gz", qa.project, qa.env)
             with tarfile.open(archive, "r:gz") as stream:
@@ -240,14 +267,19 @@ def main(args):
                 assert any(n.startswith("data/replays/") and n.endswith(".jsonl") for n in names)
                 assert not any(n.endswith(".env") for n in names)
                 assert any(n.startswith("artifacts/") and n.endswith(".tar") for n in names)
-            print(f"PASS binary-safe volume backup: {archive.stat().st_size} bytes", flush=True)
+            from restore_docker import verify_bundle
+            bundle = verify_bundle(archive)
+            assert bundle['image_archive_sha256'] and bundle['manifest']['artifact_images']
+            print(f"PASS verified three-volume backup + pinned images: {archive.stat().st_size} bytes", flush=True)
+            restored_project = restore_and_play(qa, archive, bundle, org, a, b, expected, hashes, bots)
         if args.browser:
             qa.ready()
             from check_multiplayer_ui import check
             check(qa.url, qa.code, output_dir=ROOT / "docs/screenshots/sandbox")
         print(json.dumps({"docker": "PASS", "project": qa.project, "matches": records,
                           "restart": True, "down_up": True, "artifact_reuse_match": reused_id,
-                          "backup": True}, ensure_ascii=False, indent=2))
+                          "backup": True, "restore_project": restored_project,
+                          "restore": True, "single_writer": True}, ensure_ascii=False, indent=2))
     finally:
         qa.cleanup()
         print("Owned QA containers/network/volumes removed; normal app data untouched.", flush=True)
@@ -257,4 +289,5 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--lan-ip", help="Host Wi-Fi IPv4 to exercise published LAN port")
     parser.add_argument("--browser", action="store_true", help="Also run Chrome 3-context QA")
+    parser.add_argument('--build', action='store_true', help='Build isolated QA image tags before starting')
     main(parser.parse_args())

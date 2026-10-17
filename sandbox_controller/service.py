@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import logging
 import os
+import secrets
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -20,9 +21,21 @@ from sandbox_controller.engine import Engine, InfrastructureError, Pipe
 log = logging.getLogger(__name__)
 
 
+LEASE_SECONDS = 20
+CLOSED_RETENTION = 120
+MAX_USED_IDS = 65536
+
+
+class Claim(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    owner: str = Field(pattern=r'^[a-f0-9]{32}$')
+    epoch: str = Field(pattern=r'^[a-f0-9]{32}$')
+
+
 class Payload(BaseModel):
     model_config = ConfigDict(extra='forbid')
     owner: str = Field(pattern=r'^[a-f0-9]{32}$')
+    lease: str = Field(pattern=r'^[a-f0-9]{32}$')
 
 
 class Compile(Payload):
@@ -45,7 +58,11 @@ class Job:
     kind: str
     owner: str
     fingerprint: str
+    lease: str = ''
     created: float = field(default_factory=time.monotonic)
+    closed_at: float | None = None
+    cleanup_lock: threading.RLock = field(default_factory=threading.RLock)
+    starting: bool = False
     lock: threading.Lock = field(default_factory=threading.Lock)
     cancelled: threading.Event = field(default_factory=threading.Event)
     container: object = None
@@ -64,32 +81,75 @@ class Controller:
         self.engine = Engine(os.environ.get('SANDBOX_IMAGE', 'neon-arena-bot:4.0'), namespace)
         self.store = ArtifactStore(os.environ.get('SANDBOX_ARTIFACTS', '/artifacts'))
         self.lock = threading.RLock()
-        self.owner, self.heartbeat = None, 0
+        self.epoch = secrets.token_hex(16)  # A restart fences every old request.
+        self.owner, self.lease, self.heartbeat = None, None, 0
+        self.retired_owners = set()
+        # Compact, bounded ledger survives removal of heavy job/result records.
+        # IDs are never reusable within this controller epoch.
+        self.used_ids = set()
         self.jobs = {}
         self.stopping = threading.Event()
         self.thread = threading.Thread(target=self.reap, daemon=True)
         self.thread.start()
 
-    def authorize_owner(self, owner):
-        if self.owner != owner:
+    def expire_lease(self, now):
+        if self.owner is not None and now - self.heartbeat >= LEASE_SECONDS:
+            self.retired_owners.add(self.owner)
+            self.owner = self.lease = None
+            for job in self.jobs.values():
+                self.close(job)
+
+    def authorize_owner(self, owner, lease):
+        self.expire_lease(time.monotonic())
+        if self.owner != owner or self.lease != lease:
             raise HTTPException(409, 'Backend lease is no longer current')
 
-    def claim(self, owner):
+    def claim(self, owner, epoch):
         with self.lock:
+            if epoch != self.epoch:
+                raise HTTPException(409, 'Controller restarted; stale epoch')
+            self.expire_lease(time.monotonic())
+            if owner in self.retired_owners:
+                raise HTTPException(409, 'Retired owner cannot reclaim this epoch')
+            if self.owner is not None and self.owner != owner:
+                raise HTTPException(409, 'Another backend has a live lease')
             if self.owner != owner:
-                for job in self.jobs.values():
-                    self.close(job)
+                if len(self.retired_owners) >= 4096:
+                    raise HTTPException(503, 'Lease ledger full; controlled restart required')
                 self.owner = owner
+                self.lease = secrets.token_hex(16)
             self.heartbeat = time.monotonic()
+            return {'ready': True, 'epoch': self.epoch, 'lease': self.lease}
+
+    def renew(self, payload):
+        with self.lock:
+            self.authorize_owner(payload.owner, payload.lease)
+            self.heartbeat = time.monotonic()
+
+    def release(self, payload):
+        with self.lock:
+            self.authorize_owner(payload.owner, payload.lease)
+            self.retired_owners.add(self.owner)
+            self.owner = self.lease = None
+            for job in self.jobs.values():
+                self.close(job)
+
+    def remember_id(self, job_id):
+        if job_id in self.used_ids:
+            raise HTTPException(409, 'Job ID has already been used in this controller epoch')
+        if len(self.used_ids) >= MAX_USED_IDS:
+            raise HTTPException(503, 'Job ID ledger full; controlled restart required')
+        self.used_ids.add(job_id)
 
     def reserve(self, job_id, payload, kind):
         identifier(job_id)
         fingerprint = hashlib.sha256(payload.model_dump_json().encode()).hexdigest()
         with self.lock:
-            self.authorize_owner(payload.owner)
+            self.authorize_owner(payload.owner, payload.lease)
             if job_id in self.jobs:
                 job = self.jobs[job_id]
-                if job.owner != payload.owner or job.kind != kind or job.fingerprint != fingerprint:
+                if (job.owner != payload.owner or job.lease != payload.lease
+                        or job.kind != kind or job.fingerprint != fingerprint):
                     raise HTTPException(409, 'Job ID already used with different parameters')
                 if job.cancelled.is_set() and not (kind == 'compile' and job.result is not None):
                     raise HTTPException(409, 'Job is closed; never restart a closed job ID')
@@ -98,41 +158,76 @@ class Controller:
                          for j in self.jobs.values())
             if active >= (1 if kind == 'compile' else 4) or len(self.jobs) >= 4096:
                 raise HTTPException(503, 'Sandbox capacity reached')
-            job = Job(kind, payload.owner, fingerprint)
+            self.remember_id(job_id)
+            job = Job(kind, payload.owner, fingerprint, lease=payload.lease)
             self.jobs[job_id] = job
             return job
 
-    def get(self, job_id, owner):
+    def get(self, job_id, payload):
         identifier(job_id)
         with self.lock:
-            self.authorize_owner(owner)
+            self.authorize_owner(payload.owner, payload.lease)
             job = self.jobs.get(job_id)
-            if not job or job.owner != owner:
+            if not job or job.owner != payload.owner or job.lease != payload.lease:
                 raise HTTPException(404, 'Unknown job')
             return job
 
     def ensure_container(self, job_id, job):
+        with self.lock:
+            self.authorize_owner(job.owner, job.lease)
         if job.cancelled.is_set():
             raise InfrastructureError('Job cancelled before startup')
-        job.container = self.engine.create(job_id, job.kind, job.owner)
+        with job.cleanup_lock:
+            job.starting = True
+        try:
+            container = self.engine.create(job_id, job.kind, job.owner)
+            with job.cleanup_lock:
+                job.container = container
+        finally:
+            with job.cleanup_lock:
+                job.starting = False
         if job.cancelled.is_set():
             self.close(job)
             raise InfrastructureError('Job cancelled during startup')
 
     def close(self, job):
         # Mark before cleanup, including while another thread is creating the container.
-        job.cancelled.set()
-        if job.pipe:
-            job.pipe.close()
-        if job.container:
-            try:
-                job.container.remove(force=True)
-                job.container = None
-            except docker.errors.NotFound:
-                job.container = None
-            except Exception:
-                # Retain handle; reaper retries when Engine recovers.
-                log.exception('Sandbox cleanup pending; Engine unavailable')
+        with job.cleanup_lock:
+            if job.closed_at is None:
+                job.closed_at = time.monotonic()
+            job.cancelled.set()
+            if job.pipe:
+                try:
+                    job.pipe.close()
+                except Exception:
+                    log.exception('Pipe cleanup failed; still attempting container removal')
+            if job.container:
+                try:
+                    job.container.remove(force=True)
+                    job.container = None
+                except docker.errors.NotFound:
+                    job.container = None
+                except Exception:
+                    # Retain handle; reaper retries when Engine recovers.
+                    log.exception('Sandbox cleanup pending; Engine unavailable')
+
+    def close_id(self, job_id, payload):
+        identifier(job_id)
+        with self.lock:
+            self.authorize_owner(payload.owner, payload.lease)
+            job = self.jobs.get(job_id)
+            if job is None:
+                if job_id in self.used_ids:
+                    return {'closed': True}  # Already closed and compacted.
+                if len(self.jobs) >= 4096:
+                    raise HTTPException(503, 'Tombstone capacity reached')
+                self.remember_id(job_id)
+                job = Job('closed', payload.owner, '', lease=payload.lease)
+                self.jobs[job_id] = job
+            elif job.owner != payload.owner or job.lease != payload.lease:
+                raise HTTPException(409, 'Job belongs to another lease')
+            self.close(job)
+            return {'closed': job.container is None and not job.starting}
 
     def compile(self, job_id, payload):
         try:
@@ -143,6 +238,8 @@ class Controller:
             raise HTTPException(400, 'Source must be 1..256 KiB')
         job = self.reserve(job_id, payload, 'compile')
         with job.lock:
+            with self.lock:
+                self.authorize_owner(payload.owner, payload.lease)
             if job.result is not None:
                 return job.result
             if job.failure:
@@ -150,6 +247,10 @@ class Controller:
             try:
                 self.ensure_container(job_id, job)
                 success, logs, archive = self.engine.compile(job.container, payload.language, source, job.cancelled)
+                with self.lock:
+                    self.authorize_owner(payload.owner, payload.lease)
+                if job.cancelled.is_set():
+                    raise InfrastructureError('Compile cancelled; no bot fault')
                 artifact = {}
                 if success:
                     try:
@@ -170,6 +271,10 @@ class Controller:
     def open(self, job_id, payload):
         job = self.reserve(job_id, payload, 'runtime')
         with job.lock:
+            with self.lock:
+                self.authorize_owner(payload.owner, payload.lease)
+            if job.cancelled.is_set():
+                raise InfrastructureError('Runtime cancelled before open')
             if job.result:
                 return job.result
             try:
@@ -188,21 +293,36 @@ class Controller:
                 raise
 
     def request(self, job_id, payload):
-        job = self.get(job_id, payload.owner)
+        job = self.get(job_id, payload)
         with job.lock:
+            with self.lock:
+                self.authorize_owner(payload.owner, payload.lease)
+            # Transport retries must never feed the same observation twice.
+            # A completed response remains an immutable receipt after close;
+            # returning it does NOT reopen the runtime or authorize a new turn.
+            # Owner/lease validation above still fences expired/restarted owners.
+            digest = hashlib.sha256(payload.model_dump_json().encode()).hexdigest()
+            if payload.seq == job.seq and digest == job.request_hash and job.response is not None:
+                return job.response
             if job.cancelled.is_set() or not job.pipe:
                 raise InfrastructureError('Runtime is not available')
-            # Transport retries must never feed the same observation twice.
-            digest = hashlib.sha256(payload.model_dump_json().encode()).hexdigest()
-            if payload.seq == job.seq and digest == job.request_hash:
-                return job.response
             if payload.seq != job.seq + 1:
                 raise HTTPException(409, 'Out-of-order/ambiguous observation; no re-execution')
             job.seq, job.request_hash = payload.seq, digest
+            job.response = None  # Never cache the preceding turn after an ambiguous failure.
             try:
-                job.response = {'action': job.pipe.request(payload.observation)}
+                action = job.pipe.request(payload.observation)
+                with self.lock:
+                    self.authorize_owner(payload.owner, payload.lease)
+                if job.cancelled.is_set():
+                    raise InfrastructureError('Runtime cancelled during request')
+                job.response = {'action': action}
                 return job.response
             except BotError as exc:
+                with self.lock:
+                    self.authorize_owner(payload.owner, payload.lease)
+                if job.cancelled.is_set():
+                    raise InfrastructureError('Runtime cancelled; no bot fault') from exc
                 job.response = {'bot_error': str(exc)}
                 self.close(job)
                 return job.response
@@ -210,16 +330,20 @@ class Controller:
                 self.close(job)
                 raise
 
+    def reap_once(self):
+        with self.lock:
+            now = time.monotonic()
+            self.expire_lease(now)
+            for job_id, job in list(self.jobs.items()):
+                if now - job.created > 3600 or job.cancelled.is_set():
+                    self.close(job)
+                if (job.closed_at is not None and not job.starting and job.container is None
+                        and now - job.closed_at > CLOSED_RETENTION):
+                    self.jobs.pop(job_id, None)
+
     def reap(self):
         while not self.stopping.wait(2):
-            with self.lock:
-                now = time.monotonic()
-                for job_id, job in list(self.jobs.items()):
-                    if now - self.heartbeat > 20 or now - job.created > 3600 or job.cancelled.is_set():
-                        self.close(job)
-                    # Tombstones outlive client HTTP timeouts; bounded memory.
-                    if job.cancelled.is_set() and job.container is None and now - job.created > 120:
-                        self.jobs.pop(job_id, None)
+            self.reap_once()
 
     def shutdown(self):
         self.stopping.set()
@@ -271,8 +395,10 @@ def create_app():
     @asynccontextmanager
     async def lifespan(app):
         app.state.controller = Controller()
-        yield
-        app.state.controller.shutdown()
+        try:
+            yield
+        finally:
+            app.state.controller.shutdown()
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.add_middleware(PrivateAPI, token=token)
@@ -286,24 +412,22 @@ def create_app():
     @app.get('/health')
     def health():
         app.state.controller.engine.client.ping()
-        return {'ready': True, 'toolchains': {'python': 'sandbox', 'cpp': 'sandbox', 'javac': 'sandbox', 'java': 'sandbox'}}
+        return {'ready': True, 'epoch': app.state.controller.epoch,
+                'toolchains': {'python': 'sandbox', 'cpp': 'sandbox', 'javac': 'sandbox', 'java': 'sandbox'}}
 
     @app.post('/owner')
-    def claim(payload: Payload):
-        app.state.controller.claim(payload.owner)
-        return {'ready': True}
+    def claim(payload: Claim):
+        return app.state.controller.claim(payload.owner, payload.epoch)
 
     @app.post('/heartbeat')
     def heartbeat(payload: Payload):
-        control = app.state.controller
-        with control.lock:
-            # A restarted controller has already swept its namespace. Reconnect the
-            # existing backend lease, but never let an old backend replace a new one.
-            if control.owner is None:
-                control.owner = payload.owner
-            control.authorize_owner(payload.owner)
-            control.heartbeat = time.monotonic()
+        app.state.controller.renew(payload)
         return {'ready': True}
+
+    @app.post('/release')
+    def release(payload: Payload):
+        app.state.controller.release(payload)
+        return {'released': True}
 
     @app.post('/compile/{job_id}')
     def compile(job_id: str, payload: Compile):
@@ -319,17 +443,6 @@ def create_app():
 
     @app.post('/close/{job_id}')
     def close(job_id: str, payload: Payload):
-        control = app.state.controller
-        with control.lock:
-            control.authorize_owner(payload.owner)
-            job = control.jobs.get(identifier(job_id))
-            if not job:
-                if len(control.jobs) >= 4096:
-                    raise HTTPException(503, 'Tombstone capacity reached')
-                # Tombstone precedes a delayed startup request after cancellation.
-                job = Job('closed', payload.owner, '')
-                control.jobs[job_id] = job
-        control.close(job)
-        return {'closed': job.container is None}
+        return app.state.controller.close_id(job_id, payload)
 
     return app

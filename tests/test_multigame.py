@@ -67,7 +67,7 @@ def test_submission_requires_game_and_rejects_cross_game_pair(client, open_compe
     assert player_client(client).post("/api/games/ott_v2/samples/python/submit").json()["id"] == ott["id"]
 
 
-def test_ott_saved_config_changes_real_rounds_and_replay_freezes_snapshot(client, tmp_path, open_competition):
+def test_ott_saved_config_changes_real_rounds_and_replay_freezes_snapshot(client, tmp_path, open_competition, stop_backend):
     rules = {"max_turns": 3, "rounds": 2}
     client.put("/api/games/selected", json={"game_id": "ott_v2"})
     client.put("/api/games/ott_v2/rules", json=rules)
@@ -82,6 +82,7 @@ def test_ott_saved_config_changes_real_rounds_and_replay_freezes_snapshot(client
     assert all(frame["rules"] == rules for frame in frames)
     assert [frame["turn"] for frame in frames] == list(range(8))
     assert client.get(f"/api/matches/{meta['id']}/replay").json()["frames"] == frames
+    stop_backend(client)
     with TestClient(create_app(tmp_path)) as restarted:
         assert restarted.get("/api/games").json()["selected_game_id"] == "ott_v2"
         assert restarted.get(f"/api/matches/{meta['id']}/replay").json()["frames"] == frames

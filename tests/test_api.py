@@ -35,7 +35,7 @@ def watch_to_end(client, match):
     raise AssertionError("No final websocket message")
 
 
-def test_rules_match_websocket_and_persisted_replay(client, tmp_path, open_competition):
+def test_rules_match_websocket_and_persisted_replay(client, tmp_path, open_competition, stop_backend):
     rules = {"map_size": 7, "initial_hp": 60, "damage": 15, "max_turns": 3}
     assert client.put("/api/rules", json=rules).json() == rules
     open_competition(client)
@@ -52,6 +52,7 @@ def test_rules_match_websocket_and_persisted_replay(client, tmp_path, open_compe
     replay = client.get(f"/api/matches/{match['id']}/replay").json()
     assert replay["frames"] == frames
     # A fresh app reads replay from disk and never needs a running bot.
+    stop_backend(client)
     with TestClient(create_app(tmp_path)) as restarted:
         assert restarted.get(f"/api/matches/{match['id']}/replay").json()["frames"] == frames
         with restarted.websocket_connect(f"/ws/matches/{match['id']}?after=2") as ws:

@@ -35,3 +35,15 @@ def open_competition():
         assert response.status_code == 200, response.text
         return response.json()
     return open_room
+
+
+@pytest.fixture
+def stop_backend():
+    def stop(client):
+        # Real restart: close sockets and the first lifespan BEFORE opening the
+        # replacement. Fixture ExitStacks are idempotent at final teardown.
+        sockets = getattr(client, '_test_socket_stack', None)
+        if sockets is not None:
+            sockets.close()
+        client.__exit__(None, None, None)
+    return stop

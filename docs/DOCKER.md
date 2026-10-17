@@ -73,11 +73,16 @@ PowerShell:
 
 ```powershell
 docker compose stop arena
-py -3 scripts/backup_docker.py --output backups/neon-arena-backup.tar.gz
+# Script backup_docker.py hiện dành cho Phase2 ba volumes; với Phase1 dùng
+# phương án Docker tar bên dưới. Với Phase2 đọc SECURITY_FOUNDATION.md.
 docker compose start arena
 ```
 
-Linux dùng `python3 scripts/backup_docker.py ...`. Script chỉ dùng Python standard library, không cần dependencies ứng dụng. Nếu từng dùng `docker compose -p demo2`, cả lệnh stop/start và script phải dùng đúng project: `--project demo2`. Script kiểm tra service đã dừng và mở archive ở chế độ exclusive; đặt tên mới mỗi lần. stdout Docker tar được ghi binary thẳng vào file, tránh lỗi PowerShell5 khi redirect dữ liệu nhị phân. Nếu backup lỗi, không dùng file chưa hoàn tất; xử lý logs và chạy lại với tên mới.
+`scripts/backup_docker.py` hiện yêu cầu stopped arena/controller và đủ ba named
+volumes của Phase2; không dùng cho stack legacy chỉ có hai volumes. Quy trình mới
+có checksum, pinned image archive và restore vào volumes mới ở
+[Security Foundation](SECURITY_FOUNDATION.md). Phần tar dưới đây chỉ là hướng dẫn
+Phase1 cũ, không bao gồm sandbox artifacts.
 
 Cách chỉ dùng Docker, không cần Python trên host (chọn tên backup/container chưa tồn tại):
 
@@ -104,8 +109,8 @@ docker run --rm --init neon-arena:4.0-tests node --test docs/reference/ottv2/tes
 Acceptance trên host có Python và requirements ứng dụng:
 
 ```text
-python scripts/check_docker.py --lan-ip IP-WIFI-CUA-HOST
-python scripts/check_docker.py --lan-ip IP-WIFI-CUA-HOST --browser
+python scripts/check_docker.py --build --lan-ip IP-WIFI-CUA-HOST
+python scripts/check_docker.py --build --lan-ip IP-WIFI-CUA-HOST --browser
 ```
 
 Bỏ --lan-ip thì dùng loopback. Bật --browser cần Playwright/Chrome như QA v3. Checker dùng random project `neon-arena-qa-*`, random code runtime, port publish ngẫu nhiên, hai volume riêng. Thực thi upload/compile sáu cặp ngôn ngữ, hai game, invitation/Accept/Decline, ba WS/replay, restart, ordinary down/up tạo container mới, hash source/artifacts giữ nguyên và chạy lại bot không compile. Backup tar được mở kiểm tra đầy đủ records. Cleanup chỉ xóa QA volumes sau xác minh label/project, không đụng `neon-arena_*` hoặc data/uploads native. Không mount Docker socket vào app: Docker CLI chỉ chạy trên host trong checker.

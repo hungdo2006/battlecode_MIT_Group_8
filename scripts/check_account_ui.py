@@ -119,9 +119,12 @@ def run():
                 page.fill("#account-login-form [name=password]", PASSWORD)
                 page.click("#account-login-form [type=submit]")
                 page.wait_for_function("document.querySelector('#participant-role').textContent === 'PLAYER'")
-                assert page.locator('.nav-item[data-view="upload"]').is_hidden()
+                assert page.locator('.nav-item[data-view="upload"]').is_visible()
                 assert page.locator('.nav-item[data-view="create"]').is_hidden()
                 assert page.locator('.nav-item[data-view="watch"]').is_hidden()
+                page.locator("#account-team-panel").wait_for(state="visible")
+                assert page.locator("#account-team-create").is_visible()
+                assert page.locator("#account-team-inbox").is_visible()
                 assert page.locator("#workspace-game-select").is_disabled()
                 assert page.evaluate("fetch('/api/session').then(r => r.status)") == 410
 

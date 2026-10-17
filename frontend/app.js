@@ -10,7 +10,7 @@ const app = {
   participant: null, readOnly: false, refreshing: false,
   role: "player", organizerAvailable: false,
   accountOnly: false, accountAuth: false, account: null, accountAudience: null, csrf: null,
-  team: null, activeTeamBot: null,
+  team: null, activeTeamBot: null, officialMatches: [], officialTeams: [],
   logoutBusy: false, logoutError: false,
   competition: null, competitionSocket: null, competitionTimer: null,
   competitionGeneration: 0, competitionBusy: false, shuttingDown: false,
@@ -379,6 +379,10 @@ function applyPermissions() {
       $("#account-team-panel").classList.add("hidden");
     }
     if (location.hash === "#create" || (!accountPlayer && location.hash === "#upload")) location.hash = "home";
+    $('.nav-item[data-view="official"]').forEach(node => node.classList.remove("hidden"));
+    $('.nav-item[data-view="tournaments"], .nav-item[data-view="standings"], .nav-item[data-view="watch"]').forEach(node => node.classList.add("hidden"));
+  } else {
+    $('.nav-item[data-view="official"]').forEach(node => node.classList.add("hidden"));
   }
   $('.nav-item[data-view="create"]').classList.toggle("hidden", app.accountOnly);
   $('.nav-item[data-view="watch"]').classList.toggle("hidden", accountPlayer);
@@ -521,6 +525,7 @@ $("#account-dialog").addEventListener("cancel", event => event.preventDefault())
 function accountExpired() {
   if (!app.accountOnly || !app.account) return;
   app.account = null; app.participant = null; app.accountAudience = null; app.csrf = null;
+  app.generation++; clearTimeout(app.reconnectTimer);
   app.role = "player"; app.organizerAvailable = false; app.initialized = false;
   app.competitionSocket?.close(); app.socket?.close();
   clearTimeout(app.competitionTimer); clearTimeout(app.reconnectTimer);
@@ -640,11 +645,12 @@ const labels = {
   create: "Phòng thi đấu",
   tournaments: "Giải đấu",
   watch: "Lịch sử & Replay",
+  official: "Official Match",
   rules: "Game & Luật chơi",
 };
 function navigate() {
   let view = location.hash.slice(1) || "home";
-  if (!labels[view]) view = "home";
+  if (!labels[view] || (view === "official" && !app.accountOnly)) view = "home";
   $$(".view").forEach(node => node.classList.toggle("active", node.id === `view-${view}`));
   $$(".nav-item").forEach(node => node.classList.toggle("active", node.dataset.view === view));
   $("#page-label").textContent = labels[view];
@@ -1206,6 +1212,7 @@ function populateStandingsGameSelector() {
 }
 
 async function refreshStandings() {
+  if (app.accountOnly) { app.standings = []; renderStandings(); return; }
   const query = app.standingsGameId
     ? `?game_id=${encodeURIComponent(app.standingsGameId)}`
     : "";
@@ -1214,6 +1221,7 @@ async function refreshStandings() {
 }
 
 async function refreshTournaments() {
+  if (app.accountOnly) { app.tournaments = []; renderTournaments(); return; }
   app.tournaments = await api("/api/tournaments");
   renderTournaments();
 }
@@ -1235,6 +1243,9 @@ async function refreshBots() {
   renderBots();
 }
 async function refreshMatches() {
+  if (app.accountOnly && app.accountAudience !== "admin") {
+    app.matches = []; renderMatches(); return;
+  }
   const [matches] = await Promise.all([
     api("/api/matches"),
     refreshStandings(),
@@ -1459,11 +1470,13 @@ async function launch(event) {
 $("#quick-match").addEventListener("submit", launch);
 $("#create-match").addEventListener("submit", launch);
 
-async function loadMatch(id) {
+async function loadMatch(id, official = false) {
   const generation = ++app.generation;
   app.socket?.close();
   clearTimeout(app.reconnectTimer);
-  const payload = await api(`/api/matches/${id}/replay`);
+  const payload = await api(official
+    ? "/api/" + app.accountAudience + "/official-matches/" + encodeURIComponent(id) + "/replay"
+    : "/api/matches/" + encodeURIComponent(id) + "/replay");
   if (generation !== app.generation) return;
   app.match = payload.match;
   app.frames = payload.frames;
@@ -1478,12 +1491,33 @@ async function loadMatch(id) {
   $("#victory-overlay").classList.add("hidden");
   location.hash = "home";
   const link = new URL(location.href);
-  link.searchParams.set("match", id);
+  link.searchParams.delete(official ? "match" : "official");
+  link.searchParams.set(official ? "official" : "match", id);
   history.replaceState(null, "", link);
   if (app.frames.length) setFrame(0, false);
   updatePlayback();
-  if (["running", "queued"].includes(app.match.status)) connectSocket(id, generation);
-  else if (!app.frames.length) toast("Trận bị gián đoạn trước khi có trạng thái replay.", true);
+  if (["running", "queued"].includes(app.match.status)) {
+    if (official) pollOfficialReplay(id, generation);
+    else connectSocket(id, generation);
+  } else if (!app.frames.length) toast("Trận bị gián đoạn trước khi có trạng thái replay.", true);
+}
+
+async function pollOfficialReplay(id, generation) {
+  if (generation !== app.generation || !app.account || !app.accountOnly) return;
+  try {
+    const payload = await api("/api/" + app.accountAudience + "/official-matches/" + encodeURIComponent(id) + "/replay");
+    if (generation !== app.generation) return;
+    app.match = payload.match;
+    app.frames = payload.frames;
+    if (app.frames.length) setFrame(Math.min(app.cursor, app.frames.length - 1), false);
+    updatePlayback();
+  } catch (error) {
+    if (generation !== app.generation || error.status === 401) return;
+    // Preserve the previously received replay on transient network failure.
+  }
+  if (generation === app.generation && ["running", "queued"].includes(app.match?.status)) {
+    app.reconnectTimer = setTimeout(() => pollOfficialReplay(id, generation), 1600);
+  }
 }
 
 function connectSocket(id, generation) {
@@ -1715,12 +1749,13 @@ async function bootstrap() {
       canInspectPrivate ? api("/api/bots") : Promise.resolve([]),
       api("/api/games"),
       canInspectPrivate ? api("/api/matches") : Promise.resolve([]),
-      canInspectPrivate ? api("/api/tournaments") : Promise.resolve([]),
+      !app.accountOnly ? api("/api/tournaments") : Promise.resolve([]),
       api("/api/competition")
     ]);
     app.bots = bots; app.games = registry.games; app.matches = matches; app.tournaments = tournaments;
     await acceptCompetition(competition);
     if (app.accountOnly && app.accountAudience === "player") await refreshAccountTeam();
+    if (app.accountOnly) await refreshOfficialMatches();
     populateStandingsGameSelector();
     if (canInspectPrivate) await refreshStandings();
     else app.standings = [];
@@ -1730,8 +1765,10 @@ async function bootstrap() {
     app.initialized = true;
     connectCompetitionSocket();
     updatePlayback();
-    const matchId = new URL(location.href).searchParams.get("match");
-    if (matchId) await loadMatch(matchId);
+    const params = new URL(location.href).searchParams;
+    const officialId = params.get("official"), matchId = params.get("match");
+    if (officialId && app.accountOnly) await loadMatch(officialId, true);
+    else if (matchId && (!app.accountOnly || app.accountAudience === "admin")) await loadMatch(matchId);
   } catch (error) { setConnection(false); toast(`Chưa kết nối được workspace: ${error.message}`, true); }
   finally { app.initializing = false; renderConnection(); }
 }
@@ -1753,7 +1790,11 @@ setInterval(async () => {
   if (document.hidden || app.refreshing || !app.participant || (app.accountOnly && app.accountAudience !== "admin")) return;
   if (!app.initialized) { bootstrap(); return; }
   app.refreshing = true;
-  try { await Promise.all([refreshMatches(), refreshBots(), refreshTournaments()]); setConnection(true); }
+  try {
+    await Promise.all([refreshMatches(), refreshBots(), refreshTournaments()]);
+    if (app.accountOnly) await refreshOfficialMatches();
+    setConnection(true);
+  }
   catch { setConnection(false); }
   finally { app.refreshing = false; }
 }, 2000);

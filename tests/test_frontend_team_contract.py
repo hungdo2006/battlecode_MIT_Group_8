@@ -64,3 +64,12 @@ def test_browser_account_checker_navigates_to_team_workspace():
     checker = (ROOT / "scripts" / "check_account_ui.py").read_text(encoding="utf-8")
     assert checker.index('page.locator(\'.nav-item[data-view="upload"]\').click()') < checker.index(
         'page.locator("#account-team-panel").wait_for(state="visible")')
+
+
+def test_account_websocket_handshake_denial_checks_http_auth():
+    js = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
+    assert 'const socketAudience = app.accountAudience;' in js
+    assert 'cache: "no-store"' in js
+    assert 'if (response.status === 401 || response.status === 403) accountExpired();' in js
+    assert 'if (socket !== app.competitionSocket) return;' in js
+    assert '.catch(retry);' in js

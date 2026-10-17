@@ -365,6 +365,7 @@ function connectCompetitionSocket() {
   if (app.shuttingDown || (app.accountOnly && !app.account)) return;
   const scheme = location.protocol === "https:" ? "wss" : "ws";
   const socketPath = app.accountOnly ? `/api/${app.accountAudience}/ws/competition` : "/ws/competition";
+  const socketAudience = app.accountAudience;
   const socket = new WebSocket(`${scheme}://${location.host}${socketPath}`);
   app.competitionSocket = socket;
   socket.onopen = () => {
@@ -387,13 +388,33 @@ function connectCompetitionSocket() {
     }
   };
   socket.onclose = event => {
-    if (socket === app.competitionSocket) { app.lobbyOnline = false; renderConnection(); }
-    if (socket === app.competitionSocket) clearInterval(app.heartbeatTimer);
-    if (app.accountOnly && [1008, 4401].includes(event.code)) {
-      accountExpired();
+    if (socket !== app.competitionSocket) return;
+    app.lobbyOnline = false; renderConnection();
+    clearInterval(app.heartbeatTimer);
+    if (app.shuttingDown) return;
+    if (app.accountOnly) {
+      if (!app.account || socketAudience !== app.accountAudience) return;
+      if ([1008, 4401].includes(event.code)) {
+        accountExpired();
+        return;
+      }
+      // A rejected handshake may close with 1006, never delivering 1008.
+      // Verify the cookie against protected HTTP; a network outage is NOT logout.
+      const stillCurrent = () => socket === app.competitionSocket &&
+        !app.shuttingDown && !!app.account && app.accountAudience === socketAudience;
+      const retry = () => {
+        if (stillCurrent()) app.competitionTimer = setTimeout(connectCompetitionSocket, 1200);
+      };
+      fetch(`/api/${socketAudience}/auth/me`, {
+        headers: { "Accept": "application/json" }, cache: "no-store"
+      }).then(response => {
+        if (!stillCurrent()) return;
+        if (response.status === 401 || response.status === 403) accountExpired();
+        else retry();
+      }).catch(retry);
       return;
     }
-    if (!app.shuttingDown && socket === app.competitionSocket && (!app.accountOnly || app.account)) app.competitionTimer = setTimeout(connectCompetitionSocket, 1200);
+    app.competitionTimer = setTimeout(connectCompetitionSocket, 1200);
   };
 }
 

@@ -301,9 +301,9 @@ function applyPermissions() {
   $$(".organizer-only").forEach(node => node.classList.toggle("hidden", !organizer));
   $$(".player-only, [data-go=upload], .nav-item[data-view=upload]").forEach(node => node.classList.toggle("hidden", organizer));
   if (app.accountOnly) {
-    $(".player-only, [data-go=upload], .nav-item[data-view=upload], #quick-match, #create-match").forEach(node => node.classList.add("hidden"));
+    document.querySelectorAll(".player-only, [data-go=upload], .nav-item[data-view=upload], #quick-match, #create-match").forEach(node => node.classList.add("hidden"));
     if (accountPlayer) {
-      $(".nav-item[data-view=upload], #view-upload .two-column, #view-upload .library-panel").forEach(node => node.classList.remove("hidden"));
+      document.querySelectorAll(".nav-item[data-view=upload], #view-upload .two-column, #view-upload .library-panel").forEach(node => node.classList.remove("hidden"));
       $("#account-team-panel").classList.remove("hidden");
       $("#account-team-panel").closest(".view").classList.remove("hidden");
     } else {
@@ -325,7 +325,7 @@ function applyPermissions() {
   $("#upload-form [type=submit]").disabled = organizer || app.readOnly || app.uploading || !app.selectedGameId;
   $("#seed-samples").disabled = app.accountOnly || organizer || app.readOnly || app.seeding || !app.selectedGameId;
   $("#seed-samples").classList.toggle("hidden", app.accountOnly);
-  $('[data-sample]').forEach(node => { node.disabled = app.accountOnly || organizer || app.readOnly || app.seeding || app.sampleBusy.has(`${node.dataset.gameId}:${node.dataset.sample}`); });
+  document.querySelectorAll('[data-sample]').forEach(node => { node.disabled = app.accountOnly || organizer || app.readOnly || app.seeding || app.sampleBusy.has(`${node.dataset.gameId}:${node.dataset.sample}`); });
   $$(".game-select, .game-card").forEach(node => { node.title = allowed ? "Chọn game của cuộc thi" : app.competition?.competition_locked ? "Game đã khóa; đóng cuộc thi để cấu hình lại" : "Chỉ Organizer được chọn game"; });
   renderCompetitionBanner();
 }

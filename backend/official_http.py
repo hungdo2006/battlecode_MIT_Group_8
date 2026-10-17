@@ -1,4 +1,4 @@
-"""Official Match D1 REST: scheduling/locking only, no automatic dispatch yet."""
+"""Account-Only Official Match scheduling, Team visibility and replay APIs."""
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import Field
 
@@ -52,5 +52,19 @@ def install_official_http(app):
     @router.get("/api/player/official-matches")
     async def my_matches(request:Request):
         return {"requests":await execute(request,"PLAYER",lambda s,a:s.list_player(a))}
+
+    @router.get("/api/player/official-matches/{request_id}")
+    async def player_detail(request_id:str,request:Request):
+        return {"request":await execute(request,"PLAYER",lambda s,a:s.detail_player(a,request_id))}
+
+    @router.get("/api/admin/official-matches/{request_id}/replay")
+    async def admin_replay(request_id:str,request:Request):
+        return await execute(request,"ADMIN",
+            lambda s,a:s.replay(a,request_id,audience="ADMIN",manager=app.state.manager))
+
+    @router.get("/api/player/official-matches/{request_id}/replay")
+    async def player_replay(request_id:str,request:Request):
+        return await execute(request,"PLAYER",
+            lambda s,a:s.replay(a,request_id,audience="PLAYER",manager=app.state.manager))
 
     app.include_router(router)

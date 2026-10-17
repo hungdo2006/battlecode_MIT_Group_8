@@ -176,6 +176,8 @@ class Store:
             players = {}
 
             for match in self.matches.values():
+                if match.get("official_request_id"):
+                    continue  # Official Team results have a separate standings policy.
                 if match.get("status") != "completed":
                     continue
                 if game_id is not None and match.get("game_id") != game_id:

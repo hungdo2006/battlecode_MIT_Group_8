@@ -191,6 +191,18 @@ class OfficialSchedule:
         self.auth.require_actor(actor,self._now(),admin=True,touch=False)
         return official_json(self.db,self._get(request_id))
 
+    def detail_player(self, actor, request_id):
+        user = self.auth.require_actor(actor, self._now(), player_only=True, touch=False)
+        row = self.db.execute("""SELECT r.* FROM official_match_requests r
+            WHERE r.id=? AND EXISTS (
+                SELECT 1 FROM team_memberships m WHERE m.user_id=?
+                    AND m.left_at IS NULL AND m.team_id IN
+                    (r.team_a_id,r.team_b_id))""",
+            (request_id, user["id"])).fetchone()
+        if not row:
+            raise OfficialNotFound("Official match not found")
+        return official_json(self.db,row)
+
     def list_player(self,actor):
         user=self.auth.require_actor(actor,self._now(),player_only=True,touch=False)
         return [official_json(self.db,row) for row in self.db.execute("""SELECT r.*

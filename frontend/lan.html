@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="vi">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f6f8fc"><title>NEON ARENA · Hướng dẫn LAN</title><link rel="icon" href="/static/favicon.svg?v=7b9e5bcd3348"><link rel="stylesheet" href="/static/styles.css?v=a317a4a7509e"></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f6f8fc"><title>NEON ARENA · Hướng dẫn LAN</title><link rel="icon" href="/static/favicon.svg?v=0ab76a04fe4c"><link rel="stylesheet" href="/static/styles.css?v=695af9c02684"></head>
 <body><article class="protocol-document lan-guide">
 <a class="text-button" href="/">← Trở về đấu trường</a>
 <p class="eyebrow">NETWORK PROGRAMMING / MULTI-CLIENT</p>
@@ -23,7 +23,7 @@ Get-NetConnectionProfile</pre>
 <p>Lấy <strong>IPv4 Address</strong> của card <strong>Wireless LAN adapter Wi-Fi</strong>, ví dụ <code>192.168.2.16</code>. Không chọn địa chỉ adapter VPN/WSL/VirtualBox. Laptop B mở <code>http://IP-MAY-CHU:8000</code>. Cả hai máy nên mở bằng cùng URL LAN để link chia sẻ và cookie phiên ổn định.</p>
 <p>Không dùng localhost trên laptop B: đó là địa chỉ của chính laptop B. IP có thể thay đổi sau khi kết nối Wi-Fi lại; chạy ipconfig để xem IP mới. Muốn ổn định, dùng DHCP reservation trên router theo MAC của card Wi-Fi; không tự chọn một IP trùng thiết bị khác.</p>
 <h2>03 / Demo ba laptop</h2>
-<p><strong>Account-Only:</strong> đăng nhập bằng tài khoản Admin/Player; mã Organizer và cookie legacy không cấp quyền. Team submission và Official Match vẫn khóa đến Phase 4.2C–D. Quy trình dưới đây chỉ áp dụng khi <code>ARENA_ACCOUNT_ONLY=0</code>.</p>
+<p><strong>Account-Only:</strong> đăng nhập bằng tài khoản Admin/Player; mã Organizer và cookie legacy không cấp quyền. Team submission và Captain Active Bot đã có trong Account-Only Phase 4.2C; Official Match vẫn chưa mở cho đến Phase 4.2D. Quy trình dưới đây chỉ áp dụng khi <code>ARENA_ACCOUNT_ONLY=0</code>.</p>
 <ol>
 <li>Laptop 1 chạy server legacy. Đặt <code>ARENA_ADMIN_CODE</code> trong PowerShell trước <code>start.bat</code>; mở quyền Organizer, chọn Robot Battle/OTT v2, lưu luật rồi <strong>LOCK GAME / OPEN COMPETITION</strong>.</li>
 <li>Laptop 2/3 mở URL LAN, đặt nickname Hoang/Minh, upload bot Python/C++/Java theo game hiện tại. Trong <strong>MY SUBMISSIONS</strong>, mỗi người nhấn <strong>SET AS ACTIVE BOT</strong>; giữ website mở để READY.</li>

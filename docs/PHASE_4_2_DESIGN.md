@@ -989,3 +989,197 @@ peer và không làm Docker Sandbox an toàn tuyệt đối trước code không
   trong lượt này.
 - Backup/restore test dùng archive I/O và dữ liệu tạm thật (SQLite + JSON/JSONL +
   uploads + artifacts), nhưng dùng Docker CLI double; không chạm volume thật.
+
+## 15. Phase 4.2C1 — Team Lifecycle, Membership & RBAC
+
+### 15.1 Quyết định sản phẩm và quy tắc vòng đời (Approved Product Decisions)
+
+Phase 4.2C1 tập trung vào quản lý vòng đời Team, tư cách thành viên (membership), hệ thống lời mời (invitations), kiểm soát truy cập dựa trên vai trò (RBAC) và kiểm toán (audit). C2 (Bot Ownership), C3 (Active Bot / Frontend Team UI), D (Official Match) và Triển khai sản xuất chưa thuộc phạm vi này.
+
+Các quyết định sản phẩm cốt lõi đã chốt:
+1. **Một Player chỉ được có tối đa 1 active Team membership globally**: Áp dụng bình đẳng cho cả Team ở trạng thái `DRAFT` và `ACTIVE`. Trạng thái active được xác định khi `left_at IS NULL`.
+2. **Player tạo Team và ngay lập tức trở thành Captain đầu tiên một cách nguyên tử**: Tạo Team chèn đồng thời bản ghi Team, bản ghi Membership với vai trò `CAPTAIN`, và bản ghi Audit log trong cùng transaction SQLite.
+3. **Mỗi Team có chính xác 1 Captain khi hoạt động**: Ràng buộc duy nhất `team_memberships_one_captain` (đã có từ v1) và ràng buộc toàn cục `membership_active_user_global` (thêm ở v3) bảo đảm không có 2 Captain, và không bao giờ để Team hoạt động mà không có Captain.
+4. **Các thành viên khác là MEMBER**: Thành viên thông thường chỉ có quyền xem thông tin Team, danh sách thành viên, và tự rời Team (`leave_team`).
+5. **ADMIN là system role**: Không phải thành viên mặc định hay Captain ngầm định của bất kỳ Team nào. ADMIN không thể tự gán mình vào Team, nhưng có quyền phục hồi hạn chế (Admin recovery) qua audit.
+6. **Xác thực và ủy quyền dựa trên server-side**: Identity và quyền hạn đến từ xác thực server-side (cookie session hợp lệ) và truy vấn trực tiếp bảng `accounts`, `auth_sessions`, `teams`, `team_memberships` bên trong transaction SQLite dưới `WriterLock`. Không tin cậy client-provided IDs, claims hay cached snapshots.
+7. **Bảo tồn lịch sử (Historical retention)**: Không xóa cứng (no hard delete) Teams, Users, Memberships, hay Invitations. Rời team hoặc xóa thành viên cập nhật `left_at = now`.
+8. **Quyền sở hữu Bot thuộc Team**: Trong tương lai (Phase C2), Team sở hữu bot; cá nhân chỉ là uploader. Trong Phase C1, bot endpoints (`/api/player/bots`, `/api/player/active-bot`) tiếp tục trả `403 Forbidden` an toàn.
+9. **Feature gate backward compatibility**: Khi tắt feature gate (`ARENA_ACCOUNT_ONLY=0`), ứng dụng legacy (Robot Battle, OTT v2, lobby, sessions.json, Docker sandbox) hoạt động bình thường 100%.
+
+### 15.2 State Machine vòng đời Team (Team Lifecycle)
+
+Team trải qua 3 trạng thái:
+
+```mermaid
+stateDiagram-v2
+    [*] --> DRAFT : create_team (Player becomes Captain)
+    DRAFT --> ACTIVE : activate_team (Captain only)
+    DRAFT --> ARCHIVED : archive_team (Captain only)
+    ACTIVE --> ARCHIVED : archive_team (Captain only)
+    ARCHIVED --> [*] : Terminal state in C1
+```
+
+- **DRAFT**:
+  - Trạng thái khởi tạo sau `create_team`.
+  - Captain có thể cập nhật display name, gửi lời mời thành viên (`invite_member`), kích hoạt (`activate_team`), hoặc lưu trữ (`archive_team`).
+  - Team slug là bất biến (immutable) sau khi tạo.
+- **ACTIVE**:
+  - Team đang vận hành. Captain có thể cập nhật display name, mời thành viên, xóa thành viên (`remove_member`), chuyển giao quyền Captain (`transfer_captain`), hoặc lưu trữ (`archive_team`).
+  - Member có thể xem danh sách thành viên hoặc tự rời Team (`leave_team`).
+- **ARCHIVED**:
+  - Trạng thái kết thúc (terminal) trong Phase C1; không cho phép tự động kích hoạt lại.
+  - Khi lưu trữ: toàn bộ active memberships bị kết thúc đồng thời (`left_at = now`), và toàn bộ pending invitations bị hủy (`status = 'revoked'`) trong cùng transaction SQLite.
+  - Mọi thao tác chỉnh sửa, mời, tham gia trên Team `ARCHIVED` đều bị từ chối (`409 Conflict`).
+
+### 15.3 Database Migration v3 (Append-Only)
+
+Không chỉnh sửa các migration đã phát hành (v1 `account_foundation`, v2 `auth_service_core`). Migration v3 mang tên `team_lifecycle_membership` được thêm theo mô hình append-only.
+
+**Mục tiêu và thay đổi:**
+1. Ràng buộc toàn cục tối đa 1 active membership cho mỗi user:
+   ```sql
+   CREATE UNIQUE INDEX membership_active_user_global ON team_memberships(user_id) WHERE left_at IS NULL;
+   ```
+2. Chỉ mục tối ưu hóa truy vấn thành viên active theo Team:
+   ```sql
+   CREATE INDEX team_memberships_team_active ON team_memberships(team_id) WHERE left_at IS NULL;
+   ```
+3. Chỉ mục tối ưu hóa kiểm tra lời mời theo User và trạng thái:
+   ```sql
+   CREATE INDEX team_invitations_user_status ON team_invitations(user_id, status);
+   ```
+
+**Đặc tính an toàn:**
+- Schema giữ nguyên chế độ `STRICT`, foreign keys (`PRAGMA foreign_keys = ON`), schema version ledger và cơ chế fingerprint SHA-256.
+- Kiểm tra dữ liệu xung đột trước khi áp dụng: nếu cơ sở dữ liệu hiện tại vi phạm ràng buộc (tồn tại user có >= 2 active memberships), migration sẽ rollback sạch và báo lỗi `DatabaseError` thay vì xóa hay ghi đè âm thầm.
+- Migration là thao tác bảo trì offline (`admin_cli migrate`); FastAPI startup kiểm tra phiên bản DB và từ chối khởi động nếu DB chưa được migrate lên v3 (fail-closed, không auto-migrate).
+
+### 15.4 TeamService & Domain Architecture
+
+Module độc lập `backend/team_service.py` triển khai toàn bộ nghiệp vụ domain:
+- **Khóa và Transaction**: Mọi mutation chạy dưới `WriterLock` tiến trình và transaction SQLite tường minh (`transaction(connection)` với `BEGIN IMMEDIATE`).
+- **Xác thực thực tế (Live Verification)**: Không tin cậy Principal snapshot; truy vấn trực tiếp session token trong `auth_sessions` và trạng thái account trong `accounts` để đảm bảo session chưa bị thu hồi (`revoked_at IS NULL`), chưa hết hạn, và tài khoản `ACTIVE`.
+- **RBAC & Authorization**: Kiểm tra trực tiếp bảng `team_memberships` bên trong transaction để xác định quyền `CAPTAIN` hay `MEMBER`.
+- **Ghi Audit nguyên tử**: Mọi thay đổi trạng thái đều ghi bản ghi vào bảng `audit_log` trong cùng transaction:
+  - `team.created`: Tạo team và captain.
+  - `team.updated`: Đổi display name.
+  - `team.activated`: Chuyển DRAFT sang ACTIVE.
+  - `team.archived`: Lưu trữ team, kết thúc active members và thu hồi lời mời pending.
+  - `team.member_invited`: Gửi lời mời gia nhập.
+  - `team.member_joined`: Chấp nhận lời mời, tạo membership mới.
+  - `team.member_left`: Thành viên tự rời team.
+  - `team.member_removed`: Captain xóa thành viên.
+  - `team.invitation_declined`: Người được mời từ chối lời mời.
+  - `team.invitation_revoked`: Captain thu hồi lời mời.
+  - `team.captain_transferred`: Chuyển giao quyền Captain giữa các thành viên.
+  - `team.captain_transferred_admin`: Admin can thiệp chuyển giao quyền Captain khi Captain cũ bị vô hiệu hóa.
+
+### 15.5 Quy tắc lời mời (Team Invitations)
+
+1. **Tách biệt**: Tách biệt hoàn toàn với account activation invitations và match invitations legacy.
+2. **Định danh**: Tra cứu người được mời qua username chuẩn hóa (`canonical_username`). Trả lỗi generic tránh enumeration.
+3. **Điều kiện mời**:
+   - Chỉ mời được tài khoản `PLAYER` ở trạng thái `ACTIVE`.
+   - Người được mời không được đang có active membership trong bất kỳ Team nào (toàn cục).
+   - Không được có lời mời `PENDING` chưa hết hạn từ cùng Team.
+4. **Thời hạn (TTL)**:
+   - TTL mặc định: 7 ngày (604,800 giây).
+   - Lời mời quá hạn tự động chuyển sang trạng thái `EXPIRED` khi tra cứu hoặc xử lý, và không thể chấp nhận (`accept_invitation`).
+   - Lời mời đã hết hạn không cản trở việc gửi lời mời mới.
+5. **Thao tác**:
+   - Chỉ người được mời mới có quyền `accept` hoặc `decline`.
+   - Captain của Team có quyền `revoke` lời mời đang pending.
+   - Thao tác chấp nhận lời mời và tạo membership được thực hiện nguyên tử trong transaction.
+
+### 15.6 Chuyển giao Captain & Admin Recovery
+
+1. **Chuyển giao thông thường (Captain Transfer)**:
+   - Chỉ Captain hiện tại mới được gọi `transfer_captain`.
+   - Mục tiêu chuyển giao phải là một thành viên `ACTIVE` hiện có của Team (`role = 'MEMBER'`).
+   - Thực hiện nguyên tử: hạ quyền Captain cũ thành `MEMBER` (`role = 'MEMBER'`) và nâng quyền thành viên mục tiêu thành `CAPTAIN` (`role = 'CAPTAIN'`) trong cùng transaction SQLite.
+   - Captain không được tự ý rời Team (`leave_team`) mà chưa chuyển giao; muốn giải tán phải dùng `archive_team`.
+2. **Can thiệp phục hồi của Admin (Admin Recovery)**:
+   - Nếu Captain hiện tại bị khóa tài khoản hoặc vô hiệu hóa (`DISABLED`), Admin có thể can thiệp qua `admin_transfer_captain`.
+   - Admin chỉ định một thành viên active hiện tại của Team làm Captain mới.
+   - Hành vi này ghi audit log `team.captain_transferred_admin` với actor là Admin.
+   - **Bảo mật**: Admin KHÔNG bao giờ được cấp tư cách thành viên hay Captain của Team.
+
+### 15.7 Hợp đồng API REST (C1 API Contract) & Ma trận phân quyền
+
+Tất cả các route chỉ hoạt động trong chế độ Account-Only (`ARENA_ACCOUNT_ONLY=1`) dưới boundary an toàn (`AccountAuthBoundary`).
+
+#### 15.7.1 Endpoints Player (`/api/player/*`)
+
+| Method | Endpoint | Yêu cầu CSRF | Mô tả & Quyền |
+| --- | --- | :---: | --- |
+| GET | `/api/player/team` | Không | Lấy Team active hiện tại của Player (hoặc `team: null`) |
+| POST | `/api/player/teams` | Có | Tạo Team mới (Player trở thành Captain; Team bắt đầu ở `DRAFT`) |
+| GET | `/api/player/teams/{team_id}` | Không | Xem chi tiết Team (Yêu cầu là Member của Team) |
+| PATCH | `/api/player/teams/{team_id}` | Có | Cập nhật display name của Team (Captain only) |
+| POST | `/api/player/teams/{team_id}/activate` | Có | Kích hoạt Team từ DRAFT sang ACTIVE (Captain only) |
+| POST | `/api/player/teams/{team_id}/archive` | Có | Lưu trữ Team, giải tán thành viên (Captain only) |
+| GET | `/api/player/teams/{team_id}/members` | Không | Danh sách thành viên trong Team (Member only) |
+| POST | `/api/player/teams/{team_id}/invitations` | Có | Gửi lời mời thành viên mới theo username (Captain only) |
+| GET | `/api/player/team-invitations` | Không | Danh sách lời mời gửi tới chính Player này |
+| POST | `/api/player/team-invitations/{invitation_id}/accept` | Có | Chấp nhận lời mời gia nhập Team (Người được mời) |
+| POST | `/api/player/team-invitations/{invitation_id}/decline` | Có | Từ chối lời mời gia nhập (Người được mời) |
+| POST | `/api/player/teams/{team_id}/invitations/{invitation_id}/revoke` | Có | Thu hồi lời mời pending (Captain only) |
+| POST | `/api/player/teams/{team_id}/captain-transfer` | Có | Chuyển giao Captain cho Member khác (Captain only) |
+| POST | `/api/player/teams/{team_id}/members/{user_id}/remove` | Có | Xóa Member khỏi Team (Captain only) |
+| POST | `/api/player/teams/{team_id}/leave` | Có | Rời Team (Member only; Captain không được tự rời) |
+
+#### 15.7.2 Endpoints Admin (`/api/admin/*`)
+
+| Method | Endpoint | Yêu cầu CSRF | Mô tả & Quyền |
+| --- | --- | :---: | --- |
+| GET | `/api/admin/teams` | Không | Liệt kê danh sách tất cả các Team |
+| GET | `/api/admin/teams/{team_id}` | Không | Xem chi tiết bất kỳ Team nào kèm danh sách thành viên |
+| POST | `/api/admin/teams/{team_id}/captain-transfer` | Có | Can thiệp chuyển giao quyền Captain khi Captain cũ bị vô hiệu |
+
+#### 15.7.3 Ma trận phân quyền (Permission Matrix)
+
+| Hành động | ANONYMOUS | PLAYER (Không thuộc Team) | MEMBER | CAPTAIN | ADMIN |
+| --- | :---: | :---: | :---: | :---: | :---: |
+| Xem Team cá nhân (`GET /api/player/team`) | 401 | Trả `null` | Trả Team | Trả Team | 403 (Sai audience) |
+| Tạo Team (`POST /api/player/teams`) | 401 | Cho phép (201) | 409 (Đã có Team) | 409 (Đã có Team) | 403 |
+| Xem chi tiết Team (`GET /api/player/teams/{id}`) | 401 | 403 | Cho phép | Cho phép | 403 (Dùng admin API) |
+| Đổi tên Team (`PATCH /api/player/teams/{id}`) | 401 | 403 | 403 | Cho phép | 403 |
+| Kích hoạt Team (`POST /activate`) | 401 | 403 | 403 | Cho phép | 403 |
+| Lưu trữ Team (`POST /archive`) | 401 | 403 | 403 | Cho phép | 403 |
+| Xem thành viên (`GET /members`) | 401 | 403 | Cho phép | Cho phép | 403 (Dùng admin API) |
+| Mời thành viên (`POST /invitations`) | 401 | 403 | 403 | Cho phép | 403 |
+| Thu hồi lời mời (`POST /revoke`) | 401 | 403 | 403 | Cho phép | 403 |
+| Nhận/Từ chối lời mời (`POST /accept`, `/decline`) | 401 | Chỉ người được mời | 409 nếu đã có Team | 409 nếu đã có Team | 403 |
+| Xóa thành viên (`POST /remove`) | 401 | 403 | 403 | Cho phép (trừ Captain) | 403 |
+| Rời Team (`POST /leave`) | 401 | 403 | 403 | Cho phép | 400 (Phải transfer trước) | 403 |
+| Chuyển Captain (`POST /captain-transfer`) | 401 | 403 | 403 | Cho phép | 403 (Dùng admin recovery) |
+| Admin liệt kê/xem Team | 401 | 403 | 403 | 403 | Cho phép |
+| Admin phục hồi Captain | 401 | 403 | 403 | 403 | Cho phép (Có audit) |
+
+### 15.8 Ranh giới triển khai rõ ràng: C1 / C2 / C3 / D
+
+- **Phase 4.2C1 (Hoàn thành)**:
+  - Vòng đời Team (`DRAFT`, `ACTIVE`, `ARCHIVED`).
+  - Quản lý thành viên (Tối đa 1 active team globally per player, quy tắc duy nhất 1 Captain).
+  - Lời mời tham gia Team (TTL 7 ngày, quy tắc hết hạn, chấp nhận/từ chối/thu hồi).
+  - Phân quyền (RBAC) và kiểm toán (Audit log cho mọi biến động).
+  - Migration v3 append-only, quy trình offline migration.
+  - Các endpoint bot (`/api/player/bots`, `/api/player/active-bot`) tiếp tục trả `403 Forbidden` an toàn.
+- **Phase 4.2C2 (Chưa triển khai)**:
+  - Team Bot Submission & Bot Ownership (Team sở hữu bot; cá nhân là uploader).
+  - Upload journal ghi nhận người tải lên và phiên bản bot của Team.
+- **Phase 4.2C3 (Chưa triển khai)**:
+  - Lựa chọn Active Bot cho Team (do Captain thực hiện).
+  - Giao diện người dùng Frontend cho Team & Membership.
+- **Phase 4.2D (Chưa triển khai)**:
+  - Điều phối trận đấu chính thức (Official Match scheduling), per-match bot freeze, snapshot và dispatcher.
+
+### 15.9 Kết quả QA Phase 4.2C1 (2026-10-17)
+
+- `python -m pytest tests/test_team_migration.py -ra --tb=short -p no:cacheprovider --basetemp=.tmp_pytest`: 5 passed.
+- `python -m pytest tests/test_team_service.py -ra --tb=short -p no:cacheprovider --basetemp=.tmp_pytest`: 17 passed.
+- `python -m pytest tests/test_team_http.py -ra --tb=short -p no:cacheprovider --basetemp=.tmp_pytest`: 11 passed.
+- `python -m pytest tests controller_tests -ra --tb=short -p no:cacheprovider --basetemp=.tmp_pytest`: 398 passed.
+- `python -m pip check`: Pass (No broken dependencies).
+- `git diff --check`: Pass.

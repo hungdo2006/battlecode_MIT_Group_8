@@ -140,4 +140,10 @@ AUTH_SERVICE_CORE = (
 MIGRATIONS = (
     (1, "account_foundation", FOUNDATION),
     (2, "auth_service_core", AUTH_SERVICE_CORE),
+    (3, "team_lifecycle_membership", (
+        """CREATE UNIQUE INDEX membership_active_user_global
+            ON team_memberships(user_id) WHERE left_at IS NULL""",
+        "CREATE INDEX team_memberships_team_active ON team_memberships(team_id, left_at)",
+        "CREATE INDEX team_invitations_user_status ON team_invitations(invited_user_id, status)",
+    )),
 )

@@ -580,5 +580,5 @@ def test_v1_upgrade_preserves_accounts_and_revokes_only_unbounded_legacy_sql_ses
         assert tuple(connection.execute("SELECT * FROM schema_migrations WHERE version=1").fetchone()) == before_ledger
         manual = connection.execute("SELECT * FROM auth_sessions WHERE id='manual'").fetchone()
         assert manual["revoked_at"] is not None and manual["idle_timeout_seconds"] == 1
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == account_database.SCHEMA_VERSION
         check_integrity(connection)

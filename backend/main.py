@@ -947,6 +947,9 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
         return FileResponse(PROJECT / "frontend" / "lan.html")
 
     install_auth_http(app, account_settings, settings)
+    if account_settings.account_only:
+        from backend.team_http import install_team_http
+        install_team_http(app)
     return app
 
 

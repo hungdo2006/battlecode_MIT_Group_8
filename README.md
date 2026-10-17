@@ -5,6 +5,11 @@ Nền tảng thi đấu bot đa game dành cho bài tập nhóm môn Lập trìn
 **v3.0: Organizer điều hành, Player nộp bot và Accept/Decline lời mời.** Presence qua WebSocket/heartbeat, một Active Bot riêng cho mỗi Player, tự chạy đúng một trận khi cả hai Accept và tự mở cùng Live Arena trên ba trình duyệt. Game Lock, Game Adapter, runner đa ngôn ngữ và replay JSONL được giữ. Xem [demo ba laptop](docs/MULTIPLAYER.md), [báo cáo kiểm thử v3](docs/MULTIPLAYER_VERIFICATION.md), [networking](docs/NETWORKING.md); hướng dẫn trong app ở `/lan`.
 
 > **Chỉ dùng local/LAN riêng.** Legacy runner (`start.bat`/Phase1) chỉ dành cho code tin cậy: subprocess có quyền của tài khoản server, không phải sandbox. Phase2 bổ sung cách ly Docker nhưng không bảo đảm an toàn tuyệt đối. Không công khai tính năng thực thi code lên Internet.
+## Phase 4.2C1 — Team Lifecycle, Membership & RBAC
+
+Chế độ Account-Only đã được mở rộng hỗ trợ quản lý Team, tư cách thành viên, hệ thống lời mời và RBAC. Mỗi Player chỉ được tham gia tối đa 1 Team active toàn hệ thống (DRAFT hoặc ACTIVE); Player tạo Team sẽ tự động trở thành Captain đầu tiên một cách nguyên tử. Captain có quyền quản lý thông tin Team, kích hoạt (DRAFT -> ACTIVE), gửi/thu hồi lời mời, xóa thành viên, chuyển giao quyền Captain, hoặc lưu trữ Team (ARCHIVED giải tán thành viên và hủy lời mời pending). Admin có quyền kiểm tra và phục hồi Captain nếu Captain cũ bị vô hiệu hóa mà không nhận quyền thành viên.
+
+Migration v3 (`team_lifecycle_membership`) bổ sung ràng buộc toàn cục `membership_active_user_global` qua partial UNIQUE index trên SQLite. API mới được tích hợp dưới `/api/player/team*` và `/api/admin/teams*` với xác thực audience và CSRF. Các endpoint nộp bot của Team (Phase C2) và Active Bot (Phase C3) tiếp tục giữ mã bảo vệ 403. Xem [đặc tả, quy tắc vòng đời và hợp đồng API](docs/PHASE_4_2_DESIGN.md#15-phase-42c1--team-lifecycle-membership--rbac).
 
 ## Phase 4.2B.3.2 — Account-Only cutover
 

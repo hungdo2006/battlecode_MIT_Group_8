@@ -661,17 +661,10 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
             path = PROJECT / "samples" / sample["path"]
             return FileResponse(path, filename=path.name, media_type="text/plain")
 
-        @app.get("/api/player/bots")
         @app.get("/api/player/matches")
         async def account_player_private_resources(request: Request):
             await account_principal(request, "PLAYER")
-            raise HTTPException(403, "Team ownership and published match visibility are not available yet")
-
-        @app.post("/api/player/bots")
-        @app.put("/api/player/active-bot")
-        async def account_player_team_mutations(request: Request):
-            await account_principal(request, "PLAYER", mutation=True)
-            raise HTTPException(403, "Team ownership is required before submissions can be changed")
+            raise HTTPException(403, "Player match publication policy is not available yet")
 
         @app.get("/api/player/matches/{match_id}")
         @app.get("/api/player/matches/{match_id}/replay")
@@ -949,7 +942,9 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
     install_auth_http(app, account_settings, settings)
     if account_settings.account_only:
         from backend.team_http import install_team_http
+        from backend.bot_http import install_bot_http
         install_team_http(app)
+        install_bot_http(app)
     return app
 
 

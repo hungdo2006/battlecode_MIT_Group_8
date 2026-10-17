@@ -831,7 +831,23 @@ function renderMatches() {
   renderStats();
 }
 
-async function refreshBots() { app.bots = await api("/api/bots"); renderBots(); }
+async function refreshBots() {
+  if (app.accountOnly) {
+    if (app.accountAudience !== "player") return;
+    // Account-Only returns {bots: [...]}, not the legacy bare array.
+    // Keep the current library intact on a failed or malformed response.
+    if (!app.team?.team) {
+      app.bots = [];
+    } else {
+      const response = await api("/api/player/bots");
+      if (!Array.isArray(response.bots)) throw new Error("Dữ liệu submission của Team không hợp lệ.");
+      app.bots = response.bots;
+    }
+  } else {
+    app.bots = await api("/api/bots");
+  }
+  renderBots();
+}
 async function refreshMatches() { app.matches = await api("/api/matches"); renderMatches(); }
 $("#refresh-bots").addEventListener("click", () => refreshBots().catch(e => toast(e.message, true)));
 $("#refresh-matches").addEventListener("click", () => refreshMatches().catch(e => toast(e.message, true)));
@@ -1410,12 +1426,25 @@ $("#account-team-archive").addEventListener("click",async()=>{
   catch(e){toast(e.message,true);}
 });
 
-$("#account-team-rename").addEventListener("submit",async event=>{
+$("#account-team-rename").addEventListener("submit", async event => {
   event.preventDefault();
-  try{await api(`/api/player/teams/${app.team.team.id}`,jsonOptions("PATCH",{
-      display_name:event.currentTarget.elements.display_name.value
-    }));event.currentTarget.reset();await refreshAccountTeam();}
-  catch(e){toast(e.message,true);}
+  // currentTarget is only available while the browser dispatches the event,
+  // not after the first await. Keep a stable reference for subsequent updates.
+  const form = event.currentTarget;
+  const button = form.querySelector("[type=submit]");
+  button.disabled = true;
+  try {
+    await api(`/api/player/teams/${app.team.team.id}`, jsonOptions("PATCH", {
+      display_name: form.elements.display_name.value
+    }));
+    form.reset();
+    await refreshAccountTeam();
+    toast("Đã đổi tên Team.");
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    button.disabled = false;
+  }
 });
 $("#account-team-leave").addEventListener("click",async()=>{
   if(!confirm("Bạn muốn rời Team?"))return;

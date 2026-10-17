@@ -38,3 +38,29 @@ def test_committed_asset_versions_current():
     for page in sorted((ROOT / "frontend").glob("*.html")):
         html = page.read_text(encoding="utf-8")
         assert version_frontend.versioned_html(html) == html, page.name
+
+
+def test_account_only_refresh_unwraps_team_bot_response():
+    js = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
+    assert 'const response = await api("/api/player/bots");' in js
+    assert 'if (!Array.isArray(response.bots))' in js
+    assert 'app.bots = response.bots;' in js
+    assert 'app.bots = await api("/api/bots");' in js  # legacy still accepts array
+    assert 'async function refreshBots() {' in js
+
+
+def test_team_rename_preserves_form_across_async_boundary():
+    js = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
+    handler = js.split('$("#account-team-rename").addEventListener("submit"', 1)[1]
+    handler = handler.split('$("#account-team-leave").addEventListener', 1)[0]
+    assert 'const form = event.currentTarget;' in handler
+    assert 'display_name: form.elements.display_name.value' in handler
+    assert 'form.reset();' in handler
+    assert 'await refreshAccountTeam();' in handler
+    assert 'event.currentTarget.reset()' not in handler
+
+
+def test_browser_account_checker_navigates_to_team_workspace():
+    checker = (ROOT / "scripts" / "check_account_ui.py").read_text(encoding="utf-8")
+    assert checker.index('page.locator(\'.nav-item[data-view="upload"]\').click()') < checker.index(
+        'page.locator("#account-team-panel").wait_for(state="visible")')

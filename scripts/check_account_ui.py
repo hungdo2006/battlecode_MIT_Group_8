@@ -122,6 +122,10 @@ def run():
                 assert page.locator('.nav-item[data-view="upload"]').is_visible()
                 assert page.locator('.nav-item[data-view="create"]').is_hidden()
                 assert page.locator('.nav-item[data-view="watch"]').is_hidden()
+                # Team workspace intentionally lives in Upload, not Home.
+                # Navigate through the real UI before asserting its visibility.
+                page.locator('.nav-item[data-view="upload"]').click()
+                page.wait_for_function("window.location.hash === '#upload'")
                 page.locator("#account-team-panel").wait_for(state="visible")
                 assert page.locator("#account-team-create").is_visible()
                 assert page.locator("#account-team-inbox").is_visible()

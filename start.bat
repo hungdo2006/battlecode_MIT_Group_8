@@ -4,7 +4,12 @@ chcp 65001 >nul
 cd /d "%~dp0"
 title NEON ARENA - Local Bot Battle
 
-if exist ".venv\Scripts\python.exe" goto checkdeps
+if exist ".venv\Scripts\python.exe" (
+    ".venv\Scripts\python.exe" -c "import sys" >nul 2>&1
+    if not errorlevel 1 goto checkdeps
+    echo Existing Python environment is invalid. Recreating it...
+    rmdir /s /q ".venv"
+)
 echo Creating local Python environment...
 py -3 --version >nul 2>&1
 if not errorlevel 1 (
@@ -22,7 +27,7 @@ if not errorlevel 1 (
 if errorlevel 1 goto failed
 
 :checkdeps
-".venv\Scripts\python.exe" -c "import fastapi, uvicorn, multipart, websockets" >nul 2>&1
+".venv\Scripts\python.exe" -c "import fastapi, uvicorn, multipart, websockets, argon2" >nul 2>&1
 if not errorlevel 1 goto run
 echo Installing project dependencies...
 ".venv\Scripts\python.exe" -m pip install -r requirements.txt

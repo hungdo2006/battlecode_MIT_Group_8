@@ -161,6 +161,13 @@ class RobotBattleAdapter(GameAdapter):
     def get_observation(self, state, player):
         return {**self._restore(state).observation(player), "game_id": self.metadata["game_id"]}
 
+    def get_result(self, state):
+        result = super().get_result(state)
+        if result and result.get("reason") in {"knockout", "turn_limit"}:
+            result["scores"] = {player: robot["hp"]
+                                for player, robot in state["robots"].items()}
+        return result
+
     def validate_action(self, state, player, action):
         if player not in self.get_players_to_act(state):
             raise InvalidAction("Không phải lượt của bot hoặc trận đã kết thúc.")

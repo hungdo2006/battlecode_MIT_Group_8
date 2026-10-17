@@ -1,5 +1,5 @@
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-
+from typing import Literal
 
 class MatchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -50,3 +50,33 @@ class InvitationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     player_a_id: str = Field(min_length=1, max_length=64)
     player_b_id: str = Field(min_length=1, max_length=64)
+
+class TournamentCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=64)
+    format: Literal[
+        "single_elimination",
+        "double_elimination",
+        "round_robin",
+    ]
+    player_ids: list[str] = Field(min_length=2)
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str):
+        if any(ord(c) < 32 or ord(c) == 127 for c in value):
+            raise ValueError("Tên giải không được chứa ký tự điều khiển.")
+        value = " ".join(value.split())
+        if not value:
+            raise ValueError("Tên giải không được để trống.")
+        return value
+
+    @field_validator("player_ids")
+    @classmethod
+    def validate_player_ids(cls, value: list[str]):
+        if any(not player_id or len(player_id) > 64 for player_id in value):
+            raise ValueError("Mã người chơi không hợp lệ.")
+        if len(value) != len(set(value)):
+            raise ValueError("Không được chọn trùng người chơi.")
+        return value

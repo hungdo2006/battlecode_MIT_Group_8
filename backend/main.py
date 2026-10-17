@@ -20,11 +20,19 @@ from backend.lobby import Lobby
 from pydantic import ValidationError
 from backend.engine import create_registry
 from backend.engine.registry import GameRegistry
-from backend.models import ActiveBotSelection, InvitationRequest, GameSelection, OrganizerCode, SessionUpdate
+from backend.models import (
+    ActiveBotSelection,
+    InvitationRequest,
+    GameSelection,
+    OrganizerCode,
+    SessionUpdate,
+    TournamentCreateRequest,
+)
 from backend.network import NetworkSettings, lan_addresses, same_origin
 from backend.runner import MAX_SOURCE_BYTES, prepare_submission, toolchains
 from backend.sessions import COOKIE_NAME, SESSION_SECONDS, Sessions
 from backend.storage import Store
+from backend.tournament_draws import generate_tournament_draw, tournament_standings
 from backend.writer_lock import WriterLock
 from backend.account_database import AccountDatabase
 from backend.auth_limits import AuthRateLimited
@@ -266,6 +274,143 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
     async def players(request: Request):
         return app.state.lobby.snapshot(request.state.participant, request.state.role)["players"]
 
+    @app.delete(
+        "/api/players/{player_id}",
+        dependencies=[Depends(require_organizer)],
+    )
+    async def delete_player(player_id: str, request: Request):
+        async with app.state.competition.lock:
+            require_organizer(request)
+            deleted = await asyncio.to_thread(app.state.lobby.delete_player, player_id)
+            if not deleted:
+                raise HTTPException(404, "Không tìm thấy Player trong danh sách.")
+            await app.state.competition.publish()
+            return {"player_id": player_id, "deleted": True}
+
+    @app.get("/api/tournaments")
+    async def tournaments():
+        items = app.state.store.get_tournaments()
+        for tournament in items:
+            if tournament.get("format") == "round_robin":
+                tournament["standings"] = tournament_standings(tournament)
+        return items
+
+    @app.post(
+        "/api/tournaments",
+        status_code=201,
+        dependencies=[Depends(require_organizer)],
+    )
+    async def create_tournament(payload: TournamentCreateRequest, request: Request):
+        async with app.state.competition.lock:
+            require_organizer(request)
+
+            participants = []
+            for player_id in payload.player_ids:
+                participant = app.state.lobby.identity(player_id)
+                if (
+                    not participant
+                    or app.state.lobby.role(player_id) != "player"
+                ):
+                    raise HTTPException(422, f"Không tìm thấy Player hợp lệ: {player_id}")
+
+                participants.append({
+                    "player_id": participant["id"],
+                    "nickname": participant["name"],
+                })
+
+            tournament = {
+                "id": app.state.store.new_id(),
+                "name": payload.name,
+                "format": payload.format,
+                "status": "registration",
+                "created_at": timestamp(),
+                "participants": participants,
+                "rounds": [],
+            }
+
+            await asyncio.to_thread(
+                app.state.store.save_tournament,
+                tournament,
+            )
+            await app.state.competition.publish()
+            return tournament
+
+    @app.post(
+        "/api/tournaments/{tournament_id}/start",
+        dependencies=[Depends(require_organizer)],
+    )
+    async def start_tournament(tournament_id: str, request: Request):
+        async with app.state.competition.lock:
+            require_organizer(request)
+            tournament = app.state.store.get_tournament(tournament_id)
+            if not tournament:
+                raise HTTPException(404, "Không tìm thấy giải đấu.")
+            if tournament.get("status") != "registration":
+                raise HTTPException(409, "Giải đấu đã được bắt đầu hoặc kết thúc.")
+            if len(tournament.get("participants", [])) < 2:
+                raise HTTPException(409, "Giải đấu cần ít nhất hai người chơi.")
+            if not app.state.store.competition_locked:
+                raise HTTPException(409, "Hãy mở cuộc thi và khóa game trước khi bắt đầu giải.")
+
+            tournament["rounds"] = generate_tournament_draw(
+                tournament,
+                app.state.store.new_id,
+            )
+            tournament["status"] = "active"
+            tournament["started_at"] = timestamp()
+            tournament["organizer"] = deepcopy(request.state.participant)
+            await asyncio.to_thread(app.state.store.save_tournament, tournament)
+            await app.state.lobby._schedule_tournament_matches()
+            await app.state.competition.publish()
+            return app.state.store.get_tournament(tournament_id)
+
+    @app.post(
+        "/api/tournaments/{tournament_id}/matches/{tournament_match_id}/retry",
+        dependencies=[Depends(require_organizer)],
+    )
+    async def retry_tournament_match(tournament_id: str, tournament_match_id: str, request: Request):
+        async with app.state.competition.lock:
+            require_organizer(request)
+            tournament = app.state.store.get_tournament(tournament_id)
+            if not tournament or tournament.get("status") != "active":
+                raise HTTPException(404, "Không tìm thấy giải đang diễn ra.")
+            match = next((m for r in tournament.get("rounds", []) for m in r.get("matches", [])
+                          if m["id"] == tournament_match_id), None)
+            if not match or match.get("status") != "needs_attention":
+                raise HTTPException(409, "Trận này không cần gửi lại lời mời.")
+            match.update(status="pending", invitation_id=None, match_id=None, result=None,
+                         match_status=None, attention_reason=None)
+            await asyncio.to_thread(app.state.store.save_tournament, tournament)
+            await app.state.lobby._schedule_tournament_matches()
+            await app.state.competition.publish()
+            return app.state.store.get_tournament(tournament_id)
+
+    @app.delete(
+        "/api/tournaments/{tournament_id}",
+        dependencies=[Depends(require_organizer)],
+    )
+    async def delete_tournament(tournament_id: str, request: Request):
+        async with app.state.competition.lock:
+            require_organizer(request)
+            if not app.state.store.get_tournament(tournament_id):
+                raise HTTPException(404, "Không tìm thấy giải đấu.")
+            active_invitation = any(
+                inv.get("tournament_id") == tournament_id
+                and (inv.get("status") in {"PENDING", "PARTIALLY_ACCEPTED"}
+                     or (inv.get("status") == "STARTED" and inv.get("match_id") in app.state.manager.live))
+                for inv in app.state.lobby.invitations.values()
+            )
+            if active_invitation:
+                raise HTTPException(409, "Không thể xóa giải khi còn lời mời hoặc trận giải đang chạy.")
+            deleted = await asyncio.to_thread(
+                app.state.store.delete_tournament,
+                tournament_id,
+            )
+            if not deleted:
+                raise HTTPException(404, "Không tìm thấy giải đấu.")
+            await app.state.competition.publish()
+            return {"id": tournament_id, "deleted": True}
+
     @app.get("/api/players/me")
     async def player_me(request: Request):
         if not request.state.participant:
@@ -291,7 +436,8 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
         async with app.state.competition.lock:
             require_organizer(request)
             app.state.lobby.expire()
-            result = app.state.lobby.create_invitation(request.state.participant, selection.player_a_id, selection.player_b_id)
+            result = app.state.lobby.create_invitation(
+                request.state.participant, selection.player_a_id, selection.player_b_id)
             await app.state.competition.publish()
             return result
 
@@ -495,6 +641,12 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
     async def submit_sample(language: str, request: Request):
         return await submit_game_sample(app.state.store.selected_game_id, language, request)
 
+    @app.get("/api/standings")
+    async def standings(game_id: str | None = Query(default=None)):
+        if game_id is not None and game_id not in app.state.store.registry.ids():
+            raise HTTPException(404, "Game không tồn tại.")
+        return app.state.store.get_standings(game_id)
+    
     @app.get("/api/matches")
     async def matches():
         return app.state.manager.get_matches()

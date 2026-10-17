@@ -38,7 +38,9 @@ class MatchManager:
         self.on_activity = None
 
     async def start(self, request: MatchRequest, created_by: dict | None = None,
-                    participants: dict | None = None, invitation_id: str | None = None) -> dict:
+                    participants: dict | None = None, invitation_id: str | None = None,
+                    tournament_id: str | None = None,
+                    tournament_match_id: str | None = None) -> dict:
         if len(self.live) >= 2:
             raise ValueError("Tối đa 2 trận cùng lúc. Hãy đợi trận hiện tại kết thúc.")
         game_id, rules = self.store.match_configuration(request.game_id or request.game, request.rules)
@@ -62,6 +64,7 @@ class MatchManager:
                              "owner": deepcopy(b.get("owner"))} for p, b in bots.items()},
                 "rules": deepcopy(rules), "rules_snapshot": deepcopy(rules), "turn": 0, "result": None}
         meta.update(invitation_id=invitation_id, participants=deepcopy(participants), winner=None)
+        meta.update(tournament_id=tournament_id, tournament_match_id=tournament_match_id)
         for side, bot in bots.items():
             prefix = side.lower()
             participant = (participants or {}).get(side) or bot.get("owner") or {}

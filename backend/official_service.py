@@ -330,9 +330,19 @@ class OfficialSchedule:
                     replay = self.store.get_replay(row["match_id"])
                     frames = replay.get("frames", []) if replay else []
                     terminal = frames[-1] if frames else {}
-                    if (not frames or not match.get("result")
+                    # MatchManager stores adapter.get_result(state), which can
+                    # enrich the serialized frame result (e.g. Robot HP scores).
+                    # Reconstruct that exact value from the persisted terminal
+                    # frame; missing or inconsistent evidence still fails closed.
+                    try:
+                        verified_result = (self.registry.get(row["game_id"]).get_result(terminal)
+                            if isinstance(terminal, dict) and terminal.get("game_id") == row["game_id"]
+                            else None)
+                    except (KeyError, TypeError, ValueError, AttributeError):
+                        verified_result = None
+                    if (not frames or not verified_result or not match.get("result")
                         or terminal.get("turn") != match.get("turn")
-                        or terminal.get("result") != match.get("result")):
+                        or verified_result != match.get("result")):
                         # A persisted JSON victory without its final replay
                         # frame is NOT a verified completed Official Match.
                         self._stamp_execution(row["id"], "INTERRUPTED", now, reason="REPLAY_INCOMPLETE")

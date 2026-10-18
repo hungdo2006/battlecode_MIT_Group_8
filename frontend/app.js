@@ -530,12 +530,26 @@ function acceptSession(data) {
   renderInvitations();
 }
 
+function accountEntryTab(tab) {
+  const registration = tab === "register" && app.selfRegistration;
+  $("#account-login-form").classList.toggle("hidden", registration);
+  $("#account-register-form").classList.toggle("hidden", !registration);
+  $("#account-login-choice").classList.toggle("primary", !registration);
+  $("#account-login-choice").classList.toggle("ghost", registration);
+  $("#account-register-choice").classList.toggle("primary", registration);
+  $("#account-register-choice").classList.toggle("ghost", !registration);
+  $("#account-title").textContent = registration ? "Đăng ký Player" : "Đăng nhập NEON ARENA";
+  const first = registration ? $("#account-register-form [name=username]") : $("#account-username");
+  first.focus();
+}
+
 function showAccountDialog(message = "Đăng nhập để tiếp tục vào workspace.") {
   const dialog = $("#account-dialog");
   $("#account-feedback").textContent = message;
   $("#account-feedback").classList.remove("hidden", "error");
   if (!dialog.open) dialog.showModal();
-  $("#account-username").focus();
+  $("#account-register-choice").classList.toggle("hidden", !app.selfRegistration);
+  accountEntryTab("login");
 }
 
 function acceptAccount(data, audience) {
@@ -554,6 +568,8 @@ function acceptAccount(data, audience) {
 }
 
 $("#account-dialog").addEventListener("cancel", event => event.preventDefault());
+$("#account-login-choice").addEventListener("click", () => accountEntryTab("login"));
+$("#account-register-choice").addEventListener("click", () => accountEntryTab("register"));
 
 function accountExpired() {
   if (!app.accountOnly || !app.account) return;
@@ -590,17 +606,39 @@ async function restoreAccount() {
 $("#account-login-form").addEventListener("submit", async event => {
   event.preventDefault();
   const form = event.currentTarget;
-  const audience = form.elements.audience.value;
   const button = form.querySelector("[type=submit]");
   busyButton(button, true);
   try {
-    const data = await api(`/api/${audience}/auth/login`, jsonOptions("POST", {
+    const data = await api("/api/account/auth/login", jsonOptions("POST", {
       username: form.elements.username.value, password: form.elements.password.value
     }));
     form.elements.password.value = "";
-    acceptAccount(data, audience);
+    acceptAccount(data, data.audience);
     app.initialized = false;
     await bootstrap();
+  } catch (error) {
+    feedback("#account-feedback", error.message, true);
+  } finally { busyButton(button, false); button.disabled = false; }
+});
+
+$("#account-register-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector("[type=submit]");
+  busyButton(button, true);
+  try {
+    if (!app.selfRegistration) throw new Error("Đăng ký hiện chưa được mở.");
+    await api("/api/account/auth/register", jsonOptions("POST", {
+      username: form.elements.username.value,
+      display_name: form.elements.display_name.value,
+      email: form.elements.email.value,
+      password: form.elements.password.value
+    }));
+    const username = form.elements.username.value;
+    form.reset();
+    accountEntryTab("login");
+    $("#account-username").value = username;
+    feedback("#account-feedback", "Tạo tài khoản Player thành công. Email chưa được xác minh; hãy đăng nhập để tiếp tục.");
   } catch (error) {
     feedback("#account-feedback", error.message, true);
   } finally { busyButton(button, false); button.disabled = false; }
@@ -1903,6 +1941,7 @@ async function bootstrap() {
     setConnection(health.status === "ok");
     app.accountAuth = health.account_auth === true;
     app.accountOnly = health.account_only === true;
+    app.selfRegistration = health.self_registration === true;
     if (app.accountOnly) {
       $("#account-mode-note").classList.remove("hidden");
       if (!app.account && !await restoreAccount()) {

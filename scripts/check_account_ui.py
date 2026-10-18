@@ -77,7 +77,6 @@ def run():
                 dialog.wait_for(state="visible")
                 assert page.locator("#account-mode-note").is_visible()
 
-                page.select_option("#account-login-form [name=audience]", "admin")
                 page.fill("#account-username", "qa.admin")
                 page.fill("#account-login-form [name=password]", PASSWORD)
                 page.click("#account-login-form [type=submit]")
@@ -114,7 +113,6 @@ def run():
                 page.click("#organizer-toggle")
                 dialog.wait_for(state="visible")
                 assert page.locator("#account-feedback").inner_text() == "Đã đăng xuất an toàn."
-                page.select_option("#account-login-form [name=audience]", "player")
                 page.fill("#account-username", "qa.player")
                 page.fill("#account-login-form [name=password]", PASSWORD)
                 page.click("#account-login-form [type=submit]")

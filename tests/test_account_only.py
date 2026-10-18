@@ -377,3 +377,102 @@ def test_existing_account_only_still_rejects_unclaimed_legacy_or_forged_job(tmp_
         with TestClient(create_app(tmp_path, account_http=settings), base_url=ORIGIN):
             pass
     assert json.loads((data / "matches.json").read_text())["unknown"]["status"] == "running"
+
+
+def test_unified_login_derives_role_and_uses_separate_session_paths(account_room):
+    room = account_room
+    for username, role, audience in (("admin", "ADMIN", "admin"),
+                                     ("alice", "PLAYER", "player")):
+        response = room.client.post("/api/account/auth/login", json={
+            "username": username, "password": PASSWORD,
+        })
+        assert response.status_code == 200, response.text
+        assert response.json()["account"]["system_role"] == role
+        assert response.json()["audience"] == audience
+        cookie = response.headers["set-cookie"].lower()
+        assert "httponly" in cookie and "samesite=strict" in cookie
+        assert "path=/api/" + audience in cookie
+        assert room.client.get("/api/" + audience + "/auth/me").status_code == 200
+    failed = room.client.post("/api/account/auth/login", json={
+        "username": "admin", "password": "incorrect password",
+    })
+    assert failed.status_code == 401
+    escalation = room.client.post("/api/account/auth/login", json={
+        "username": "alice", "password": PASSWORD, "audience": "admin",
+    })
+    assert escalation.status_code == 422
+
+
+def test_player_self_registration_is_gated_and_never_provisions_admin(tmp_path):
+    from backend.storage import Store
+    clock = Clock()
+    seed_accounts(tmp_path, clock)
+    settings = HTTPAuthSettings(enabled=True, account_only=True, origins=(ORIGIN,),
+                                clock=clock, rate_clock=clock)
+    registration = {
+        "username": "new_player", "display_name": "New Player",
+        "email": "New.Player@example.org", "password": PASSWORD,
+    }
+    with TestClient(create_app(tmp_path, account_http=settings), base_url=ORIGIN) as blocked:
+        blocked.headers["Origin"] = ORIGIN
+        response = blocked.post("/api/account/auth/register", json=registration)
+        assert response.status_code == 404
+        assert blocked.get("/api/health").json()["self_registration"] is False
+    opened = HTTPAuthSettings(enabled=True, account_only=True, self_registration=True,
+                              origins=(ORIGIN,), clock=clock, rate_clock=clock)
+    with TestClient(create_app(tmp_path, account_http=opened), base_url=ORIGIN) as client:
+        client.headers["Origin"] = ORIGIN
+        assert client.get("/api/health").json()["self_registration"] is True
+        created = client.post("/api/account/auth/register", json=registration)
+        assert created.status_code == 201, created.text
+        assert created.json()["account"]["system_role"] == "PLAYER"
+        assert created.json()["email_verified"] is False
+        assert "password" not in json.dumps(created.json())
+        duplicate = client.post("/api/account/auth/register", json={
+            **registration, "username": "another_name", "email": "new.player@example.org",
+        })
+        assert duplicate.status_code == 409
+        duplicate_name = client.post("/api/account/auth/register", json={
+            **registration, "email": "new.else@example.org",
+        })
+        assert duplicate_name.status_code == 409
+        with AccountDatabase(tmp_path / "data").read() as connection:
+            row = connection.execute("""SELECT u.system_role,u.status,e.email,e.verified_at
+                FROM users u JOIN user_emails e ON u.id=e.user_id WHERE u.username=?""",
+                ("new_player",)).fetchone()
+            assert tuple(row) == ("PLAYER", "ACTIVE", "new.player@example.org", None)
+        login = client.post("/api/account/auth/login", json={
+            "username": "new_player", "password": PASSWORD,
+        })
+        assert login.status_code == 200 and login.json()["audience"] == "player"
+        assert client.get("/api/player/auth/me").status_code == 200
+        unauthorized = client.post("/api/account/auth/register", json={
+            **registration, "username": "hacker", "email": "hacker@example.org", "system_role": "ADMIN",
+        })
+        assert unauthorized.status_code == 422
+
+
+def test_registration_validates_email_password_and_rate_limit(tmp_path):
+    clock = Clock()
+    seed_accounts(tmp_path, clock)
+    settings = HTTPAuthSettings(
+        enabled=True, account_only=True, self_registration=True, origins=(ORIGIN,),
+        clock=clock, rate_clock=clock,
+        limits=RateLimits(registration_source=2),
+    )
+    with TestClient(create_app(tmp_path, account_http=settings), base_url=ORIGIN) as client:
+        client.headers["Origin"] = ORIGIN
+        payload = {"username": "tester", "display_name": "Tester",
+                   "email": "bad@domain", "password": PASSWORD}
+        assert client.post("/api/account/auth/register", json=payload).status_code == 422
+        payload["email"] = "tester@example.org"
+        payload["password"] = "short"
+        assert client.post("/api/account/auth/register", json=payload).status_code == 422
+        payload["password"] = PASSWORD
+        limited = client.post("/api/account/auth/register", json=payload)
+        assert limited.status_code == 429
+        assert limited.headers["retry-after"] == "60"
+        assert client.get("/api/account/auth/register").status_code in (404, 405)
+    with pytest.raises(ValueError, match="Self-registration requires"):
+        HTTPAuthSettings(enabled=True, self_registration=True, origins=(ORIGIN,))
+

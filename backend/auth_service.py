@@ -359,7 +359,7 @@ class AuthService:
         # claims, verified delivery or password-reset capability are implied.
         if not isinstance(value, str) or not 3 <= len(value) <= 254 or value != value.strip():
             raise ValueError("Invalid email")
-        if not re.fullmatch(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)+", value, re.ASCII):
+        if not re.fullmatch(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+", value, re.ASCII):
             raise ValueError("Invalid email")
         local, domain = value.rsplit("@", 1)
         if (len(local) > 64 or local.startswith(".") or local.endswith(".")

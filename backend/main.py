@@ -58,19 +58,36 @@ def validate_account_only_cutover(root: Path):
     rules = _read_json(data / "rules.json", {})
     matches = _read_json(data / "matches.json", {})
     invitations = _read_json(data / "invitations.json", {})
-    active_matches = [item.get("id", key) for key, item in matches.items()
+    active_matches = [(item.get("id", key), item) for key, item in matches.items()
                       if item.get("status") in {"queued", "running"}]
     pending = [item.get("id", key) for key, item in invitations.items()
                if item.get("status") in PENDING_INVITATIONS]
     transitioning = marker.get("mode") != "account_only"
-    if active_matches or pending or (transitioning and rules.get("competition_locked") is True):
+    unsafe_matches = active_matches
+    if not transitioning and active_matches:
+        # Existing Account-Only authority is NOT a first Legacy cutover.
+        # An Official match may be persisted as queued/running when the process
+        # is killed before Store can mark it interrupted. Fence only matches
+        # backed by an already-claimed SQLite Official request; do not let a
+        # forged official_request_id bypass the legacy admission guard.
+        unsafe_matches = []
+        with AccountDatabase(data).read() as connection:
+            for match_id, item in active_matches:
+                request_id = item.get("official_request_id")
+                row = (connection.execute("""SELECT match_id, status
+                    FROM official_match_requests WHERE id=?""", (request_id,)).fetchone()
+                    if isinstance(request_id, str) else None)
+                if (not row or row["match_id"] != match_id or
+                    row["status"] not in {"DISPATCHING", "RUNNING", "COMPLETED", "INTERRUPTED"}):
+                    unsafe_matches.append((match_id, item))
+    if unsafe_matches or pending or (transitioning and rules.get("competition_locked") is True):
         details = []
         if transitioning and rules.get("competition_locked") is True:
             details.append("competition is still open")
         if pending:
             details.append(f"{len(pending)} legacy invitation(s) are pending")
-        if active_matches:
-            details.append(f"{len(active_matches)} match/job(s) are queued or running")
+        if unsafe_matches:
+            details.append(f"{len(unsafe_matches)} match/job(s) are queued or running")
         raise RuntimeError("Account-only cutover refused: " + "; ".join(details)
                            + ". Close/drain these items in legacy mode, then restart.")
 

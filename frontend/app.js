@@ -379,10 +379,10 @@ function applyPermissions() {
       $("#account-team-panel").classList.add("hidden");
     }
     if (location.hash === "#create" || (!accountPlayer && location.hash === "#upload")) location.hash = "home";
-    $('.nav-item[data-view="official"]').forEach(node => node.classList.remove("hidden"));
-    $('.nav-item[data-view="tournaments"], .nav-item[data-view="standings"], .nav-item[data-view="watch"]').forEach(node => node.classList.add("hidden"));
+    $$('.nav-item[data-view="official"]').forEach(node => node.classList.remove("hidden"));
+    $$('.nav-item[data-view="tournaments"], .nav-item[data-view="standings"], .nav-item[data-view="watch"]').forEach(node => node.classList.add("hidden"));
   } else {
-    $('.nav-item[data-view="official"]').forEach(node => node.classList.add("hidden"));
+    $$('.nav-item[data-view="official"]').forEach(node => node.classList.add("hidden"));
   }
   $('.nav-item[data-view="create"]').classList.toggle("hidden", app.accountOnly);
   $('.nav-item[data-view="watch"]').classList.toggle("hidden", accountPlayer);

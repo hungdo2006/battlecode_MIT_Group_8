@@ -112,3 +112,16 @@ def test_account_only_background_poll_respects_auth_budget_and_keeps_online_on_4
     assert 'response.headers.get("Retry-After")' in js
     assert 'app.pollPauseUntil = Math.max(' in js
     assert 'if (error.status !== 429) setConnection(false);' in js
+
+
+def test_account_only_websocket_reconnect_backoff_preserves_revocation_checks():
+    js = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
+    assert "competitionRetryMs: 5000" in js
+    assert "if (app.accountOnly) app.competitionRetryMs = 5000;" in js
+    assert "Math.min(30000, app.competitionRetryMs * 2)" in js
+    assert "Math.max(0, app.pollPauseUntil - Date.now())" in js
+    assert 'response.status === 429' in js
+    assert 'response.status === 401 || response.status === 403' in js
+    assert "accountExpired();" in js
+    # Legacy reconnect still uses its original 1200ms schedule.
+    assert "app.competitionTimer = setTimeout(connectCompetitionSocket, 1200);" in js

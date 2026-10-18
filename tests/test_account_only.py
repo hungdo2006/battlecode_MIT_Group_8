@@ -416,14 +416,16 @@ def test_player_self_registration_is_gated_and_never_provisions_admin(tmp_path):
         "username": "new_player", "display_name": "New Player",
         "email": "New.Player@example.org", "password": PASSWORD,
     }
-    with TestClient(create_app(tmp_path, account_http=settings), base_url=ORIGIN) as blocked:
+    with TestClient(create_app(tmp_path, account_http=settings), base_url=ORIGIN,
+                    client=("127.0.0.1", 51001)) as blocked:
         blocked.headers["Origin"] = ORIGIN
         response = blocked.post("/api/account/auth/register", json=registration)
         assert response.status_code == 404
         assert blocked.get("/api/health").json()["self_registration"] is False
     opened = HTTPAuthSettings(enabled=True, account_only=True, self_registration=True,
                               origins=(ORIGIN,), clock=clock, rate_clock=clock)
-    with TestClient(create_app(tmp_path, account_http=opened), base_url=ORIGIN) as client:
+    with TestClient(create_app(tmp_path, account_http=opened), base_url=ORIGIN,
+                    client=("127.0.0.1", 51002)) as client:
         client.headers["Origin"] = ORIGIN
         assert client.get("/api/health").json()["self_registration"] is True
         created = client.post("/api/account/auth/register", json=registration)
@@ -472,7 +474,8 @@ def test_registration_validates_email_password_and_rate_limit(tmp_path):
         clock=clock, rate_clock=clock,
         limits=RateLimits(registration_source=2),
     )
-    with TestClient(create_app(tmp_path, account_http=settings), base_url=ORIGIN) as client:
+    with TestClient(create_app(tmp_path, account_http=settings), base_url=ORIGIN,
+                    client=("127.0.0.1", 51003)) as client:
         client.headers["Origin"] = ORIGIN
         payload = {"username": "tester", "display_name": "Tester",
                    "email": "bad@domain", "password": PASSWORD}

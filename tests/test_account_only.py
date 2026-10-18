@@ -302,3 +302,78 @@ def test_restore_fence_revokes_sessions_and_tokens(tmp_path):
             service.validate_session(grant.token, audience="PLAYER")
         with pytest.raises(InvalidInvitation):
             service.activate(invitation.token, PASSWORD)
+
+
+@pytest.mark.parametrize("persisted_status", ["queued", "running"])
+def test_existing_account_only_restart_recovers_claimed_official_match(tmp_path, persisted_status):
+    """QA-001: startup must reach Store + dispatcher after an Official crash.
+
+    SQLite claimed Official identity is checked before Store rewrites the
+    persisted queued/running JSON as interrupted. No replay is rerun.
+    """
+    from backend.storage import Store
+    clock = Clock()
+    seed_accounts(tmp_path, clock)
+    data = tmp_path / "data"
+    request_id = "f" * 32
+    match_id = "o" + request_id[:15]
+    with AccountDatabase(data).maintenance() as conn:
+        admin_id = conn.execute(
+            "SELECT id FROM users WHERE username='admin'").fetchone()["id"]
+        for team_id, slug in (("team-a", "qa-alpha"), ("team-b", "qa-beta")):
+            conn.execute("""INSERT INTO teams
+                (id,slug,display_name,status,created_by,created_at,updated_at)
+                VALUES (?,?,?,'ACTIVE',?,100,100)""",
+                (team_id, slug, slug, admin_id))
+        conn.execute("""INSERT INTO official_match_requests
+            (id,created_by,team_a_id,team_b_id,game_id,rules_json,bot_lock_at,
+             scheduled_at,created_at,status,locked_at,match_id,started_at)
+            VALUES (?,?,?,?,'robot_battle','{}',100,101,100,'RUNNING',100,?,101)""",
+            (request_id, admin_id, "team-a", "team-b", match_id))
+    Store._write(data / "access_mode.json", {"version": 1, "mode": "account_only"})
+    Store._write(data / "matches.json", {match_id: {
+        "id": match_id, "official_request_id": request_id,
+        "status": persisted_status, "game_id": "robot_battle",
+        "result": None, "turn": 2,
+    }})
+    settings = HTTPAuthSettings(enabled=True, account_only=True, origins=(ORIGIN,),
+                                clock=clock)
+    with TestClient(create_app(tmp_path, account_http=settings), base_url=ORIGIN) as client:
+        assert client.get("/api/health").status_code == 200
+        recovered = client.app.state.store.get_match(match_id)
+        assert recovered["status"] == "interrupted"
+        assert recovered["result"]["winner"] is None
+        with AccountDatabase(data).read() as conn:
+            row = conn.execute("""SELECT status,status_reason,outcome_json,revision
+                FROM official_match_requests WHERE id=?""", (request_id,)).fetchone()
+            assert row["status"] == "INTERRUPTED"
+            assert row["status_reason"] in ("server_restart", "SERVER_RESTART")
+            assert row["outcome_json"] is None
+    # Recovery remains idempotent on repeated startup.
+    with TestClient(create_app(tmp_path, account_http=settings), base_url=ORIGIN) as client:
+        assert client.get("/api/health").status_code == 200
+        with AccountDatabase(data).read() as conn:
+            same = conn.execute("""SELECT status,revision FROM official_match_requests
+                WHERE id=?""", (request_id,)).fetchone()
+            assert same["status"] == "INTERRUPTED"
+            assert same["revision"] == row["revision"]
+
+
+@pytest.mark.parametrize("official_id", [None, "f" * 32])
+def test_existing_account_only_still_rejects_unclaimed_legacy_or_forged_job(tmp_path, official_id):
+    """An Account-Only marker alone cannot bless a rogue queued/running match."""
+    from backend.storage import Store
+    clock = Clock()
+    seed_accounts(tmp_path, clock)
+    data = tmp_path / "data"
+    Store._write(data / "access_mode.json", {"version": 1, "mode": "account_only"})
+    record = {"id": "unknown", "status": "running", "game_id": "robot_battle"}
+    if official_id:
+        record["official_request_id"] = official_id
+    Store._write(data / "matches.json", {"unknown": record})
+    settings = HTTPAuthSettings(enabled=True, account_only=True, origins=(ORIGIN,),
+                                clock=clock)
+    with pytest.raises(RuntimeError, match="match/job\\(s\\) are queued or running"):
+        with TestClient(create_app(tmp_path, account_http=settings), base_url=ORIGIN):
+            pass
+    assert json.loads((data / "matches.json").read_text())["unknown"]["status"] == "running"

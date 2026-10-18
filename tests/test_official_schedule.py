@@ -503,10 +503,8 @@ def test_robot_enriched_match_result_validates_against_serialized_terminal(room)
         assert service.sync_execution()==[request_id]
         row=service._get(request_id)
         assert row["status"]=="COMPLETED"
-        outcome=service.detail_admin(
-            service.auth.login("admin","team-http test passphrase 84",
-                               audience="ADMIN",source_key="robot-adapter").principal,
-            request_id)["outcome"]
+        from backend.official_service import official_json
+        outcome=official_json(conn,row)["outcome"]
         assert outcome["winner_side"]=="A"
         assert outcome["winner_team_id"]==ta
         assert outcome["result"]==derived

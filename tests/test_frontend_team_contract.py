@@ -85,8 +85,30 @@ def test_official_workspace_is_account_only_and_form_has_deadlines():
     assert 'id="official-match-list"' in html
     assert 'data-view="official"' in html
     assert 'app.accountOnly' in js
-    assert 'async function refreshOfficialMatches()' in js
+    assert 'async function refreshOfficialMatches({includeTeams = true} = {})' in js
     assert '/api/admin/official-matches' in js
     assert 'official-matches/" + encodeURIComponent(id) + "/replay' in js
     assert 'if (app.accountOnly) { app.tournaments = []; renderTournaments(); return; }' in js
     assert 'if (app.accountOnly) { app.standings = []; renderStandings(); return; }' in js
+
+
+def test_account_only_background_poll_respects_auth_budget_and_keeps_online_on_429():
+    js = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
+    # Previous Admin polling made four protected requests every 2 seconds.
+    # Legacy-only fast polling is retained; Account-Only uses one slower feed.
+    legacy = js.split('setInterval(async () => {', 1)[1].split('}, 2000);', 1)[0]
+    assert 'if (app.accountOnly) return;' in legacy
+    official = js.split('// Account-Only polls one Official endpoint', 1)[1]
+    official = official.split('}, 10000);', 1)[0]
+    assert 'Date.now() < app.pollPauseUntil' in official
+    assert 'app.officialRefreshing' in official
+    assert 'refreshOfficialMatches({includeTeams: false})' in official
+    assert 'if (error.transport) setConnection(false);' in official
+    assert 'setConnection(false)' not in official.replace(
+        'if (error.transport) setConnection(false);', '')
+    assert 'if (isAdmin && includeTeams)' in js
+    assert 'const teams = await api("/api/admin/teams");' in js
+    assert 'response.status === 429' in js
+    assert 'response.headers.get("Retry-After")' in js
+    assert 'app.pollPauseUntil = Math.max(' in js
+    assert 'if (error.status !== 429) setConnection(false);' in js

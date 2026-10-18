@@ -10,9 +10,10 @@ const app = {
   participant: null, readOnly: false, refreshing: false,
   role: "player", organizerAvailable: false,
   accountOnly: false, accountAuth: false, account: null, accountAudience: null, csrf: null,
-  team: null, activeTeamBot: null,
+  team: null, activeTeamBot: null, officialMatches: [], officialTeams: [],
+  officialRefreshing: false, pollPauseUntil: 0, bootstrapTimer: null,
   logoutBusy: false, logoutError: false,
-  competition: null, competitionSocket: null, competitionTimer: null,
+  competition: null, competitionSocket: null, competitionTimer: null, competitionRetryMs: 5000,
   competitionGeneration: 0, competitionBusy: false, shuttingDown: false,
   lobby: null, invitationBusy: false, seenStarts: new Set(), seenFinishes: new Set(), heartbeatTimer: null,
   uploading: false, seeding: false, rulesBusy: false, rulesDirty: false,
@@ -104,7 +105,11 @@ async function api(path, options = {}) {
   }
   let response;
   try { response = await fetch(requestUrl.toString(), options); }
-  catch { throw new Error("Mất kết nối với máy chủ. Kiểm tra mạng và thử lại."); }
+  catch {
+    const error = new Error("Mất kết nối với máy chủ. Kiểm tra mạng và thử lại.");
+    error.transport = true;
+    throw error;
+  }
   const raw = await response.text();
   let data;
   try { data = raw ? JSON.parse(raw) : {}; }
@@ -118,6 +123,13 @@ async function api(path, options = {}) {
       : data.detail;
     const error = new Error(detail || `HTTP ${response.status}`);
     error.status = response.status;
+    if (app.accountOnly && response.status === 429) {
+      // Server-enforced per-session budget; wait rather than repeatedly retry.
+      const retryAfter = Number(response.headers.get("Retry-After"));
+      const seconds = Number.isFinite(retryAfter) && retryAfter > 0
+        ? Math.min(120, Math.ceil(retryAfter)) : 60;
+      app.pollPauseUntil = Math.max(app.pollPauseUntil, Date.now() + seconds * 1000);
+    }
     if (app.accountOnly && response.status === 401 && !path.includes("/auth/login")) accountExpired();
     throw error;
   }
@@ -379,6 +391,10 @@ function applyPermissions() {
       $("#account-team-panel").classList.add("hidden");
     }
     if (location.hash === "#create" || (!accountPlayer && location.hash === "#upload")) location.hash = "home";
+    $$('.nav-item[data-view="official"]').forEach(node => node.classList.remove("hidden"));
+    $$('.nav-item[data-view="tournaments"], .nav-item[data-view="standings"], .nav-item[data-view="watch"]').forEach(node => node.classList.add("hidden"));
+  } else {
+    $$('.nav-item[data-view="official"]').forEach(node => node.classList.add("hidden"));
   }
   $('.nav-item[data-view="create"]').classList.toggle("hidden", app.accountOnly);
   $('.nav-item[data-view="watch"]').classList.toggle("hidden", accountPlayer);
@@ -434,9 +450,12 @@ function connectCompetitionSocket() {
   if (app.shuttingDown || (app.accountOnly && !app.account)) return;
   const scheme = location.protocol === "https:" ? "wss" : "ws";
   const socketPath = app.accountOnly ? `/api/${app.accountAudience}/ws/competition` : "/ws/competition";
+  const socketAudience = app.accountAudience;
   const socket = new WebSocket(`${scheme}://${location.host}${socketPath}`);
   app.competitionSocket = socket;
   socket.onopen = () => {
+    if (socket !== app.competitionSocket) return;
+    if (app.accountOnly) app.competitionRetryMs = 5000;
     app.lobbyOnline = true; renderConnection();
     clearInterval(app.heartbeatTimer);
     if (!app.accountOnly) {
@@ -456,14 +475,51 @@ function connectCompetitionSocket() {
     }
   };
   socket.onclose = event => {
-    if (socket === app.competitionSocket) { app.lobbyOnline = false; renderConnection(); }
-    if (socket === app.competitionSocket) clearInterval(app.heartbeatTimer);
-    if (app.accountOnly && [1008, 4401].includes(event.code)) {
-      accountExpired();
+    if (socket !== app.competitionSocket) return;
+    app.lobbyOnline = false; renderConnection();
+    clearInterval(app.heartbeatTimer);
+    if (app.shuttingDown) return;
+    if (app.accountOnly) {
+      if (!app.account || socketAudience !== app.accountAudience) return;
+      if ([1008, 4401].includes(event.code)) {
+        accountExpired();
+        return;
+      }
+      // A rejected handshake may close with 1006, never delivering 1008.
+      // Verify the cookie against protected HTTP; a network outage is NOT logout.
+      const stillCurrent = () => socket === app.competitionSocket &&
+        !app.shuttingDown && !!app.account && app.accountAudience === socketAudience;
+      const retry = () => {
+        if (!stillCurrent()) return;
+        // A failed WebSocket handshake also consumes the per-session limiter.
+        // Exponential backoff avoids 429 loops when the socket is unavailable.
+        const delay = Math.max(app.competitionRetryMs,
+          Math.max(0, app.pollPauseUntil - Date.now()));
+        app.competitionRetryMs = Math.min(30000, app.competitionRetryMs * 2);
+        app.competitionTimer = setTimeout(connectCompetitionSocket, delay);
+      };
+      fetch(`/api/${socketAudience}/auth/me`, {
+        headers: { "Accept": "application/json" }, cache: "no-store"
+      }).then(response => {
+        if (!stillCurrent()) return;
+        if (response.status === 401 || response.status === 403) {
+          accountExpired();
+        } else {
+          if (response.status === 429) {
+            const retryAfter = Number(response.headers.get("Retry-After"));
+            const seconds = Number.isFinite(retryAfter) && retryAfter > 0
+              ? Math.min(120, Math.ceil(retryAfter)) : 60;
+            app.pollPauseUntil = Math.max(app.pollPauseUntil,
+              Date.now() + seconds * 1000);
+          }
+          retry();
+        }
+      }).catch(retry);
       return;
     }
-    if (!app.shuttingDown && socket === app.competitionSocket && (!app.accountOnly || app.account)) app.competitionTimer = setTimeout(connectCompetitionSocket, 1200);
+    app.competitionTimer = setTimeout(connectCompetitionSocket, 1200);
   };
+
 }
 
 function acceptSession(data) {
@@ -485,6 +541,9 @@ function showAccountDialog(message = "Đăng nhập để tiếp tục vào work
 function acceptAccount(data, audience) {
   app.logoutError = false;
   app.account = data.account;
+  app.pollPauseUntil = 0;
+  clearTimeout(app.bootstrapTimer); app.bootstrapTimer = null;
+  app.competitionRetryMs = 5000;
   app.accountAudience = audience;
   app.csrf = null;
   app.role = data.account.system_role === "ADMIN" ? "organizer" : "player";
@@ -499,6 +558,9 @@ $("#account-dialog").addEventListener("cancel", event => event.preventDefault())
 function accountExpired() {
   if (!app.accountOnly || !app.account) return;
   app.account = null; app.participant = null; app.accountAudience = null; app.csrf = null;
+  app.pollPauseUntil = 0;
+  clearTimeout(app.bootstrapTimer); app.bootstrapTimer = null;
+  app.generation++; clearTimeout(app.reconnectTimer);
   app.role = "player"; app.organizerAvailable = false; app.initialized = false;
   app.competitionSocket?.close(); app.socket?.close();
   clearTimeout(app.competitionTimer); clearTimeout(app.reconnectTimer);
@@ -509,6 +571,14 @@ function accountExpired() {
 async function restoreAccount() {
   for (const audience of ["admin", "player"]) {
     const response = await fetch(`/api/${audience}/auth/me`, { headers: { "Accept": "application/json" } });
+    if (response.status === 429) {
+      // Restore is a direct fetch, not api(); still honor a limited session.
+      const retryAfter = Number(response.headers.get("Retry-After"));
+      const seconds = Number.isFinite(retryAfter) && retryAfter > 0
+        ? Math.min(120, Math.ceil(retryAfter)) : 60;
+      app.pollPauseUntil = Math.max(app.pollPauseUntil, Date.now() + seconds * 1000);
+      throw Object.assign(new Error("Authentication temporarily rate-limited"), { status: 429 });
+    }
     if (response.ok) {
       acceptAccount(await response.json(), audience);
       return true;
@@ -573,6 +643,9 @@ async function accountLogout() {
   } finally {
     app.logoutBusy = false; renderSession();
   }
+  // A successfully revoked account must cancel any pending startup retry.
+  clearTimeout(app.bootstrapTimer); app.bootstrapTimer = null;
+  app.pollPauseUntil = 0;
   app.account = null; app.participant = null; app.accountAudience = null; app.csrf = null;
   app.role = "player"; app.organizerAvailable = false; app.initialized = false;
   app.competitionSocket?.close(); app.socket?.close();
@@ -618,11 +691,12 @@ const labels = {
   create: "Phòng thi đấu",
   tournaments: "Giải đấu",
   watch: "Lịch sử & Replay",
+  official: "Official Match",
   rules: "Game & Luật chơi",
 };
 function navigate() {
   let view = location.hash.slice(1) || "home";
-  if (!labels[view]) view = "home";
+  if (!labels[view] || (view === "official" && !app.accountOnly)) view = "home";
   $$(".view").forEach(node => node.classList.toggle("active", node.id === `view-${view}`));
   $$(".nav-item").forEach(node => node.classList.toggle("active", node.dataset.view === view));
   $("#page-label").textContent = labels[view];
@@ -1214,6 +1288,7 @@ function populateStandingsGameSelector() {
 }
 
 async function refreshStandings() {
+  if (app.accountOnly) { app.standings = []; renderStandings(); return; }
   const query = app.standingsGameId
     ? `?game_id=${encodeURIComponent(app.standingsGameId)}`
     : "";
@@ -1222,6 +1297,7 @@ async function refreshStandings() {
 }
 
 async function refreshTournaments() {
+  if (app.accountOnly) { app.tournaments = []; renderTournaments(); return; }
   app.tournaments = await api("/api/tournaments");
   renderTournaments();
 }
@@ -1243,6 +1319,9 @@ async function refreshBots() {
   renderBots();
 }
 async function refreshMatches() {
+  if (app.accountOnly && app.accountAudience !== "admin") {
+    app.matches = []; renderMatches(); return;
+  }
   const [matches] = await Promise.all([
     api("/api/matches"),
     refreshStandings(),
@@ -1467,11 +1546,13 @@ async function launch(event) {
 $("#quick-match").addEventListener("submit", launch);
 $("#create-match").addEventListener("submit", launch);
 
-async function loadMatch(id) {
+async function loadMatch(id, official = false) {
   const generation = ++app.generation;
   app.socket?.close();
   clearTimeout(app.reconnectTimer);
-  const payload = await api(`/api/matches/${id}/replay`);
+  const payload = await api(official
+    ? "/api/" + app.accountAudience + "/official-matches/" + encodeURIComponent(id) + "/replay"
+    : "/api/matches/" + encodeURIComponent(id) + "/replay");
   if (generation !== app.generation) return;
   app.match = payload.match;
   app.frames = payload.frames;
@@ -1486,12 +1567,45 @@ async function loadMatch(id) {
   $("#victory-overlay").classList.add("hidden");
   location.hash = "home";
   const link = new URL(location.href);
-  link.searchParams.set("match", id);
+  link.searchParams.delete(official ? "match" : "official");
+  link.searchParams.set(official ? "official" : "match", id);
   history.replaceState(null, "", link);
   if (app.frames.length) setFrame(0, false);
   updatePlayback();
-  if (["running", "queued"].includes(app.match.status)) connectSocket(id, generation);
-  else if (!app.frames.length) toast("Trận bị gián đoạn trước khi có trạng thái replay.", true);
+  if (["running", "queued"].includes(app.match.status)) {
+    if (official) pollOfficialReplay(id, generation);
+    else connectSocket(id, generation);
+  } else if (!app.frames.length) toast("Trận bị gián đoạn trước khi có trạng thái replay.", true);
+}
+
+function scheduleOfficialReplayPoll(id, generation) {
+  if (generation !== app.generation || !app.account || !app.accountOnly ||
+      !["running", "queued"].includes(app.match?.status)) return;
+  // The live replay shares the same server-side auth budget as the calendar.
+  // Never send another replay request while a 429 Retry-After is in force.
+  const delay = Math.max(1600, app.pollPauseUntil - Date.now() + 250);
+  clearTimeout(app.reconnectTimer);
+  app.reconnectTimer = setTimeout(() => pollOfficialReplay(id, generation), delay);
+}
+
+async function pollOfficialReplay(id, generation) {
+  if (generation !== app.generation || !app.account || !app.accountOnly) return;
+  if (Date.now() < app.pollPauseUntil) {
+    scheduleOfficialReplayPoll(id, generation);
+    return;
+  }
+  try {
+    const payload = await api("/api/" + app.accountAudience + "/official-matches/" + encodeURIComponent(id) + "/replay");
+    if (generation !== app.generation) return;
+    app.match = payload.match;
+    app.frames = payload.frames;
+    if (app.frames.length) setFrame(Math.min(app.cursor, app.frames.length - 1), false);
+    updatePlayback();
+  } catch (error) {
+    if (generation !== app.generation || error.status === 401) return;
+    // Preserve the previously received replay on transient network failure.
+  }
+  scheduleOfficialReplayPoll(id, generation);
 }
 
 function connectSocket(id, generation) {
@@ -1702,11 +1816,28 @@ function animate(time) {
 requestAnimationFrame(animate);
 setInterval(() => { $("#clock").textContent = new Date().toLocaleTimeString("vi-VN", { hour12: false }); }, 1000);
 
+function scheduleAccountBootstrapRetry() {
+  if (!app.accountOnly || app.initialized || app.shuttingDown) return;
+  clearTimeout(app.bootstrapTimer);
+  // Wait until the shared source/session budget is replenished. A slight
+  // margin prevents retrying on the exact backend window boundary.
+  const delay = Math.max(1000, app.pollPauseUntil - Date.now() + 250);
+  app.bootstrapTimer = setTimeout(() => {
+    app.bootstrapTimer = null;
+    if (app.accountOnly && !app.initialized && !app.initializing &&
+        !app.shuttingDown) bootstrap();
+  }, delay);
+}
+
 async function bootstrap() {
   if (app.initializing) return;
+  clearTimeout(app.bootstrapTimer); app.bootstrapTimer = null;
   app.initializing = true;
   try {
     const health = await api("/api/health");
+    // Report connectivity from the public health probe, not from an unrelated
+    // protected GET that may legitimately return 429 during bootstrap.
+    setConnection(health.status === "ok");
     app.accountAuth = health.account_auth === true;
     app.accountOnly = health.account_only === true;
     if (app.accountOnly) {
@@ -1723,12 +1854,13 @@ async function bootstrap() {
       canInspectPrivate ? api("/api/bots") : Promise.resolve([]),
       api("/api/games"),
       canInspectPrivate ? api("/api/matches") : Promise.resolve([]),
-      canInspectPrivate ? api("/api/tournaments") : Promise.resolve([]),
+      !app.accountOnly ? api("/api/tournaments") : Promise.resolve([]),
       api("/api/competition")
     ]);
     app.bots = bots; app.games = registry.games; app.matches = matches; app.tournaments = tournaments;
     await acceptCompetition(competition);
     if (app.accountOnly && app.accountAudience === "player") await refreshAccountTeam();
+    if (app.accountOnly) await refreshOfficialMatches();
     populateStandingsGameSelector();
     if (canInspectPrivate) await refreshStandings();
     else app.standings = [];
@@ -1738,9 +1870,18 @@ async function bootstrap() {
     app.initialized = true;
     connectCompetitionSocket();
     updatePlayback();
-    const matchId = new URL(location.href).searchParams.get("match");
-    if (matchId) await loadMatch(matchId);
-  } catch (error) { setConnection(false); toast(`Chưa kết nối được workspace: ${error.message}`, true); }
+    const params = new URL(location.href).searchParams;
+    const officialId = params.get("official"), matchId = params.get("match");
+    if (officialId && app.accountOnly) await loadMatch(officialId, true);
+    else if (matchId && (!app.accountOnly || app.accountAudience === "admin")) await loadMatch(matchId);
+  } catch (error) {
+    // A 429 is a responsive server asking us to slow down, not a disconnect.
+    // Unlike the legacy polling loop, an uninitialized Account-Only workspace
+    // needs its own timed retry after Retry-After elapses.
+    if (app.accountOnly && error.status === 429) scheduleAccountBootstrapRetry();
+    else if (error.transport || !app.accountOnly) setConnection(false);
+    toast(`Chưa kết nối được workspace: ${error.message}`, true);
+  }
   finally { app.initializing = false; renderConnection(); }
 }
 bootstrap();
@@ -1754,18 +1895,28 @@ $("#retry-connection").addEventListener("click", async event => {
         clearTimeout(app.competitionTimer); app.competitionSocket?.close(); connectCompetitionSocket();
       }
     }
-  } catch (error) { setConnection(false); toast(error.message, true); }
+  } catch (error) {
+    if (error.status !== 429) setConnection(false);
+    toast(error.message, true);
+  }
   finally { busyButton(button, false); button.disabled = false; }
 });
 setInterval(async () => {
-  if (document.hidden || app.refreshing || !app.participant || (app.accountOnly && app.accountAudience !== "admin")) return;
+  // Legacy retains its 2-second lobby refresh. Account-Only uses a separate
+  // low-frequency feed below, avoiding four protected GETs every 2 seconds.
+  if (app.accountOnly) return;
+  if (document.hidden || app.refreshing || !app.participant) return;
   if (!app.initialized) { bootstrap(); return; }
   app.refreshing = true;
-  try { await Promise.all([refreshMatches(), refreshBots(), refreshTournaments()]); setConnection(true); }
+  try {
+    await Promise.all([refreshMatches(), refreshBots(), refreshTournaments()]);
+    if (app.accountOnly) await refreshOfficialMatches();
+    setConnection(true);
+  }
   catch { setConnection(false); }
   finally { app.refreshing = false; }
 }, 2000);
-window.addEventListener("beforeunload", () => { app.shuttingDown = true; app.generation++; app.socket?.close(); clearTimeout(app.competitionTimer); clearInterval(app.heartbeatTimer); app.competitionSocket?.close(); });
+window.addEventListener("beforeunload", () => { app.shuttingDown = true; app.generation++; app.socket?.close(); clearTimeout(app.bootstrapTimer); clearTimeout(app.competitionTimer); clearInterval(app.heartbeatTimer); app.competitionSocket?.close(); });
 
 async function refreshAccountTeam() {
   if (!app.accountOnly || app.accountAudience !== "player" || !app.account) return;
@@ -1901,3 +2052,138 @@ $("#account-team-leave").addEventListener("click",async()=>{
   try{await api(`/api/player/teams/${app.team.team.id}/leave`,jsonOptions("POST",{}));await refreshAccountTeam();}
   catch(e){toast(e.message,true);}
 });
+
+
+// Account-Only polls one Official endpoint at a measured cadence. Never poll
+// Team dropdown options continuously, and honor Retry-After when limited.
+setInterval(async () => {
+  if (document.hidden || !app.accountOnly || !app.initialized || !app.account ||
+      app.officialRefreshing || Date.now() < app.pollPauseUntil) return;
+  app.officialRefreshing = true;
+  try {
+    await refreshOfficialMatches({includeTeams: false});
+    if (app.accountOnly && app.account && app.initialized) setConnection(true);
+  } catch (error) {
+    // HTTP 429/403/validation errors do not mean that the network is down.
+    if (error.transport) setConnection(false);
+  } finally {
+    app.officialRefreshing = false;
+  }
+}, 10000);
+
+// Phase 4.2D3: Account-Only Official Match workspace.
+// Uses the same authenticated API wrapper as Team management.
+function officialDateTime(seconds) {
+  return new Date(seconds * 1000).toLocaleString("vi-VN");
+}
+function officialLocalInput(ms) {
+  const date = new Date(ms);
+  return new Date(ms - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+}
+async function refreshOfficialMatches({includeTeams = true} = {}) {
+  if (!app.accountOnly || !app.account) return;
+  const isAdmin = app.accountAudience === "admin";
+  const response = await api("/api/" + app.accountAudience + "/official-matches");
+  if (!Array.isArray(response.requests)) throw new Error("Danh sách Official Match không hợp lệ.");
+  app.officialMatches = response.requests;
+  if (isAdmin && includeTeams) {
+    const teams = await api("/api/admin/teams");
+    app.officialTeams = teams.teams.filter(team => team.status === "ACTIVE");
+    for (const [selector, fallback] of [
+      ["#official-team-a", app.officialTeams[0]?.id || ""],
+      ["#official-team-b", app.officialTeams[1]?.id || ""]
+    ]) {
+      const input = $(selector), previous = input.value;
+      input.replaceChildren(...app.officialTeams.map(team => {
+        const option = el("option", "", team.display_name);
+        option.value = team.id;
+        return option;
+      }));
+      input.value = app.officialTeams.some(team => team.id === previous) ? previous : fallback;
+    }
+    const game = $("#official-game"), previous = game.value;
+    game.replaceChildren(...app.games.map(item => {
+      const option = el("option", "", item.name);
+      option.value = item.game_id;
+      return option;
+    }));
+    game.value = app.games.some(item => item.game_id === previous)
+      ? previous : app.competition?.selected_game_id || "";
+    $("#official-schedule-form [type=submit]").disabled = app.officialTeams.length < 2 || !app.games.length;
+  }
+  $("#official-admin-panel").classList.toggle("hidden", !isAdmin);
+  $("#official-list-heading").textContent = isAdmin ? "Tất cả Official Matches" : "Trận đấu của Team tôi";
+  renderOfficialMatches();
+}
+function renderOfficialMatches() {
+  const target = $("#official-match-list");
+  target.replaceChildren();
+  if (!app.officialMatches.length) {
+    target.append(el("div", "empty-state", "Chưa có trận đấu chính thức nào."));
+    return;
+  }
+  for (const item of app.officialMatches) {
+    const row = el("article", "panel glass-surface glass-subtle");
+    const slots = Object.fromEntries((item.slots || []).map(slot => [slot.side, slot]));
+    const label = side => slots[side]?.team_name_snapshot ||
+      app.officialTeams.find(team => team.id === (side === "A" ? item.team_a_id : item.team_b_id))?.display_name ||
+      (side === "A" ? "Team A" : "Team B");
+    row.append(el("strong", "", label("A") + " vs " + label("B")));
+    row.append(el("div", "form-note", item.game_id + " · Khóa: " + officialDateTime(item.bot_lock_at) +
+      " · Đấu: " + officialDateTime(item.scheduled_at)));
+    row.append(el("div", "form-note", "Trạng thái: " + item.status +
+      (item.status_reason ? " · " + item.status_reason : "")));
+    if (item.outcome) row.append(el("div", "form-note", "Kết quả: " +
+      (item.outcome.winner_side || "Hòa") + " · " + (item.outcome.turn ?? 0) + " lượt"));
+    if (item.match_id) {
+      const watch = el("button", "button ghost small", "Xem Live / Replay ↗");
+      watch.type = "button";
+      watch.onclick = () => loadMatch(item.id, true).catch(error => toast(error.message, true));
+      row.append(watch);
+    }
+    if (app.accountAudience === "admin" && ["SCHEDULED","LOCKED","BLOCKED"].includes(item.status)) {
+      const cancel = el("button", "button ghost small", "Hủy lịch");
+      cancel.type = "button";
+      cancel.onclick = async () => {
+        if (!window.confirm("Hủy lịch thi đấu này?")) return;
+        cancel.disabled = true;
+        try {
+          await api("/api/admin/official-matches/" + encodeURIComponent(item.id) + "/cancel",
+            jsonOptions("POST", {}));
+          await refreshOfficialMatches();
+        } catch (error) { cancel.disabled = false; toast(error.message, true); }
+      };
+      row.append(cancel);
+    }
+    target.append(row);
+  }
+}
+$("#official-refresh").addEventListener("click", () =>
+  refreshOfficialMatches().catch(error => toast(error.message, true)));
+$("#official-schedule-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const form = event.currentTarget, button = form.querySelector("[type=submit]");
+  const lock = Math.floor(new Date(form.elements.bot_lock_at.value).getTime() / 1000);
+  const scheduled = Math.floor(new Date(form.elements.scheduled_at.value).getTime() / 1000);
+  if (!Number.isFinite(lock) || !Number.isFinite(scheduled) || lock > scheduled ||
+      lock < Math.floor(Date.now() / 1000)) {
+    feedback("#official-schedule-feedback", "Giờ khóa bot và giờ thi đấu không hợp lệ.", true);
+    return;
+  }
+  button.disabled = true;
+  try {
+    await api("/api/admin/official-matches", jsonOptions("POST", {
+      team_a_id: form.elements.team_a_id.value, team_b_id: form.elements.team_b_id.value,
+      game_id: form.elements.game_id.value, bot_lock_at: lock, scheduled_at: scheduled
+    }));
+    feedback("#official-schedule-feedback", "Đã xếp lịch Official Match.");
+    await refreshOfficialMatches();
+  } catch (error) {
+    feedback("#official-schedule-feedback", error.message, true);
+  } finally { button.disabled = false; }
+});
+{
+  const form = $("#official-schedule-form");
+  form.elements.bot_lock_at.value = officialLocalInput(Date.now() + 120000);
+  form.elements.scheduled_at.value = officialLocalInput(Date.now() + 300000);
+}

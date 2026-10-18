@@ -7,9 +7,9 @@
   <meta name="description" content="NEON ARENA — không gian thi đấu bot đa game trên local và LAN.">
   <title>NEON ARENA · Tournament workspace</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=0ab76a04fe4c">
-  <link rel="stylesheet" href="/static/styles.css?v=tournament-standings-grid-20261018">
+  <link rel="stylesheet" href="/static/styles.css?v=tournament-official-20261018">
   <script src="/static/renderers.js?v=d15c4fb4c581" defer></script>
-  <script src="/static/app.js?v=tournament-standings-grid-20261018" defer></script>
+  <script src="/static/app.js?v=tournament-official-20261018" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#main-content">Đến nội dung chính</a>
@@ -35,6 +35,7 @@
       <a class="nav-item" href="#upload" data-view="upload"><svg class="nav-icon"><use href="#i-upload"/></svg>Nộp bot<span class="nav-number">03</span></a>
       <a class="nav-item" href="#create" data-view="create"><svg class="nav-icon"><use href="#i-players"/></svg>Phòng thi đấu<span class="nav-number">04</span></a>
       <a class="nav-item" href="#tournaments" data-view="tournaments"><svg class="nav-icon"><use href="#i-trophy"/></svg>Giải đấu<span class="nav-number">05</span></a>
+      <a class="nav-item hidden" href="#official" data-view="official"><svg class="nav-icon"><use href="#i-play"/></svg>Official Match<span class="nav-number">09</span></a>
       <a class="nav-item" href="#watch" data-view="watch"><svg class="nav-icon"><use href="#i-play"/></svg>Lịch sử & Replay<span class="nav-number">06</span></a>
       <a class="nav-item" href="#rules" data-view="rules"><svg class="nav-icon"><use href="#i-sliders"/></svg>Game & Luật chơi<span class="nav-number">07</span></a>
       <a class="nav-item" href="/lan"><svg class="nav-icon"><use href="#i-network"/></svg>Hướng dẫn LAN<span class="nav-number">08</span></a>
@@ -166,6 +167,28 @@
         <section class="panel player-only waiting-panel glass-surface glass-subtle"><div class="padded-form"><span class="active-bot-art"><svg><use href="#i-players"/></svg></span><h2>Sẵn sàng khi bạn sẵn sàng.</h2><p class="form-note">Chọn Active Bot trong Submission của tôi. Giữ website mở để nhận lời mời; bạn luôn có thể chấp nhận hoặc từ chối.</p><button class="button primary" data-go="upload">Chọn bot của tôi <span>↗</span></button></div></section>
         <section class="panel rules-summary glass-surface glass-subtle"><div><span class="eyebrow">Luật đang áp dụng</span><div class="rules-chips" id="create-rules"></div><p class="form-note" id="match-mode-hint"></p></div><button class="text-button" data-go="rules">Chi tiết luật <span>↗</span></button></section>
         <section class="panel"><div class="panel-heading"><h2>Lời mời thi đấu</h2><span class="tag">60 giây phản hồi</span></div><div id="invitations-list" class="match-list"></div></section>
+      </section>
+
+
+      <section class="view" id="view-official" aria-label="Official Match">
+        <div class="page-intro"><div class="eyebrow">TEAM VS TEAM · OFFICIAL</div><h1>Lịch đấu chính thức.<br><em>Bot đã khóa theo deadline.</em></h1><p>Captain chọn Active Bot trước giờ khóa. Trận được thực thi tự động, không cần Player online. Kết quả và replay chỉ dành cho Admin và hai Team tham gia.</p></div>
+        <section class="panel hidden" id="official-admin-panel">
+          <div class="panel-heading"><h2>Lên lịch Team vs Team</h2><span class="tag">ADMIN</span></div>
+          <form class="padded-form account-form" id="official-schedule-form">
+            <label>Team A<select name="team_a_id" id="official-team-a" required></select></label>
+            <label>Team B<select name="team_b_id" id="official-team-b" required></select></label>
+            <label>Game<select name="game_id" id="official-game" required></select></label>
+            <label>Thời hạn khóa bot<input type="datetime-local" name="bot_lock_at" required></label>
+            <label>Giờ thi đấu<input type="datetime-local" name="scheduled_at" required></label>
+            <p class="form-note">Tất cả thời điểm được hiểu theo múi giờ máy của bạn rồi gửi cho server dưới dạng Unix seconds. Chỉ các Team ACTIVE và bot biên dịch hợp lệ mới được khóa. Official Match yêu cầu Docker Sandbox.</p>
+            <button class="button primary" type="submit">Xếp lịch Official Match ↗</button>
+            <div id="official-schedule-feedback" class="feedback hidden" role="status"></div>
+          </form>
+        </section>
+        <section class="panel" aria-label="Danh sách trận chính thức">
+          <div class="panel-heading"><h2 id="official-list-heading">Lịch đấu</h2><button class="text-button" type="button" id="official-refresh">Làm mới ↻</button></div>
+          <div class="match-list" id="official-match-list"><div class="empty-state">Đang tải lịch đấu…</div></div>
+        </section>
       </section>
 
       <section class="view" id="view-watch" aria-label="Lịch sử và replay"><div class="page-intro"><div class="eyebrow">EVERY STRATEGY HAS A STORY</div><h1>Những trận đấu.<br><em>Những điều học được.</em></h1><p>Xem trực tiếp hoặc khám phá lại từng lượt. Replay sử dụng dữ liệu đã lưu, không chạy lại bot.</p></div><section class="panel"><div class="panel-heading"><h2>Lịch sử trận đấu</h2><button class="text-button" id="refresh-matches">Làm mới ↻</button></div><div id="all-matches" class="match-list"></div></section></section>

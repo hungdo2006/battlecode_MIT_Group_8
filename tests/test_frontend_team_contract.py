@@ -64,3 +64,99 @@ def test_browser_account_checker_navigates_to_team_workspace():
     checker = (ROOT / "scripts" / "check_account_ui.py").read_text(encoding="utf-8")
     assert checker.index('page.locator(\'.nav-item[data-view="upload"]\').click()') < checker.index(
         'page.locator("#account-team-panel").wait_for(state="visible")')
+
+
+def test_account_websocket_handshake_denial_checks_http_auth():
+    js = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
+    assert 'const socketAudience = app.accountAudience;' in js
+    assert 'cache: "no-store"' in js
+    # Match a braced or multiline branch, not one brittle spelling.
+    assert re.search(
+        r"if\s*\(response\.status\s*===\s*401\s*\|\|\s*response\.status\s*===\s*403\)\s*\{\s*accountExpired\(\);",
+        js,
+    )
+    assert 'if (socket !== app.competitionSocket) return;' in js
+    assert '.catch(retry);' in js
+
+
+def test_official_workspace_is_account_only_and_form_has_deadlines():
+    html = (ROOT / "frontend" / "index.html").read_text(encoding="utf-8")
+    js = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
+    assert 'id="view-official"' in html
+    assert 'id="official-schedule-form"' in html
+    assert 'name="bot_lock_at"' in html
+    assert 'name="scheduled_at"' in html
+    assert 'id="official-match-list"' in html
+    assert 'data-view="official"' in html
+    assert 'app.accountOnly' in js
+    assert 'async function refreshOfficialMatches({includeTeams = true} = {})' in js
+    assert '/api/admin/official-matches' in js
+    assert 'official-matches/" + encodeURIComponent(id) + "/replay' in js
+    assert 'if (app.accountOnly) { app.tournaments = []; renderTournaments(); return; }' in js
+    assert 'if (app.accountOnly) { app.standings = []; renderStandings(); return; }' in js
+
+
+def test_account_only_background_poll_respects_auth_budget_and_keeps_online_on_429():
+    js = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
+    # Previous Admin polling made four protected requests every 2 seconds.
+    # Legacy-only fast polling is retained; Account-Only uses one slower feed.
+    legacy = js.split('setInterval(async () => {', 1)[1].split('}, 2000);', 1)[0]
+    assert 'if (app.accountOnly) return;' in legacy
+    official = js.split('// Account-Only polls one Official endpoint', 1)[1]
+    official = official.split('}, 10000);', 1)[0]
+    assert 'Date.now() < app.pollPauseUntil' in official
+    assert 'app.officialRefreshing' in official
+    assert 'refreshOfficialMatches({includeTeams: false})' in official
+    assert 'if (error.transport) setConnection(false);' in official
+    assert 'setConnection(false)' not in official.replace(
+        'if (error.transport) setConnection(false);', '')
+    assert 'if (isAdmin && includeTeams)' in js
+    assert 'const teams = await api("/api/admin/teams");' in js
+    assert 'response.status === 429' in js
+    assert 'response.headers.get("Retry-After")' in js
+    assert 'app.pollPauseUntil = Math.max(' in js
+    assert 'if (error.status !== 429) setConnection(false);' in js
+
+
+def test_account_only_websocket_reconnect_backoff_preserves_revocation_checks():
+    js = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
+    assert "competitionRetryMs: 5000" in js
+    assert "if (app.accountOnly) app.competitionRetryMs = 5000;" in js
+    assert "Math.min(30000, app.competitionRetryMs * 2)" in js
+    assert "Math.max(0, app.pollPauseUntil - Date.now())" in js
+    assert 'response.status === 429' in js
+    assert 'response.status === 401 || response.status === 403' in js
+    assert "accountExpired();" in js
+    # Legacy reconnect still uses its original 1200ms schedule.
+    assert "app.competitionTimer = setTimeout(connectCompetitionSocket, 1200);" in js
+
+
+def test_live_replay_cannot_poll_inside_retry_after_window():
+    js = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
+    replay = js.split("function scheduleOfficialReplayPoll(", 1)[1]
+    replay = replay.split("function connectSocket(", 1)[0]
+    assert 'Date.now() < app.pollPauseUntil' in replay
+    assert 'Math.max(1600, app.pollPauseUntil - Date.now() + 250)' in replay
+    assert 'scheduleOfficialReplayPoll(id, generation);' in replay
+    assert 'setTimeout(() => pollOfficialReplay(id, generation), 1600)' not in replay
+    assert 'generation !== app.generation' in replay
+
+
+def test_account_startup_retries_after_429_without_manual_action():
+    js = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
+    bootstrap = js.split("function scheduleAccountBootstrapRetry()", 1)[1]
+    bootstrap = bootstrap.split('bootstrap();\n$("#retry-connection")', 1)[0]
+    assert 'app.pollPauseUntil - Date.now() + 250' in bootstrap
+    assert 'app.bootstrapTimer = setTimeout(() => {' in bootstrap
+    assert '!app.initialized && !app.initializing' in bootstrap
+    assert 'if (app.accountOnly && error.status === 429) scheduleAccountBootstrapRetry();' in bootstrap
+    assert 'if (response.status === 429) {' in js  # restoreAccount path
+
+
+def test_successful_account_poll_restores_network_indicator():
+    js = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
+    official = js.split('// Account-Only polls one Official endpoint', 1)[1]
+    official = official.split('}, 10000);', 1)[0]
+    assert 'await refreshOfficialMatches({includeTeams: false});' in official
+    assert 'if (app.accountOnly && app.account && app.initialized) setConnection(true);' in official
+    assert 'if (error.transport) setConnection(false);' in official

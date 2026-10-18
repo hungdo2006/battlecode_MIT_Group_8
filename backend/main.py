@@ -115,12 +115,29 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
                 app.state.upload_lock = asyncio.Lock()
                 if account_settings.account_only:
                     from backend.bot_service import TeamBots
+                    from backend.official_dispatcher import OfficialDispatcher
                     await auth_runtime.run(lambda auth, conn: TeamBots(
                         auth, conn, writer, app.state.store, installed).reconcile())
+                    dispatcher = app.state.official_dispatcher = OfficialDispatcher(
+                        auth_runtime, writer, app.state.store, installed, manager)
+                    await dispatcher.recover()
+                    async def official_deadline_worker():
+                        while True:
+                            try:
+                                await dispatcher.tick()
+                            except Exception:
+                                import logging
+                                logging.getLogger(__name__).exception("Official dispatcher tick failed")
+                            await asyncio.sleep(1)
+                    app.state.official_deadline_task = asyncio.create_task(
+                        official_deadline_worker(), name="official-deadlines")
                 await asyncio.to_thread(Store._write, app.state.store.data / MODE_FILE,
                                         {"version": 1, "mode": "account_only" if account_settings.account_only else "legacy"})
                 yield
             finally:
+                if account_settings.account_only and getattr(app.state, "official_deadline_task", None):
+                    app.state.official_deadline_task.cancel()
+                    await asyncio.gather(app.state.official_deadline_task, return_exceptions=True)
                 # Keep ownership until every cleanup has been attempted, including
                 # failed startup. A failed cleanup must not skip runner shutdown.
                 try:
@@ -1099,8 +1116,10 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
     if account_settings.account_only:
         from backend.team_http import install_team_http
         from backend.bot_http import install_bot_http
+        from backend.official_http import install_official_http
         install_team_http(app)
         install_bot_http(app)
+        install_official_http(app)
     return app
 
 

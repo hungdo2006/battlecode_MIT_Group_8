@@ -157,4 +157,66 @@ MIGRATIONS = (
         ) STRICT""",
         "CREATE INDEX submission_journal_team ON submission_journal(team_id, state)",
     )),
+    (5, "official_match_scheduling", (
+        """CREATE TABLE official_match_requests (
+            id TEXT PRIMARY KEY NOT NULL,
+            created_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+            team_a_id TEXT NOT NULL REFERENCES teams(id) ON DELETE RESTRICT,
+            team_b_id TEXT NOT NULL REFERENCES teams(id) ON DELETE RESTRICT,
+            game_id TEXT NOT NULL CHECK (length(game_id) BETWEEN 1 AND 64),
+            rules_json TEXT NOT NULL CHECK (json_valid(rules_json)),
+            bot_lock_at INTEGER NOT NULL CHECK (bot_lock_at >= 0),
+            scheduled_at INTEGER NOT NULL CHECK (scheduled_at >= bot_lock_at),
+            created_at INTEGER NOT NULL CHECK (created_at >= 0),
+            status TEXT NOT NULL CHECK (status IN
+                ('SCHEDULED','LOCKED','BLOCKED','CANCELLED',
+                 'DISPATCHING','RUNNING','COMPLETED','INTERRUPTED')),
+            locked_at INTEGER CHECK (locked_at >= created_at),
+            status_reason TEXT,
+            match_id TEXT UNIQUE,
+            started_at INTEGER,
+            finished_at INTEGER,
+            outcome_json TEXT CHECK (outcome_json IS NULL OR json_valid(outcome_json)),
+            revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+            CHECK (team_a_id <> team_b_id),
+            CHECK (bot_lock_at >= created_at),
+            CHECK ((status IN ('LOCKED','DISPATCHING','RUNNING','COMPLETED','INTERRUPTED')
+                AND locked_at IS NOT NULL)
+                OR (status IN ('SCHEDULED','BLOCKED','CANCELLED')
+                AND locked_at IS NULL)),
+            CHECK ((status IN ('DISPATCHING','RUNNING','COMPLETED','INTERRUPTED')
+                AND match_id IS NOT NULL AND started_at IS NOT NULL)
+                OR (status IN ('SCHEDULED','LOCKED','BLOCKED','CANCELLED')
+                AND match_id IS NULL AND started_at IS NULL)),
+            CHECK (finished_at IS NULL OR finished_at >= started_at)
+        ) STRICT""",
+        "CREATE INDEX official_due ON official_match_requests(status, bot_lock_at)",
+        "CREATE INDEX official_schedule ON official_match_requests(scheduled_at, id)",
+        """CREATE TABLE official_source_attestations (
+            bot_id TEXT PRIMARY KEY NOT NULL REFERENCES submission_ownership(bot_id)
+                ON DELETE RESTRICT,
+            source_sha256 TEXT NOT NULL CHECK (
+                length(source_sha256)=64 AND
+                source_sha256 NOT GLOB '*[^0-9a-f]*'),
+            attested_at INTEGER NOT NULL CHECK (attested_at >= 0)
+        ) STRICT""",
+        """CREATE TABLE official_match_slots (
+            request_id TEXT NOT NULL REFERENCES official_match_requests(id) ON DELETE RESTRICT,
+            side TEXT NOT NULL CHECK (side IN ('A','B')),
+            team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE RESTRICT,
+            team_name_snapshot TEXT NOT NULL,
+            game_id TEXT NOT NULL,
+            bot_id TEXT NOT NULL,
+            bot_name_snapshot TEXT NOT NULL,
+            bot_language TEXT NOT NULL,
+            source_sha256 TEXT NOT NULL CHECK (length(source_sha256)=64),
+            artifact_id TEXT,
+            artifact_digest TEXT,
+            bot_revision INTEGER NOT NULL CHECK (bot_revision > 0),
+            locked_at INTEGER NOT NULL CHECK (locked_at >= 0),
+            PRIMARY KEY (request_id,side),
+            FOREIGN KEY (team_id,game_id,bot_id)
+                REFERENCES submission_ownership(team_id,game_id,bot_id) ON DELETE RESTRICT
+        ) STRICT""",
+    )),
 )

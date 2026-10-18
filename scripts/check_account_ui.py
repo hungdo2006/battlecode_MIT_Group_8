@@ -58,7 +58,8 @@ def run():
         base, port = Path(folder), available_port()
         seed(base)
         origin = f"http://127.0.0.1:{port}"
-        settings = HTTPAuthSettings(enabled=True, account_only=True, origins=(origin,), allow_http=True)
+        settings = HTTPAuthSettings(enabled=True, account_only=True, self_registration=True,
+                                    origins=(origin,), allow_http=True)
         application = create_app(base, tick_seconds=.01, account_http=settings)
         server = uvicorn.Server(uvicorn.Config(
             application, host="127.0.0.1",
@@ -76,6 +77,22 @@ def run():
                 dialog = page.locator("#account-dialog")
                 dialog.wait_for(state="visible")
                 assert page.locator("#account-mode-note").is_visible()
+                # Public self-registration: one login, no user-selected role.
+                assert page.locator("#account-login-form [name=audience]").count() == 0
+                page.click("#account-register-choice")
+                page.fill("#account-register-form [name=username]", "qa_new")
+                page.fill("#account-register-form [name=display_name]", "QA New")
+                page.fill("#account-register-form [name=email]", "qa.new@example.org")
+                page.fill("#account-register-form [name=password]", PASSWORD)
+                page.click("#account-register-form [type=submit]")
+                page.locator("#account-login-form").wait_for(state="visible")
+                assert page.locator("#account-username").input_value() == "qa_new"
+                page.fill("#account-login-form [name=password]", PASSWORD)
+                page.click("#account-login-form [type=submit]")
+                page.wait_for_function("document.querySelector('#participant-role').textContent === 'PLAYER'")
+                assert not dialog.is_visible()
+                page.click("#organizer-toggle")
+                dialog.wait_for(state="visible")
 
                 page.fill("#account-username", "qa.admin")
                 page.fill("#account-login-form [name=password]", PASSWORD)
@@ -146,7 +163,7 @@ def run():
             thread.join(timeout=20)
             if thread.is_alive():
                 raise RuntimeError("Temporary Account-Only server did not stop cleanly")
-    print("PASS Account-Only browser UI: login, failed logout (503/network/unconfirmed), retry, revocation, legacy 410")
+    print("PASS Account-Only browser UI: signup/unified login, failed logout (503/network/unconfirmed), retry, revocation, legacy 410")
 
 
 if __name__ == "__main__":

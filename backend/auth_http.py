@@ -569,6 +569,11 @@ def install_auth_http(app, settings, network):
             path=account_cookie_path(audience))
         response.delete_cookie(cookie_name(audience), path=cookie_path(audience),
                                httponly=True, secure=request.scope["scheme"] == "https", samesite="strict")
+        # A single login UI must not leave both audience cookies in this
+        # browser. This clears the other cookie path without granting authority.
+        other = "PLAYER" if audience == "ADMIN" else "ADMIN"
+        response.delete_cookie(account_cookie_name(other), path=account_cookie_path(other),
+                               httponly=True, secure=request.scope["scheme"] == "https", samesite="strict")
         return response
 
     player = APIRouter(prefix=account_prefix("PLAYER") + "/auth", tags=["Player Account Auth"])

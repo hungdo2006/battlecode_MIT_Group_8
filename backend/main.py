@@ -26,6 +26,7 @@ from backend.models import (
     GameSelection,
     OrganizerCode,
     SessionUpdate,
+    MatchResultCorrection,
     TournamentCreateRequest,
 )
 from backend.network import NetworkSettings, lan_addresses, same_origin
@@ -666,6 +667,29 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
             except ValueError as exc:
                 raise HTTPException(409, str(exc)) from exc
 
+    @app.post("/api/matches/{match_id}/correct-result", dependencies=[Depends(require_organizer)])
+    async def correct_match_result(match_id: str, payload: MatchResultCorrection, request: Request):
+        require_organizer(request)
+        async with app.state.competition.lock:
+            match = app.state.manager.get_match(match_id)
+            if not match:
+                raise HTTPException(404, "Không tìm thấy trận đấu.")
+            if match.get("status") != "completed":
+                raise HTTPException(409, "Chỉ có thể điều chỉnh kết quả trận đã hoàn tất.")
+            if match.get("tournament_id") or match.get("tournament_match_id") or match.get("official_request_id"):
+                raise HTTPException(409, "Luồng điều chỉnh này chỉ áp dụng cho trận tự do, không thuộc giải hoặc Team.")
+            winner = None if payload.winner == "DRAW" else payload.winner
+            if (match.get("result") or {}).get("winner") == winner:
+                raise HTTPException(409, "Kết quả mới giống kết quả hiện tại.")
+            updated = await asyncio.to_thread(
+                app.state.store.correct_match_result,
+                match_id, winner, payload.reason, request.state.participant, timestamp(),
+            )
+            if updated is None:
+                raise HTTPException(404, "Không tìm thấy trận đấu.")
+            await app.state.competition.publish()
+            return updated
+
     @app.get("/api/matches/{match_id}")
     async def match_info(match_id: str):
         match = app.state.manager.get_match(match_id)
@@ -965,6 +989,30 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
                 except ValueError as exc:
                     raise HTTPException(409, str(exc)) from exc
 
+        @app.post("/api/admin/matches/{match_id}/correct-result")
+        async def account_admin_correct_match_result(match_id: str, request: Request,
+                                                     payload: MatchResultCorrection):
+            principal = await account_principal(request, "ADMIN", mutation=True)
+            async with app.state.competition.lock:
+                match = app.state.manager.get_match(match_id)
+                if not match:
+                    raise HTTPException(404, "Không tìm thấy trận đấu.")
+                if match.get("status") != "completed":
+                    raise HTTPException(409, "Chỉ có thể điều chỉnh kết quả trận đã hoàn tất.")
+                if match.get("tournament_id") or match.get("tournament_match_id") or match.get("official_request_id"):
+                    raise HTTPException(409, "Luồng điều chỉnh này chỉ áp dụng cho trận tự do, không thuộc giải hoặc Team.")
+                winner = None if payload.winner == "DRAW" else payload.winner
+                if (match.get("result") or {}).get("winner") == winner:
+                    raise HTTPException(409, "Kết quả mới giống kết quả hiện tại.")
+                updated = await asyncio.to_thread(
+                    app.state.store.correct_match_result,
+                    match_id, winner, payload.reason,
+                    {"id": principal.account.id, "name": principal.account.username}, timestamp(),
+                )
+                if updated is None:
+                    raise HTTPException(404, "Không tìm thấy trận đấu.")
+                return safe_match(updated)
+
         async def account_ws_identity(websocket, audience, *, allowed_query=()):
             try:
                 guard_account_scope(websocket.scope, websocket.headers, account_settings, settings, websocket=True)
@@ -1135,9 +1183,14 @@ def safe_bot(bot: dict) -> dict:
 def safe_match(match: dict) -> dict:
     fields = ("id", "game_id", "game", "game_name", "game_version", "status", "created_at",
               "started_at", "finished_at", "rules", "rules_snapshot", "turn", "result", "winner",
+              "result_corrections",
               "player_a_name_snapshot", "player_b_name_snapshot", "bot_a_id", "bot_b_id",
               "bot_a_name_snapshot", "bot_b_name_snapshot", "bot_a_language", "bot_b_language")
     result = {key: deepcopy(match[key]) for key in fields if key in match}
+    result["result_correctable"] = (match.get("status") == "completed"
+                                    and not match.get("tournament_id")
+                                    and not match.get("tournament_match_id")
+                                    and not match.get("official_request_id"))
     result["bots"] = {side: {key: deepcopy(bot[key]) for key in ("id", "name", "language") if key in bot}
                       for side, bot in match.get("bots", {}).items()}
     return result

@@ -1,5 +1,6 @@
 """Phase 4.2D1: deterministic Official scheduling and per-match frozen selections."""
 from pathlib import Path
+import asyncio
 import hashlib
 import pytest
 
@@ -8,6 +9,18 @@ from backend.account_database import transaction
 
 
 GAME = "robot_battle"
+
+
+@pytest.fixture(autouse=True)
+def stop_background_deadline_worker(room):
+    """Keep fake-clock service tests deterministic; these tests tick explicitly."""
+    task = room.app.state.official_deadline_task
+
+    async def stop_task():
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+    room.client.portal.call(stop_task)
 
 
 def create_team(room,username,slug):

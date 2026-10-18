@@ -964,15 +964,55 @@ function renderMatchList(target, matches) {
     names.append(document.createTextNode(fighterLabel(match, "A")), el("span", "", "VS"), document.createTextNode(fighterLabel(match, "B")));
     names.append(el("small", "match-date", `${match.game_name || app.games.find(g => g.game_id === match.game_id)?.name || match.game_id} · ${new Date(match.created_at).toLocaleString("vi-VN")} · ${match.turn} lượt`));
     names.append(el("small", "match-date", `#${match.id} · TẠO BỞI / ${match.created_by ? ownerLabel(match.created_by) : "Trận cũ"}`));
+    const corrections = match.result_corrections || [];
+    if (corrections.length) {
+      const history = el("details", "match-correction-history");
+      history.append(el("summary", "match-date", `Lịch sử điều chỉnh (${corrections.length})`));
+      for (const correction of corrections) {
+        const oldResult = correction.previous_result?.winner || "Hòa";
+        const newResult = correction.new_result?.winner || "Hòa";
+        history.append(el("small", "match-date",
+          `${correction.corrected_at ? new Date(correction.corrected_at).toLocaleString("vi-VN") : ""} · ${correction.actor?.name || "Organizer"}: ${oldResult} → ${newResult} · ${correction.reason}`));
+      }
+      names.append(history);
+    }
     row.append(names, statusBadge(match.status), el("span", "match-result", resultDescription(match)));
-    const button = el("button", "button ghost", ["running", "queued"].includes(match.status) ? "Live ↗" : "Replay ↗");
+    const actions = el("div", "match-actions");
+    const button = el("button", "button ghost match-view-button", ["running", "queued"].includes(match.status) ? "Live ↗" : "Replay ↗");
     button.dataset.focusKey = `match-${match.id}`;
     button.setAttribute("aria-label", `${["running", "queued"].includes(match.status) ? "Xem trực tiếp" : "Xem replay"} trận ${match.id}`);
     button.addEventListener("click", () => loadMatch(match.id).catch(error => toast(error.message, true)));
-    row.append(button);
+    actions.append(button);
+    if (app.role === "organizer" && match.status === "completed" && match.result_correctable !== false
+        && !match.tournament_id && !match.tournament_match_id && !match.official_request_id) {
+      const correct = el("button", "button ghost match-correct-button", "Sửa kết quả");
+      correct.dataset.focusKey = `correct-${match.id}`;
+      correct.addEventListener("click", () => correctMatchResult(match).catch(error => toast(error.message, true)));
+      actions.append(correct);
+    }
+    row.append(actions);
     target.append(row);
   });
   restore();
+}
+
+async function correctMatchResult(match) {
+  const selection = window.prompt(
+    `Kết quả mới cho ${fighterLabel(match, "A")} vs ${fighterLabel(match, "B")}? Nhập A, B hoặc H để hòa.`,
+    match.result?.winner || "A",
+  );
+  if (selection === null) return;
+  const choice = selection.trim().toUpperCase();
+  const winner = choice === "H" || choice === "DRAW" ? "DRAW" : choice;
+  if (!["A", "B", "DRAW"].includes(winner)) throw new Error("Nhập A, B hoặc H (hòa).");
+  const reason = window.prompt("Lý do điều chỉnh (ít nhất 5 ký tự):");
+  if (reason === null) return;
+  const matchPath = `/api/matches/${encodeURIComponent(match.id)}/correct-result`;
+  const updated = await api(matchPath, jsonOptions("POST", { winner, reason }));
+  app.matches = app.matches.map(item => item.id === updated.id ? updated : item);
+  await refreshStandings();
+  renderMatches();
+  toast("Đã điều chỉnh kết quả và lưu vào lịch sử.");
 }
 
 function renderMatches() {
@@ -1742,6 +1782,10 @@ function renderCombatLog() {
     }
     if (frame.result) lines.push({ turn: "END", text: frame.result.winner ? `${frame.result.winner} chiến thắng` : "Hòa", type: "result" });
   }
+  if (app.match.result_corrections?.length && app.cursor === app.frames.length - 1) {
+    const winner = app.match.result?.winner;
+    lines.push({ turn: "ORG", text: winner ? `Kết quả Organizer xác nhận: ${winner} thắng` : "Kết quả Organizer xác nhận: Hòa", type: "result" });
+  }
   lines.slice(-35).forEach(line => {
     const row = el("div", `log-line ${line.type}`);
     row.append(el("span", "", line.turn), document.createTextNode(line.text));
@@ -1752,13 +1796,17 @@ function renderCombatLog() {
 
 function showResult(frame) {
   if (app.victoryDismissed || app.displayedResult) return;
-  const result = frame.result || (app.cursor === app.frames.length - 1 && app.match?.status === "interrupted" ? app.match.result : null);
+  const atEnd = app.cursor === app.frames.length - 1;
+  const corrected = atEnd && app.match?.result_corrections?.length ? app.match.result : null;
+  const result = corrected || frame.result || (atEnd && app.match?.status === "interrupted" ? app.match.result : null);
   if (!result) return;
   app.displayedResult = true;
   $("#victory-overlay").classList.remove("hidden");
-  $("#victory-title").textContent = app.match?.status === "interrupted" ? "Trận bị gián đoạn" : result.winner ? "Chiến thắng!" : "Trận đấu hòa";
+  $("#victory-title").textContent = corrected ? "Kết quả được điều chỉnh" : app.match?.status === "interrupted" ? "Trận bị gián đoạn" : result.winner ? "Chiến thắng!" : "Trận đấu hòa";
   $("#victory-winner").textContent = result.winner ? fighterLabel(app.match, result.winner) : "Không có người thắng";
-  const reasons = { bot_error: "Lỗi bot: " + Object.entries(result.faults || {}).map(([p, error]) => `${p}: ${error}`).join(" · "), server_restart: "Máy chủ đã khởi động lại giữa trận.", server_shutdown: "Máy chủ dừng giữa trận.", server_error: "Máy chủ gặp lỗi khi xử lý trận đấu.", runner_unavailable: "Hạ tầng chạy bot bị gián đoạn. Không xử thua Player.", organizer_cancelled: "Organizer đã hủy trận đấu." };
+  const correctionHistory = app.match?.result_corrections || [];
+  const latestCorrection = correctionHistory[correctionHistory.length - 1];
+  const reasons = { organizer_correction: `Organizer đã điều chỉnh kết quả: ${latestCorrection?.reason || "không có ghi chú"}. Replay vẫn giữ nguyên diễn biến trận ban đầu.`, bot_error: "Lỗi bot: " + Object.entries(result.faults || {}).map(([p, error]) => `${p}: ${error}`).join(" · "), server_restart: "Máy chủ đã khởi động lại giữa trận.", server_shutdown: "Máy chủ dừng giữa trận.", server_error: "Máy chủ gặp lỗi khi xử lý trận đấu.", runner_unavailable: "Hạ tầng chạy bot bị gián đoạn. Không xử thua Player.", organizer_cancelled: "Organizer đã hủy trận đấu." };
   $("#victory-reason").textContent = reasons[result.reason] || NeonRenderers.get(frameGameId(frame)).result(result);
 }
 

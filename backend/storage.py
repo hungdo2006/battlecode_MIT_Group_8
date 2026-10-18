@@ -2,6 +2,7 @@
 import json
 import os
 import threading
+import time
 from copy import deepcopy
 from pathlib import Path
 from uuid import uuid4
@@ -65,9 +66,22 @@ class Store:
 
     @staticmethod
     def _write(path: Path, value):
-        temporary = path.with_suffix(".tmp")
-        temporary.write_text(json.dumps(value, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-        os.replace(temporary, path)
+        # Unique sibling temp files avoid collisions between independent Store
+        # instances. Windows scanners can briefly deny replacement while they
+        # inspect a just-written JSON file, so retry that transient condition.
+        temporary = path.with_name(f"{path.name}.{uuid4().hex}.tmp")
+        try:
+            temporary.write_text(json.dumps(value, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+            for attempt in range(8):
+                try:
+                    os.replace(temporary, path)
+                    return
+                except PermissionError:
+                    if attempt == 7:
+                        raise
+                    time.sleep(0.01 * (2 ** attempt))
+        finally:
+            temporary.unlink(missing_ok=True)
 
     def get_bots(self) -> list[dict]:
         with self.lock:
@@ -263,6 +277,36 @@ class Store:
         with self.lock:
             self.matches[match["id"]] = deepcopy(match)
             self._write(self.data / "matches.json", self.matches)
+
+    def correct_match_result(self, match_id: str, winner: str | None, reason: str,
+                             actor: dict, corrected_at: str) -> dict | None:
+        """Correct an eligible free-play result and retain an append-only audit trail."""
+        with self.lock:
+            current = self.matches.get(match_id)
+            if current is None:
+                return None
+            updated = deepcopy(current)
+            previous_result = deepcopy(updated.get("result") or {})
+            corrected_result = deepcopy(previous_result)
+            corrected_result["winner"] = winner
+            corrected_result["reason"] = "organizer_correction"
+            updated["result"] = corrected_result
+            updated["winner"] = winner
+            updated.setdefault("result_corrections", []).append({
+                "corrected_at": corrected_at,
+                "actor": deepcopy(actor),
+                "previous_result": previous_result,
+                "new_result": deepcopy(corrected_result),
+                "reason": reason,
+            })
+            previous = self.matches[match_id]
+            self.matches[match_id] = updated
+            try:
+                self._write(self.data / "matches.json", self.matches)
+            except Exception:
+                self.matches[match_id] = previous
+                raise
+            return deepcopy(updated)
 
     def get_match(self, match_id: str) -> dict | None:
         with self.lock:

@@ -80,3 +80,20 @@ class TournamentCreateRequest(BaseModel):
         if len(value) != len(set(value)):
             raise ValueError("Không được chọn trùng người chơi.")
         return value
+
+
+class MatchResultCorrection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    winner: Literal["A", "B", "DRAW"]
+    reason: str = Field(min_length=5, max_length=300)
+
+    @field_validator("reason")
+    @classmethod
+    def normalize_reason(cls, value: str):
+        if any(ord(c) < 32 and c not in "\t\n" for c in value):
+            raise ValueError("Lý do không được chứa ký tự điều khiển.")
+        value = " ".join(value.split())
+        if len(value) < 5:
+            raise ValueError("Lý do cần ít nhất 5 ký tự.")
+        return value

@@ -1065,12 +1065,42 @@ function renderTournaments() {
     } else if (tournament.format === "round_robin") {
       if (tournament.standings?.length) {
         const table = el("div", "tournament-standings");
-        table.append(el("div", "tournament-standing-row heading", "HẠNG · NGƯỜI CHƠI · TRẬN · THẮNG · HÒA · THUA · ĐIỂM · ĐIỂM ĐỐI ĐẦU · HIỆU SỐ"));
+        const columns = [
+          ["rank", "HẠNG", "Thứ hạng"], ["player", "NGƯỜI CHƠI", "Tên người chơi"],
+          ["played", "ĐẤU", "Số trận đã đấu"], ["wins", "THẮNG", "Số trận thắng"],
+          ["draws", "HÒA", "Số trận hòa"], ["losses", "THUA", "Số trận thua"],
+          ["points", "ĐIỂM", "Tổng điểm"], ["head-to-head", "ĐỐI ĐẦU", "Điểm đối đầu trong nhóm hòa điểm"],
+          ["difference", "HIỆU SỐ", "Hiệu số điểm ghi được"],
+        ];
+        const header = el("div", "tournament-standing-row heading");
+        header.setAttribute("role", "row");
+        for (const [key, label, title] of columns) {
+          const cell = el("span", `tournament-standing-cell ${key}`, label);
+          cell.title = title;
+          cell.setAttribute("role", "columnheader");
+          header.append(cell);
+        }
+        table.append(header);
         tournament.standings.forEach((player, index) => {
-          table.append(el("div", "tournament-standing-row",
-            `${player.rank ?? index + 1}. ${player.nickname} · ${player.played} · ${player.wins} · ${player.draws} · ${player.losses} · ${player.points} · ${player.head_to_head} · ${player.score_difference > 0 ? "+" : ""}${player.score_difference}`));
+          const row = el("div", "tournament-standing-row");
+          row.setAttribute("role", "row");
+          const difference = Number(player.score_difference || 0);
+          const values = [
+            player.rank ?? index + 1, player.nickname, player.played, player.wins,
+            player.draws, player.losses, player.points, player.head_to_head ?? 0,
+            `${difference > 0 ? "+" : ""}${difference}`,
+          ];
+          values.forEach((value, columnIndex) => {
+            const [key] = columns[columnIndex];
+            const cell = el("span", `tournament-standing-cell ${key}`, value);
+            if (key === "player") cell.title = player.nickname;
+            if (key === "difference") cell.classList.add(difference > 0 ? "positive" : difference < 0 ? "negative" : "neutral");
+            cell.setAttribute("role", "cell");
+            row.append(cell);
+          });
+          table.append(row);
         });
-        disclosure.append(table);
+        disclosure.append(table, el("p", "tournament-standing-note", "Thứ tự xếp hạng: điểm → đối đầu → hiệu số → số trận thắng."));
       }
       const schedule = el("div", "tournament-schedule");
       const currentRoundIndex = tournament.rounds.findIndex(round =>

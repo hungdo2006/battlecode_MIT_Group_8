@@ -643,6 +643,9 @@ async function accountLogout() {
   } finally {
     app.logoutBusy = false; renderSession();
   }
+  // A successfully revoked account must cancel any pending startup retry.
+  clearTimeout(app.bootstrapTimer); app.bootstrapTimer = null;
+  app.pollPauseUntil = 0;
   app.account = null; app.participant = null; app.accountAudience = null; app.csrf = null;
   app.role = "player"; app.organizerAvailable = false; app.initialized = false;
   app.competitionSocket?.close(); app.socket?.close();

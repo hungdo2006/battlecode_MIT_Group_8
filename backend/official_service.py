@@ -415,10 +415,34 @@ class OfficialSchedule:
                   "created_at","finished_at","turn","result","winner","rules",
                   "rules_snapshot","player_a_name_snapshot","player_b_name_snapshot")
         safe = {key:match[key] for key in fields if key in match}
+        frames = payload.get("frames", [])
+        # SQLite is the Official publication authority. A JSON match may
+        # claim completion before its terminal replay is verified.
+        if row["status"] == "COMPLETED":
+            outcome = json.loads(row["outcome_json"]) if row["outcome_json"] else None
+            if not outcome:
+                raise OfficialConflict("Verified Official result is unavailable")
+            safe["status"] = "completed"
+            safe["result"] = outcome["result"]
+            safe["winner"] = outcome["winner_side"]
+        else:
+            safe["winner"] = None
+            if row["status"] == "INTERRUPTED":
+                safe["status"] = "interrupted"
+                safe["result"] = {"winner": None,
+                    "reason": row["status_reason"] or "OFFICIAL_INTERRUPTED",
+                    "faults": {}}
+            else:
+                safe["status"] = "running"
+                safe["result"] = None
+            # Do not expose an unverified terminal win via individual frames.
+            # Construct copies: persisted frames stay untouched.
+            frames = [{**frame, "result": None} if frame.get("result") else frame
+                      for frame in frames]
         safe["bots"] = {side: {key:bot[key] for key in ("id","name","language") if key in bot}
                         for side,bot in match.get("bots",{}).items()}
         return {"match":safe,"version":payload.get("version",1),
-                "frames":payload.get("frames",[])}
+                "frames":frames}
 
     def freeze_due(self):
         self._ready()

@@ -393,6 +393,9 @@ def test_unified_login_derives_role_and_uses_separate_session_paths(account_room
         assert "httponly" in cookie and "samesite=strict" in cookie
         assert "path=/api/" + audience in cookie
         assert room.client.get("/api/" + audience + "/auth/me").status_code == 200
+        if audience == "player":
+            # The unified login removes any previously retained Admin cookie.
+            assert room.client.get("/api/admin/auth/me").status_code == 401
     failed = room.client.post("/api/account/auth/login", json={
         "username": "admin", "password": "incorrect password",
     })
@@ -446,6 +449,15 @@ def test_player_self_registration_is_gated_and_never_provisions_admin(tmp_path):
         })
         assert login.status_code == 200 and login.json()["audience"] == "player"
         assert client.get("/api/player/auth/me").status_code == 200
+        # A bad Origin or a spoofed trusted proxy may not create accounts.
+        blocked_origin = client.post("/api/account/auth/register", json={
+            **registration, "username": "outside", "email": "outside@example.org",
+        }, headers={"Origin": "https://evil.example"})
+        assert blocked_origin.status_code == 403
+        blocked_proxy = client.post("/api/account/auth/register", json={
+            **registration, "username": "outside", "email": "outside@example.org",
+        }, headers={"X-Forwarded-For": "127.0.0.1"})
+        assert blocked_proxy.status_code == 403
         unauthorized = client.post("/api/account/auth/register", json={
             **registration, "username": "hacker", "email": "hacker@example.org", "system_role": "ADMIN",
         })

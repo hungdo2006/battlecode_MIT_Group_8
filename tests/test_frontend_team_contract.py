@@ -160,3 +160,17 @@ def test_successful_account_poll_restores_network_indicator():
     assert 'await refreshOfficialMatches({includeTeams: false});' in official
     assert 'if (app.accountOnly && app.account && app.initialized) setConnection(true);' in official
     assert 'if (error.transport) setConnection(false);' in official
+
+
+def test_phase43a_auth_choice_has_no_browser_selected_role():
+    html = (ROOT / "frontend" / "index.html").read_text(encoding="utf-8")
+    js = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
+    assert 'id="account-login-choice"' in html
+    assert 'id="account-register-choice"' in html
+    assert 'id="account-register-form"' in html
+    assert 'name="audience"' not in html
+    assert 'app.selfRegistration = health.self_registration === true;' in js
+    assert 'api("/api/account/auth/login"' in js
+    assert 'api("/api/account/auth/register"' in js
+    assert 'acceptAccount(data, data.audience);' in js
+

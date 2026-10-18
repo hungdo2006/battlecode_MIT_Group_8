@@ -22,6 +22,47 @@ class OfficialConflict(AccountConflict):
     pass
 
 
+def official_publication(connection, match):
+    """Project a JSON match through its durable Official SQLite authority.
+
+    Only a reconciled COMPLETED request can publish a winner. Never mutate
+    Store's internal JSON objects: these projections are presentation-only.
+    Used by generic Admin history/detail and the existing Official API.
+    """
+    request_id = match.get("official_request_id")
+    if not request_id:
+        return match
+    result = dict(match)
+    row = connection.execute("""SELECT match_id,status,status_reason,outcome_json
+        FROM official_match_requests WHERE id=?""", (request_id,)).fetchone()
+    if row and row["match_id"] == match.get("id"):
+        if row["status"] == "COMPLETED" and row["outcome_json"]:
+            outcome = json.loads(row["outcome_json"])
+            if (isinstance(outcome, dict) and isinstance(outcome.get("result"), dict)
+                and outcome.get("winner_side") in ("A", "B", None)
+                and outcome["result"].get("winner") == outcome["winner_side"]):
+                result["status"] = "completed"
+                result["winner"] = outcome["winner_side"]
+                result["result"] = outcome["result"]
+                return result
+        if row["status"] in ("DISPATCHING", "RUNNING"):
+            result["status"] = "running"
+            result["winner"] = None
+            result["result"] = None
+            return result
+        if row["status"] == "INTERRUPTED":
+            result["status"] = "interrupted"
+            result["winner"] = None
+            result["result"] = {"winner": None,
+                "reason": row["status_reason"] or "OFFICIAL_INTERRUPTED", "faults": {}}
+            return result
+    # Missing/mismatched/invalid authority must never publish a JSON victory.
+    result["status"] = "interrupted"
+    result["winner"] = None
+    result["result"] = {"winner": None, "reason": "OFFICIAL_UNVERIFIED", "faults": {}}
+    return result
+
+
 def snapshot_source(store, record, bot):
     """Read only server-controlled source paths and fail closed on read errors.
 

@@ -414,7 +414,8 @@ def test_d2_artifact_metadata_change_after_lock_blocks_dispatch(room):
                             (request_id,)).fetchone()[0]==2
 
 
-def test_d2_missing_terminal_replay_frame_never_publishes_win(room):
+@pytest.mark.parametrize("replay_mode", ["missing", "truncated"])
+def test_d2_missing_terminal_replay_frame_never_publishes_win(room, replay_mode):
     ta=create_team(room,"alice","alpha-d2partial")
     tb=create_team(room,"bob","beta-d2partial")
     for user,tid,bot_id in (("alice",ta,"a"*16),("bob",tb,"b"*16)):
@@ -441,9 +442,71 @@ def test_d2_missing_terminal_replay_frame_never_publishes_win(room):
         room.app.state.store.save_match({
             "id":match_id,"official_request_id":request_id,"status":"completed",
             "game_id":GAME,"result":{"winner":"A","reason":"goal"},"turn":1})
-        room.app.state.store.start_replay(match_id,{"turn":0,"game_id":GAME,"result":None})
+        if replay_mode == "truncated":
+            room.app.state.store.start_replay(match_id,{"turn":0,"game_id":GAME,"result":None})
         assert svc.sync_execution()==[request_id]
         row=svc._get(request_id)
         assert row["status"]=="INTERRUPTED"
         assert row["status_reason"]=="REPLAY_INCOMPLETE"
         assert row["outcome_json"] is None
+    # Both a missing replay and an incomplete final record must not
+    # advertise the unverified JSON victory to Account-Only clients.
+    login(room,"admin","admin")
+    response=room.client.get("/api/admin/official-matches/"+request_id+"/replay")
+    assert response.status_code==200,response.text
+    payload=response.json()
+    assert payload["match"]["status"]=="interrupted"
+    assert payload["match"]["winner"] is None
+    assert payload["match"]["result"]["winner"] is None
+    assert payload["match"]["result"]["reason"]=="REPLAY_INCOMPLETE"
+    assert all(not frame.get("result") for frame in payload["frames"])
+
+
+def test_robot_enriched_match_result_validates_against_serialized_terminal(room):
+    """QA-002: raw Robot replay result lacks derived HP scores."""
+    ta=create_team(room,"alice","robot-adapter-alpha")
+    tb=create_team(room,"bob","robot-adapter-beta")
+    for user,tid,bot_id in (("alice",ta,"a"*16),("bob",tb,"b"*16)):
+        seed_ready_bot(room,tid,user,bot_id)
+        make_sandbox_artifact(room,bot_id)
+        select_bot(room,user,bot_id)
+    deadline=room.clock.now+4
+    created=schedule(room,ta,tb,bot_lock_at=deadline,scheduled_at=deadline)
+    assert created.status_code==201,created.text
+    request_id=created.json()["request"]["id"]
+    room.clock.now=deadline
+    from backend.official_service import OfficialSchedule
+    from backend.auth_service import AuthService
+    from backend.auth_limits import AuthRateLimiter
+    rt=room.app.state.account_http
+    with rt.database.writer_connection(rt.writer) as conn:
+        service=OfficialSchedule(conn,rt.writer,
+            AuthService(conn,rt.writer,clock=room.clock,login_limiter=AuthRateLimiter()),
+            room.app.state.store,room.app.state.registry)
+        service.freeze_due()
+        plan=service.claim_due()
+        assert plan["id"]==request_id
+        adapter=room.app.state.registry.get(GAME)
+        initial=adapter.create_initial_state(adapter.validate_rules())
+        terminal=adapter.serialize_state(initial)
+        terminal["turn"]=1
+        terminal["result"]={"winner":"A","reason":"knockout","faults":{}}
+        derived=adapter.get_result(terminal)
+        assert "scores" in derived
+        assert "scores" not in terminal["result"]
+        room.app.state.store.save_match({
+            "id":plan["match_id"],"official_request_id":request_id,
+            "game_id":GAME,"status":"completed","turn":1,
+            "result":derived,"winner":"A"})
+        room.app.state.store.start_replay(plan["match_id"],initial)
+        room.app.state.store.append_replay_frame(plan["match_id"],terminal)
+        assert service.sync_execution()==[request_id]
+        row=service._get(request_id)
+        assert row["status"]=="COMPLETED"
+        outcome=service.detail_admin(
+            service.auth.login("admin","team-http test passphrase 84",
+                               audience="ADMIN",source_key="robot-adapter").principal,
+            request_id)["outcome"]
+        assert outcome["winner_side"]=="A"
+        assert outcome["winner_team_id"]==ta
+        assert outcome["result"]==derived

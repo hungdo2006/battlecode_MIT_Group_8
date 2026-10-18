@@ -32,6 +32,7 @@ from .network import demo_host
 
 PREFIX = "/api/auth"
 ACCOUNT_PREFIXES = {"PLAYER": "/api/player", "ADMIN": "/api/admin"}
+ENTRY_PREFIX = "/api/account"
 MAX_BODY = 4096
 MAX_API_BODY = 64 * 1024
 MAX_TEAM_UPLOAD_BODY = 384 * 1024  # base64 of 256 KiB source plus bounded metadata
@@ -48,7 +49,8 @@ def account_prefix(audience):
 
 
 def account_path(path):
-    return any(path == prefix or path.startswith(prefix + "/") for prefix in ACCOUNT_PREFIXES.values())
+    return (path == ENTRY_PREFIX or path.startswith(ENTRY_PREFIX + "/")
+        or any(path == prefix or path.startswith(prefix + "/") for prefix in ACCOUNT_PREFIXES.values()))
 
 
 def public_account_auth_path(path):
@@ -56,6 +58,8 @@ def public_account_auth_path(path):
         account_prefix("PLAYER") + "/auth/login",
         account_prefix("PLAYER") + "/auth/activate",
         account_prefix("ADMIN") + "/auth/login",
+        ENTRY_PREFIX + "/auth/login",
+        ENTRY_PREFIX + "/auth/register",
     }
 
 
@@ -131,6 +135,7 @@ def _env_bool(name):
 class HTTPAuthSettings:
     enabled: bool = False
     account_only: bool = False
+    self_registration: bool = False
     origins: tuple[str, ...] = ()
     allow_http: bool = False  # Explicit local/LAN QA exception, never HTTPS override.
     policy: AuthPolicy = field(default_factory=AuthPolicy)
@@ -141,6 +146,8 @@ class HTTPAuthSettings:
     def __post_init__(self):
         if self.account_only and not self.enabled:
             raise ValueError("ARENA_ACCOUNT_ONLY requires ARENA_ACCOUNT_AUTH=1")
+        if self.self_registration and not self.account_only:
+            raise ValueError("Self-registration requires Account-Only mode")
         if self.enabled:
             if not self.origins:
                 raise ValueError("ARENA_AUTH_ORIGINS is required when account HTTP auth is enabled")
@@ -155,6 +162,7 @@ class HTTPAuthSettings:
         if not enabled:
             return cls(account_only=account_only)  # Validates the impossible ON/OFF combination.
         return cls(enabled=True, account_only=account_only,
+                   self_registration=_env_bool("ARENA_SELF_REGISTRATION"),
                    origins=tuple(value.strip() for value in os.environ.get("ARENA_AUTH_ORIGINS", "").split(",") if value.strip()),
                    allow_http=_env_bool("ARENA_AUTH_ALLOW_HTTP"))
 
@@ -276,6 +284,13 @@ class StrictBody(BaseModel):
 class LoginBody(StrictBody):
     username: str = Field(min_length=1, max_length=64)
     password: SecretStr = Field(min_length=1, max_length=1024)
+
+
+class RegisterBody(StrictBody):
+    username: str = Field(min_length=3, max_length=32)
+    display_name: str = Field(min_length=1, max_length=64)
+    email: str = Field(min_length=3, max_length=254)
+    password: SecretStr = Field(min_length=15, max_length=1024)
 
 
 class ActivateBody(StrictBody):
@@ -523,6 +538,39 @@ def install_auth_http(app, settings, network):
         result = await admin_operation(request, lambda auth, _, actor: auth.revoke_invitation(actor, invitation_id))
         return {"revoked": result}
 
+    entry = APIRouter(prefix=ENTRY_PREFIX + "/auth", tags=["Unified Account Entry"])
+
+    @entry.post("/register", status_code=201)
+    async def self_register(body: RegisterBody, request: Request):
+        if not settings.self_registration:
+            raise HTTPException(404, "Registration is not enabled")
+        runtime = runtime_for(request)
+        try:
+            runtime.limiter.registration(request.client.host)
+        except AuthRateLimited as exc:
+            raise HTTPException(429, "Too many registration requests",
+                                headers={"Retry-After": str(exc.retry_after)}) from None
+        account = await runtime.run(lambda auth, _: auth.register_player(
+            body.username, body.display_name, body.email, body.password.get_secret_value()))
+        return {"account": account_json(account), "email_verified": False,
+                "message": "Registration completed; email is not verified"}
+
+    @entry.post("/login")
+    async def unified_login(body: LoginBody, request: Request):
+        runtime = runtime_for(request)
+        grant = await runtime.run(lambda auth, _: auth.login_unified(
+            body.username, body.password.get_secret_value(), source_key=request.client.host))
+        audience = grant.principal.audience
+        response = JSONResponse(account_response(grant.principal.account,
+            expires_at=grant.expires_at, account_only=True, audience=audience.lower()))
+        response.set_cookie(account_cookie_name(audience), grant.token,
+            max_age=max(0, grant.expires_at - int(settings.clock())), httponly=True,
+            secure=request.scope["scheme"] == "https", samesite="strict",
+            path=account_cookie_path(audience))
+        response.delete_cookie(cookie_name(audience), path=cookie_path(audience),
+                               httponly=True, secure=request.scope["scheme"] == "https", samesite="strict")
+        return response
+
     player = APIRouter(prefix=account_prefix("PLAYER") + "/auth", tags=["Player Account Auth"])
     admin = APIRouter(prefix=account_prefix("ADMIN") + "/auth", tags=["Admin Account Auth"])
 
@@ -616,6 +664,8 @@ def install_auth_http(app, settings, network):
     app.add_exception_handler(RequestValidationError, validation_error)
     if not settings.account_only:
         app.include_router(router)
+    if settings.account_only:
+        app.include_router(entry)
     app.include_router(player)
     app.include_router(admin)
     app.add_middleware(AccountAuthBoundary, owner=app, settings=settings, network=network)

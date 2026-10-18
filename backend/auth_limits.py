@@ -21,6 +21,7 @@ class RateLimits:
     login_account: int = 10
     activation_source: int = 10
     activation_token: int = 5
+    registration_source: int = 5
     session_token: int = 60
     max_keys: int = 8192
 
@@ -55,6 +56,9 @@ class AuthRateLimiter:
             digest = hashlib.sha256(token.encode("utf-8")).digest()
             keys.append((("session", audience, digest), self.limits.session_token))
         self._consume(keys)
+
+    def registration(self, source):
+        self._consume([(("registration-source", source), self.limits.registration_source)])
 
     def activation(self, source, token):
         digest = hashlib.sha256(token.encode("utf-8")).digest()

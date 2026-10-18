@@ -219,4 +219,14 @@ MIGRATIONS = (
                 REFERENCES submission_ownership(team_id,game_id,bot_id) ON DELETE RESTRICT
         ) STRICT""",
     )),
+    # Append-only v6. Self-registration email addresses are UNVERIFIED until a
+    # future delivery/verification provider is configured; never authorize
+    # password recovery or account elevation based on these addresses.
+    (6, "player_registration_email", (
+        """CREATE TABLE user_emails (
+            user_id TEXT PRIMARY KEY NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+            email TEXT NOT NULL UNIQUE CHECK (length(email) BETWEEN 3 AND 254),
+            verified_at INTEGER CHECK (verified_at >= 0)
+        ) STRICT""",
+    )),
 )

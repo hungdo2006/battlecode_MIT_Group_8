@@ -238,7 +238,8 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
             raise RunnerUnavailable("Sandbox controller is unavailable")
         return {"status": "ok", "runner": runner, "toolchains": runner["toolchains"], "protocol": 1,
                 "read_only": settings.read_only, "account_auth": account_settings.enabled,
-                "account_only": account_settings.account_only}
+                "account_only": account_settings.account_only,
+                 "self_registration": account_settings.self_registration}
 
     def session_payload(request: Request):
         return {"participant": request.state.participant, "read_only": settings.read_only,

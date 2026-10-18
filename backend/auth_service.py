@@ -353,6 +353,75 @@ class AuthService:
             self._audit(now, user["id"], "ACCOUNT_ACTIVATED", "user", user["id"])
             return _account(self._user(user["id"]))
 
+    @staticmethod
+    def _registration_email(value):
+        # ASCII email only for the initial local/LAN milestone. No DNS/MX
+        # claims, verified delivery or password-reset capability are implied.
+        if not isinstance(value, str) or not 3 <= len(value) <= 254 or value != value.strip():
+            raise ValueError("Invalid email")
+        if not re.fullmatch(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)+", value, re.ASCII):
+            raise ValueError("Invalid email")
+        local, domain = value.rsplit("@", 1)
+        if (len(local) > 64 or local.startswith(".") or local.endswith(".")
+                or ".." in local or any(label.startswith("-") or label.endswith("-")
+                or len(label) > 63 for label in domain.split("."))):
+            raise ValueError("Invalid email")
+        return value.lower()
+
+    def register_player(self, username, name, email, password):
+        """Create only an ACTIVE Player; never accept a client-supplied role.
+
+        Caller must enforce source-based registration rate limits and the
+        account-only feature gate before expensive Argon2 hashing.
+        """
+        self._ready()
+        username = normalize_username(username)
+        name = display_name(name)
+        canonical_email = self._registration_email(email)
+        if (self._db.execute("SELECT 1 FROM users WHERE username=?", (username,)).fetchone()
+            or self._db.execute("SELECT 1 FROM user_emails WHERE email=?", (canonical_email,)).fetchone()):
+            raise AccountConflict("Registration unavailable")
+        with self._work.slot():
+            encoded = passwords.hash_password(password)
+        self._ready()
+        with transaction(self._db):
+            now = self._now()
+            if (self._db.execute("SELECT 1 FROM users WHERE username=?", (username,)).fetchone()
+                or self._db.execute("SELECT 1 FROM user_emails WHERE email=?", (canonical_email,)).fetchone()):
+                raise AccountConflict("Registration unavailable")
+            user_id = uuid.uuid4().hex
+            self._db.execute("""INSERT INTO users (
+                id,username,display_name,system_role,status,password_hash,
+                created_at,updated_at,password_changed_at)
+                VALUES (?,?,?,'PLAYER','ACTIVE',?,?,?,?)""",
+                (user_id,username,name,encoded,now,now,now))
+            self._db.execute("""INSERT INTO user_emails (user_id,email,verified_at)
+                VALUES (?,?,NULL)""", (user_id,canonical_email))
+            self._audit(now,user_id,"PLAYER_SELF_REGISTERED","user",user_id)
+            return _account(self._user(user_id))
+
+    def login_unified(self, username, password, *, source_key):
+        """Verify one password, derive audience from the persisted user role."""
+        self._ready()
+        if not isinstance(source_key, str) or not 1 <= len(source_key) <= 256:
+            raise ValueError("A trusted source_key is required")
+        try:
+            canonical = normalize_username(username)
+        except ValueError:
+            canonical = None
+        attempt = LoginAttempt(hashlib.sha256((canonical or "<invalid>").encode()).hexdigest(),
+                               source_key, "UNIFIED")
+        self._limiter.check(attempt)
+        row = self._db.execute("SELECT system_role FROM users WHERE username=?", (canonical,)).fetchone()
+        audience = row["system_role"] if row else "PLAYER"
+        try:
+            grant = self._login(canonical, password, audience)
+        except AuthenticationFailed:
+            self._limiter.record(attempt, succeeded=False)
+            raise
+        self._limiter.record(attempt, succeeded=True)
+        return grant
+
     def login(self, username, password, *, audience, source_key):
         self._ready()
         if audience not in ("PLAYER", "ADMIN"):

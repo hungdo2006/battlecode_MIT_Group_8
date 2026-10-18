@@ -1,5 +1,6 @@
 """Phase 4.2C2/C3 integration tests with isolated Account-Only data."""
 import base64
+import hashlib
 
 from test_team_http import room, login, csrf
 
@@ -25,6 +26,14 @@ def test_submission_owner_and_captain_selection(room, monkeypatch):
     res = room.client.post("/api/player/bots",json=payload,headers=h)
     assert res.status_code == 201, res.text
     bot_id = res.json()["bot"]["id"]
+    # The SQLite attestation binds the original upload bytes independently of
+    # subsequent JSON metadata or mutable files on disk.
+    rt = room.app.state.account_http
+    with rt.database.writer_connection(rt.writer) as db:
+        attested = db.execute("SELECT source_sha256 FROM official_source_attestations WHERE bot_id=?",
+                              (bot_id,)).fetchone()
+        assert attested is not None
+        assert attested["source_sha256"] == hashlib.sha256(b"print('hello')").hexdigest()
     assert room.client.get("/api/player/bots").json()["bots"][0]["id"] == bot_id
     src = room.client.get(f"/api/player/bots/{bot_id}/source")
     # Runner mock does not materialize source; metadata is still owned, source fail closed.

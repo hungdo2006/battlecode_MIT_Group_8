@@ -2,6 +2,7 @@
 import asyncio
 import base64
 import binascii
+import hashlib
 from pathlib import Path
 import shutil
 
@@ -80,7 +81,8 @@ def install_bot_http(app):
                 prepared=await asyncio.to_thread(app.state.runner.prepare, source, body.filename, folder)
                 bot={"id":bot_id,"team_id":ticket["team_id"],"name":body.name.strip() or Path(body.filename).stem[:48],
                      "filename":body.filename,"language":Path(body.filename).suffix.lower()[1:],
-                     "game_id":body.game_id,"created_at":ticket["created_at"],**prepared,"folder":str(folder)}
+                     "game_id":body.game_id,"created_at":ticket["created_at"],**prepared,
+                     "source_sha256":hashlib.sha256(source).hexdigest(),"folder":str(folder)}
                 async with app.state.competition.lock:
                     app.state.store.require_submission_game(body.game_id)
                     # Revalidate uploader/team/session immediately before publication.

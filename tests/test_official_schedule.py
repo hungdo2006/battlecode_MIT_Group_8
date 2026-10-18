@@ -354,6 +354,11 @@ def test_d3_replay_scoped_to_participating_team_and_admin(room):
     admin=room.client.get(path)
     assert admin.status_code==200,admin.text
     assert len(admin.json()["frames"])==2
+    general=room.client.get("/api/admin/matches/"+match_id+"/replay")
+    assert general.status_code==200,general.text
+    assert general.json()["match"]["status"]=="completed"
+    assert general.json()["match"]["result"]["winner"]=="A"
+    assert general.json()["match"]["result_correctable"] is False
     assert "command" not in admin.json()["match"]
     assert "artifact_digest" not in admin.json()["match"]
     login(room,"player","charlie")
@@ -473,6 +478,27 @@ def test_d2_missing_terminal_replay_frame_never_publishes_win(room, replay_mode)
     assert payload["match"]["result"]["winner"] is None
     assert payload["match"]["result"]["reason"]=="REPLAY_INCOMPLETE"
     assert all(not frame.get("result") for frame in payload["frames"])
+    # QA-002: generic Admin History, detail and replay must not publish
+    # a JSON win that SQLite Official authority explicitly rejected.
+    listing=room.client.get("/api/admin/matches")
+    assert listing.status_code==200,listing.text
+    listed=next(m for m in listing.json() if m["id"]==match_id)
+    detail=room.client.get("/api/admin/matches/"+match_id)
+    general=room.client.get("/api/admin/matches/"+match_id+"/replay")
+    assert detail.status_code==200,detail.text
+    assert general.status_code==200,general.text
+    for match in (listed,detail.json(),general.json()["match"]):
+        assert match["status"]=="interrupted"
+        assert match["winner"] is None
+        assert match["result"]["winner"] is None
+        assert match["result"]["reason"]=="REPLAY_INCOMPLETE"
+        assert match["result_correctable"] is False
+    assert all(not frame.get("result") for frame in general.json()["frames"])
+    from starlette.websockets import WebSocketDisconnect
+    with pytest.raises(WebSocketDisconnect) as denied:
+        with room.client.websocket_connect("/api/admin/ws/matches/"+match_id):
+            pass
+    assert denied.value.code==1008
 
 
 def test_robot_enriched_match_result_validates_against_serialized_terminal(room):

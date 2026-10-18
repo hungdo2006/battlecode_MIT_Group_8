@@ -16,3 +16,10 @@ backups/
 *.receipt.json
 
 docs/screenshots/sandbox/
+
+# Local-only independent QA artifacts (can contain cookies, tokens and traces)
+QA_REPORT.md
+qa-evidence-*/
+.qa-evidence/
+.qa-phase42e-*/
+qa-ci/

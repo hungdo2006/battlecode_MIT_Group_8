@@ -1,6 +1,12 @@
 # NEON ARENA
 
-## Phase 4.2D — Official Match Scheduling (D1–D3 QA candidate)
+## Tiến độ — Phase 4.2E Final System QA (đang triển khai)
+
+Phase 4.2D Official Match (D1–D3) đã merge từ PR #7 vào `main` tại `631a9599704260372f6c7a6442ef52fb9fa16bd4`. `main` sau đó có thêm các thay đổi Tournament/Leaderboard, Player form và kiểm soát chỉnh sửa kết quả. Chúng ta **chưa nghiệm thu hệ thống tổng thể** và **chưa triển khai Internet/AWS**.
+
+Phase 4.2E chuẩn hóa kiểm thử và quy trình chấp thuận phát hành. Xem [Release QA/acceptance gate](docs/PHASE_4_2E_RELEASE_QA.md), [mẫu báo cáo](docs/PHASE_4_2E_QA_REPORT_TEMPLATE.md), và CI `.github/workflows/phase42e-baseline.yml`. CI chỉ kiểm tra baseline Windows/Linux; Chrome, Docker Sandbox, Account-Only end-to-end, fault injection và AWS readiness phải có báo cáo QA độc lập trên đúng commit.
+
+## Phase 4.2D — Official Match Scheduling (đã merge vào main)
 
 **D1 source attestation:** A ready bot uploaded after this feature is installed
 receives a SHA-256 attestation of the original submitted source in SQLite as part
@@ -14,7 +20,7 @@ updated while PR #7 was still unmerged; QA must use **fresh disposable data**
 rather than reusing an earlier v5 test database with a different checksum.
 
 
-**Nhánh phát triển:** `feature/official-match-scheduling`. Code D1–D3 đã được thêm vào PR #7, **chưa merge và chưa có QA end-to-end độc lập cho D2/D3**.
+**Nguồn triển khai:** PR #7 (`feature/official-match-scheduling`) đã merge vào `main`. Các lần QA lịch sử trước merge là bằng chứng theo SHA tương ứng; Phase 4.2E cần nghiệm thu end-to-end lại trên `main` hiện tại.
 
 D1 bổ sung migration SQLite v5 (append-only), `official_match_requests` và `official_match_slots`, API Admin lên lịch/cancel, lịch đọc chỉ cho Admin hoặc Player thuộc Team liên quan, bot deadline UTC Unix seconds, snapshot luật khi xếp lịch, và source checksum cùng Active Bot revision khi khóa bot. Khi bot thiếu/sai game/chưa ready hoặc Team bị archive lúc khóa, trạng thái `BLOCKED` rõ nguyên nhân (không xử thua, không lựa chọn bot mới sau deadline). Tick nền xử lý deadline và thao tác Captain chọn Active Bot cũng xử lý deadline quá hạn **trước khi** thay lựa chọn trong cùng SQLite transaction.
 
@@ -24,7 +30,7 @@ D1 bổ sung migration SQLite v5 (append-only), `official_match_requests` và `o
 
 **Chính sách vận hành:** chưa có tự động retry một claim đã dispatch hoặc trận interrupted, vì có thể gây chạy trùng. Admin cần lên lịch yêu cầu mới sau khi kiểm tra nguyên nhân. Bot cũ thiếu attestation phải nộp lại, bot legacy không đủ điều kiện thực thi Official. Không chuyển runner về subprocess để tránh yêu cầu Sandbox. Scheduler không thể bảo đảm chính xác thời điểm tick đến từng mili-giây; deadline bot được bảo vệ bằng transaction cùng Active Bot update. Cần migrate offline trên **fresh disposable database** bằng `python -m backend.admin_cli --data-dir <disposable-data-dir> migrate`; không được dùng lại v5 từ commit D1 trước đó hoặc migrate AWS/volume vận hành chỉ để thử.
 
-**QA trước merge:** Chạy `python -m pytest tests controller_tests -ra --tb=short`, browser Chrome Account-Only và Legacy, `python scripts/check_account_ui.py`, Docker sandbox, fingerprint CRLF/LF, restart/kill sau claim, side-effect fault injection, CSRF/Origin/IDOR, artifact replacement, replay isolation và đồng bộ rank/match mới trên main. PR #7 vẫn Draft đến khi QA độc lập PASS.
+**QA phát hành (Phase 4.2E):** Xem [ma trận E01–E14](docs/PHASE_4_2E_RELEASE_QA.md). Chỉ kết luận PASS khi đủ kiểm chứng Chrome/Docker/fault injection, không suy ra từ unit CI. Thử migration/backup trên dữ liệu QA cô lập, không can thiệp AWS.
 
 
 Nền tảng thi đấu bot đa game dành cho bài tập nhóm môn Lập trình mạng. Hiện hỗ trợ **Robot Battle** và **OTT v2**, đăng ký qua **GameRegistry + GameAdapter**. Backend **Python FastAPI**, frontend **HTML/CSS/JavaScript thuần + Canvas**, giao tiếp **HTTP REST + WebSocket**, bot **legacy subprocess hoặc Docker sandbox**, dữ liệu **JSON**. Chế độ native không cần Docker, Node.js hoặc database server.
@@ -34,7 +40,7 @@ Nền tảng thi đấu bot đa game dành cho bài tập nhóm môn Lập trìn
 > **Chỉ dùng local/LAN riêng.** Legacy runner (`start.bat`/Phase1) chỉ dành cho code tin cậy: subprocess có quyền của tài khoản server, không phải sandbox. Phase2 bổ sung cách ly Docker nhưng không bảo đảm an toàn tuyệt đối. Không công khai tính năng thực thi code lên Internet.
 ## Phase 4.2C — Team Management, Bot Ownership & Active Bot (merged)
 
-Phase 4.2C1–C3 đã qua QA độc lập và merge qua PR #5: Team Lifecycle, Bot Ownership, Captain Active Bot và giao diện Team cơ bản. Phase 4.2D đang được triển khai và QA trong PR #7; AWS Internet public Phase 4.3 chưa triển khai. Không migrate volume đang dùng chỉ để kiểm thử.
+Phase 4.2C1–C3 đã qua QA độc lập và merge qua PR #5: Team Lifecycle, Bot Ownership, Captain Active Bot và giao diện Team cơ bản. Phase 4.2D đã merge qua PR #7; Phase 4.2E đang nghiệm thu hệ thống, AWS Internet public Phase 4.3 chưa triển khai. Không migrate volume đang dùng chỉ để kiểm thử.
 
 ## Phase 4.2C1 — Team Lifecycle, Membership & RBAC
 

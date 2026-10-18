@@ -58,19 +58,36 @@ def validate_account_only_cutover(root: Path):
     rules = _read_json(data / "rules.json", {})
     matches = _read_json(data / "matches.json", {})
     invitations = _read_json(data / "invitations.json", {})
-    active_matches = [item.get("id", key) for key, item in matches.items()
+    active_matches = [(item.get("id", key), item) for key, item in matches.items()
                       if item.get("status") in {"queued", "running"}]
     pending = [item.get("id", key) for key, item in invitations.items()
                if item.get("status") in PENDING_INVITATIONS]
     transitioning = marker.get("mode") != "account_only"
-    if active_matches or pending or (transitioning and rules.get("competition_locked") is True):
+    unsafe_matches = active_matches
+    if not transitioning and active_matches:
+        # Existing Account-Only authority is NOT a first Legacy cutover.
+        # An Official match may be persisted as queued/running when the process
+        # is killed before Store can mark it interrupted. Fence only matches
+        # backed by an already-claimed SQLite Official request; do not let a
+        # forged official_request_id bypass the legacy admission guard.
+        unsafe_matches = []
+        with AccountDatabase(data).read() as connection:
+            for match_id, item in active_matches:
+                request_id = item.get("official_request_id")
+                row = (connection.execute("""SELECT match_id, status
+                    FROM official_match_requests WHERE id=?""", (request_id,)).fetchone()
+                    if isinstance(request_id, str) else None)
+                if (not row or row["match_id"] != match_id or
+                    row["status"] not in {"DISPATCHING", "RUNNING", "COMPLETED", "INTERRUPTED"}):
+                    unsafe_matches.append((match_id, item))
+    if unsafe_matches or pending or (transitioning and rules.get("competition_locked") is True):
         details = []
         if transitioning and rules.get("competition_locked") is True:
             details.append("competition is still open")
         if pending:
             details.append(f"{len(pending)} legacy invitation(s) are pending")
-        if active_matches:
-            details.append(f"{len(active_matches)} match/job(s) are queued or running")
+        if unsafe_matches:
+            details.append(f"{len(unsafe_matches)} match/job(s) are queued or running")
         raise RuntimeError("Account-only cutover refused: " + "; ".join(details)
                            + ". Close/drain these items in legacy mode, then restart.")
 
@@ -958,7 +975,13 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
         @app.get("/api/admin/matches")
         async def account_admin_matches(request: Request):
             await account_principal(request, "ADMIN")
-            return [safe_match(match) for match in app.state.manager.get_matches()]
+            from backend.official_service import official_publication
+            matches = app.state.manager.get_matches()
+            # One SQLite read for the whole history, not one new connection
+            # per match. Official results always defer to their durable state.
+            published = await app.state.account_http.run(
+                lambda _auth, db: [official_publication(db, match) for match in matches])
+            return [safe_match(match) for match in published]
 
         @app.get("/api/admin/matches/{match_id}")
         async def account_admin_match(match_id: str, request: Request):
@@ -966,14 +989,36 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
             match = app.state.manager.get_match(match_id)
             if not match:
                 raise HTTPException(404, "Không tìm thấy trận đấu.")
-            return safe_match(match)
+            from backend.official_service import official_publication
+            published = await app.state.account_http.run(
+                lambda _auth, db: official_publication(db, match))
+            return safe_match(published)
 
         @app.get("/api/admin/matches/{match_id}/replay")
         async def account_admin_replay(match_id: str, request: Request):
-            await account_principal(request, "ADMIN")
+            actor = await account_principal(request, "ADMIN")
             payload = app.state.manager.get_replay(match_id)
             if not payload:
                 raise HTTPException(404, "Không tìm thấy replay.")
+            official_id = payload["match"].get("official_request_id")
+            if official_id:
+                from backend.official_service import (
+                    OfficialSchedule, OfficialNotFound, OfficialConflict)
+                runtime = app.state.account_http
+                def official_replay(auth, db):
+                    service = OfficialSchedule(db, runtime.writer, auth,
+                                               app.state.store, app.state.registry)
+                    return service.replay(actor, official_id, audience="ADMIN",
+                                          manager=app.state.manager)
+                try:
+                    verified = await runtime.run(official_replay)
+                except OfficialNotFound:
+                    raise HTTPException(404, "Official Match not found") from None
+                except OfficialConflict:
+                    raise HTTPException(409, "Official replay unavailable") from None
+                # Reuse the scoped Official endpoint's status and frame policy.
+                verified["match"]["result_correctable"] = False
+                return verified
             return {"match": safe_match(payload["match"]), "version": payload.get("version", 1),
                     "frames": payload.get("frames", [])}
 
@@ -1107,6 +1152,13 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
             if not match:
                 runtime.unregister_websocket(principal.session_id, revoked)
                 await websocket.close(code=1008, reason="Match not found")
+                return
+            if match.get("official_request_id"):
+                # Live Official replay uses its scoped, SQLite-authorized HTTP
+                # route. Legacy WS frames have no terminal-evidence gate and
+                # must never bypass the Official outcome publication policy.
+                runtime.unregister_websocket(principal.session_id, revoked)
+                await websocket.close(code=1008, reason="Use Official replay endpoint")
                 return
             await websocket.accept()
             cursor = after + 1

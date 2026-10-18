@@ -11,6 +11,7 @@ const app = {
   role: "player", organizerAvailable: false,
   accountOnly: false, accountAuth: false, account: null, accountAudience: null, csrf: null,
   team: null, activeTeamBot: null, officialMatches: [], officialTeams: [],
+  officialRefreshing: false, pollPauseUntil: 0,
   logoutBusy: false, logoutError: false,
   competition: null, competitionSocket: null, competitionTimer: null,
   competitionGeneration: 0, competitionBusy: false, shuttingDown: false,
@@ -104,7 +105,11 @@ async function api(path, options = {}) {
   }
   let response;
   try { response = await fetch(requestUrl.toString(), options); }
-  catch { throw new Error("Mất kết nối với máy chủ. Kiểm tra mạng và thử lại."); }
+  catch {
+    const error = new Error("Mất kết nối với máy chủ. Kiểm tra mạng và thử lại.");
+    error.transport = true;
+    throw error;
+  }
   const raw = await response.text();
   let data;
   try { data = raw ? JSON.parse(raw) : {}; }
@@ -118,6 +123,13 @@ async function api(path, options = {}) {
       : data.detail;
     const error = new Error(detail || `HTTP ${response.status}`);
     error.status = response.status;
+    if (app.accountOnly && response.status === 429) {
+      // Server-enforced per-session budget; wait rather than repeatedly retry.
+      const retryAfter = Number(response.headers.get("Retry-After"));
+      const seconds = Number.isFinite(retryAfter) && retryAfter > 0
+        ? Math.min(120, Math.ceil(retryAfter)) : 60;
+      app.pollPauseUntil = Math.max(app.pollPauseUntil, Date.now() + seconds * 1000);
+    }
     if (app.accountOnly && response.status === 401 && !path.includes("/auth/login")) accountExpired();
     throw error;
   }
@@ -511,6 +523,7 @@ function showAccountDialog(message = "Đăng nhập để tiếp tục vào work
 function acceptAccount(data, audience) {
   app.logoutError = false;
   app.account = data.account;
+  app.pollPauseUntil = 0;
   app.accountAudience = audience;
   app.csrf = null;
   app.role = data.account.system_role === "ADMIN" ? "organizer" : "player";
@@ -525,6 +538,7 @@ $("#account-dialog").addEventListener("cancel", event => event.preventDefault())
 function accountExpired() {
   if (!app.accountOnly || !app.account) return;
   app.account = null; app.participant = null; app.accountAudience = null; app.csrf = null;
+  app.pollPauseUntil = 0;
   app.generation++; clearTimeout(app.reconnectTimer);
   app.role = "player"; app.organizerAvailable = false; app.initialized = false;
   app.competitionSocket?.close(); app.socket?.close();
@@ -1769,7 +1783,11 @@ async function bootstrap() {
     const officialId = params.get("official"), matchId = params.get("match");
     if (officialId && app.accountOnly) await loadMatch(officialId, true);
     else if (matchId && (!app.accountOnly || app.accountAudience === "admin")) await loadMatch(matchId);
-  } catch (error) { setConnection(false); toast(`Chưa kết nối được workspace: ${error.message}`, true); }
+  } catch (error) {
+    // A 429 is a responsive server asking us to slow down, not a disconnect.
+    if (error.status !== 429) setConnection(false);
+    toast(`Chưa kết nối được workspace: ${error.message}`, true);
+  }
   finally { app.initializing = false; renderConnection(); }
 }
 bootstrap();
@@ -1783,11 +1801,17 @@ $("#retry-connection").addEventListener("click", async event => {
         clearTimeout(app.competitionTimer); app.competitionSocket?.close(); connectCompetitionSocket();
       }
     }
-  } catch (error) { setConnection(false); toast(error.message, true); }
+  } catch (error) {
+    if (error.status !== 429) setConnection(false);
+    toast(error.message, true);
+  }
   finally { busyButton(button, false); button.disabled = false; }
 });
 setInterval(async () => {
-  if (document.hidden || app.refreshing || !app.participant || (app.accountOnly && app.accountAudience !== "admin")) return;
+  // Legacy retains its 2-second lobby refresh. Account-Only uses a separate
+  // low-frequency feed below, avoiding four protected GETs every 2 seconds.
+  if (app.accountOnly) return;
+  if (document.hidden || app.refreshing || !app.participant) return;
   if (!app.initialized) { bootstrap(); return; }
   app.refreshing = true;
   try {
@@ -1936,12 +1960,21 @@ $("#account-team-leave").addEventListener("click",async()=>{
 });
 
 
-// A Team's Official calendar refreshes without requiring a manual click.
-setInterval(() => {
-  if (document.hidden || !app.accountOnly || !app.initialized ||
-      app.accountAudience !== "player" || !app.account) return;
-  refreshOfficialMatches().catch(() => {});
-}, 5000);
+// Account-Only polls one Official endpoint at a measured cadence. Never poll
+// Team dropdown options continuously, and honor Retry-After when limited.
+setInterval(async () => {
+  if (document.hidden || !app.accountOnly || !app.initialized || !app.account ||
+      app.officialRefreshing || Date.now() < app.pollPauseUntil) return;
+  app.officialRefreshing = true;
+  try {
+    await refreshOfficialMatches({includeTeams: false});
+  } catch (error) {
+    // HTTP 429/403/validation errors do not mean that the network is down.
+    if (error.transport) setConnection(false);
+  } finally {
+    app.officialRefreshing = false;
+  }
+}, 10000);
 
 // Phase 4.2D3: Account-Only Official Match workspace.
 // Uses the same authenticated API wrapper as Team management.
@@ -1952,13 +1985,13 @@ function officialLocalInput(ms) {
   const date = new Date(ms);
   return new Date(ms - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 }
-async function refreshOfficialMatches() {
+async function refreshOfficialMatches({includeTeams = true} = {}) {
   if (!app.accountOnly || !app.account) return;
   const isAdmin = app.accountAudience === "admin";
   const response = await api("/api/" + app.accountAudience + "/official-matches");
   if (!Array.isArray(response.requests)) throw new Error("Danh sách Official Match không hợp lệ.");
   app.officialMatches = response.requests;
-  if (isAdmin) {
+  if (isAdmin && includeTeams) {
     const teams = await api("/api/admin/teams");
     app.officialTeams = teams.teams.filter(team => team.status === "ACTIVE");
     for (const [selector, fallback] of [

@@ -975,7 +975,13 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
         @app.get("/api/admin/matches")
         async def account_admin_matches(request: Request):
             await account_principal(request, "ADMIN")
-            return [safe_match(match) for match in app.state.manager.get_matches()]
+            from backend.official_service import official_publication
+            matches = app.state.manager.get_matches()
+            # One SQLite read for the whole history, not one new connection
+            # per match. Official results always defer to their durable state.
+            published = await app.state.account_http.run(
+                lambda _auth, db: [official_publication(db, match) for match in matches])
+            return [safe_match(match) for match in published]
 
         @app.get("/api/admin/matches/{match_id}")
         async def account_admin_match(match_id: str, request: Request):
@@ -983,14 +989,36 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
             match = app.state.manager.get_match(match_id)
             if not match:
                 raise HTTPException(404, "Không tìm thấy trận đấu.")
-            return safe_match(match)
+            from backend.official_service import official_publication
+            published = await app.state.account_http.run(
+                lambda _auth, db: official_publication(db, match))
+            return safe_match(published)
 
         @app.get("/api/admin/matches/{match_id}/replay")
         async def account_admin_replay(match_id: str, request: Request):
-            await account_principal(request, "ADMIN")
+            actor = await account_principal(request, "ADMIN")
             payload = app.state.manager.get_replay(match_id)
             if not payload:
                 raise HTTPException(404, "Không tìm thấy replay.")
+            official_id = payload["match"].get("official_request_id")
+            if official_id:
+                from backend.official_service import (
+                    OfficialSchedule, OfficialNotFound, OfficialConflict)
+                runtime = app.state.account_http
+                def official_replay(auth, db):
+                    service = OfficialSchedule(db, runtime.writer, auth,
+                                               app.state.store, app.state.registry)
+                    return service.replay(actor, official_id, audience="ADMIN",
+                                          manager=app.state.manager)
+                try:
+                    verified = await runtime.run(official_replay)
+                except OfficialNotFound:
+                    raise HTTPException(404, "Official Match not found") from None
+                except OfficialConflict:
+                    raise HTTPException(409, "Official replay unavailable") from None
+                # Reuse the scoped Official endpoint's status and frame policy.
+                verified["match"]["result_correctable"] = False
+                return verified
             return {"match": safe_match(payload["match"]), "version": payload.get("version", 1),
                     "frames": payload.get("frames", [])}
 
@@ -1124,6 +1152,13 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
             if not match:
                 runtime.unregister_websocket(principal.session_id, revoked)
                 await websocket.close(code=1008, reason="Match not found")
+                return
+            if match.get("official_request_id"):
+                # Live Official replay uses its scoped, SQLite-authorized HTTP
+                # route. Legacy WS frames have no terminal-evidence gate and
+                # must never bypass the Official outcome publication policy.
+                runtime.unregister_websocket(principal.session_id, revoked)
+                await websocket.close(code=1008, reason="Use Official replay endpoint")
                 return
             await websocket.accept()
             cursor = after + 1

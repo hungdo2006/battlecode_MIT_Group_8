@@ -1766,6 +1766,9 @@ async function bootstrap() {
   app.initializing = true;
   try {
     const health = await api("/api/health");
+    // Report connectivity from the public health probe, not from an unrelated
+    // protected GET that may legitimately return 429 during bootstrap.
+    setConnection(health.status === "ok");
     app.accountAuth = health.account_auth === true;
     app.accountOnly = health.account_only === true;
     if (app.accountOnly) {

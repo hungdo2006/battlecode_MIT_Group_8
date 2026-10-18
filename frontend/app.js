@@ -13,7 +13,7 @@ const app = {
   team: null, activeTeamBot: null, officialMatches: [], officialTeams: [],
   officialRefreshing: false, pollPauseUntil: 0,
   logoutBusy: false, logoutError: false,
-  competition: null, competitionSocket: null, competitionTimer: null,
+  competition: null, competitionSocket: null, competitionTimer: null, competitionRetryMs: 5000,
   competitionGeneration: 0, competitionBusy: false, shuttingDown: false,
   lobby: null, invitationBusy: false, seenStarts: new Set(), seenFinishes: new Set(), heartbeatTimer: null,
   uploading: false, seeding: false, rulesBusy: false, rulesDirty: false,
@@ -454,6 +454,8 @@ function connectCompetitionSocket() {
   const socket = new WebSocket(`${scheme}://${location.host}${socketPath}`);
   app.competitionSocket = socket;
   socket.onopen = () => {
+    if (socket !== app.competitionSocket) return;
+    if (app.accountOnly) app.competitionRetryMs = 5000;
     app.lobbyOnline = true; renderConnection();
     clearInterval(app.heartbeatTimer);
     if (!app.accountOnly) {
@@ -488,14 +490,30 @@ function connectCompetitionSocket() {
       const stillCurrent = () => socket === app.competitionSocket &&
         !app.shuttingDown && !!app.account && app.accountAudience === socketAudience;
       const retry = () => {
-        if (stillCurrent()) app.competitionTimer = setTimeout(connectCompetitionSocket, 1200);
+        if (!stillCurrent()) return;
+        // A failed WebSocket handshake also consumes the per-session limiter.
+        // Exponential backoff avoids 429 loops when the socket is unavailable.
+        const delay = Math.max(app.competitionRetryMs,
+          Math.max(0, app.pollPauseUntil - Date.now()));
+        app.competitionRetryMs = Math.min(30000, app.competitionRetryMs * 2);
+        app.competitionTimer = setTimeout(connectCompetitionSocket, delay);
       };
       fetch(`/api/${socketAudience}/auth/me`, {
         headers: { "Accept": "application/json" }, cache: "no-store"
       }).then(response => {
         if (!stillCurrent()) return;
-        if (response.status === 401 || response.status === 403) accountExpired();
-        else retry();
+        if (response.status === 401 || response.status === 403) {
+          accountExpired();
+        } else {
+          if (response.status === 429) {
+            const retryAfter = Number(response.headers.get("Retry-After"));
+            const seconds = Number.isFinite(retryAfter) && retryAfter > 0
+              ? Math.min(120, Math.ceil(retryAfter)) : 60;
+            app.pollPauseUntil = Math.max(app.pollPauseUntil,
+              Date.now() + seconds * 1000);
+          }
+          retry();
+        }
       }).catch(retry);
       return;
     }
@@ -524,6 +542,7 @@ function acceptAccount(data, audience) {
   app.logoutError = false;
   app.account = data.account;
   app.pollPauseUntil = 0;
+  app.competitionRetryMs = 5000;
   app.accountAudience = audience;
   app.csrf = null;
   app.role = data.account.system_role === "ADMIN" ? "organizer" : "player";

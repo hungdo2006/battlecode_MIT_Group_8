@@ -11,7 +11,7 @@ const app = {
   role: "player", organizerAvailable: false,
   accountOnly: false, accountAuth: false, account: null, accountAudience: null, csrf: null,
   team: null, activeTeamBot: null, officialMatches: [], officialTeams: [],
-  officialRefreshing: false, pollPauseUntil: 0,
+  officialRefreshing: false, pollPauseUntil: 0, bootstrapTimer: null,
   logoutBusy: false, logoutError: false,
   competition: null, competitionSocket: null, competitionTimer: null, competitionRetryMs: 5000,
   competitionGeneration: 0, competitionBusy: false, shuttingDown: false,
@@ -542,6 +542,7 @@ function acceptAccount(data, audience) {
   app.logoutError = false;
   app.account = data.account;
   app.pollPauseUntil = 0;
+  clearTimeout(app.bootstrapTimer); app.bootstrapTimer = null;
   app.competitionRetryMs = 5000;
   app.accountAudience = audience;
   app.csrf = null;
@@ -558,6 +559,7 @@ function accountExpired() {
   if (!app.accountOnly || !app.account) return;
   app.account = null; app.participant = null; app.accountAudience = null; app.csrf = null;
   app.pollPauseUntil = 0;
+  clearTimeout(app.bootstrapTimer); app.bootstrapTimer = null;
   app.generation++; clearTimeout(app.reconnectTimer);
   app.role = "player"; app.organizerAvailable = false; app.initialized = false;
   app.competitionSocket?.close(); app.socket?.close();
@@ -569,6 +571,14 @@ function accountExpired() {
 async function restoreAccount() {
   for (const audience of ["admin", "player"]) {
     const response = await fetch(`/api/${audience}/auth/me`, { headers: { "Accept": "application/json" } });
+    if (response.status === 429) {
+      // Restore is a direct fetch, not api(); still honor a limited session.
+      const retryAfter = Number(response.headers.get("Retry-After"));
+      const seconds = Number.isFinite(retryAfter) && retryAfter > 0
+        ? Math.min(120, Math.ceil(retryAfter)) : 60;
+      app.pollPauseUntil = Math.max(app.pollPauseUntil, Date.now() + seconds * 1000);
+      throw Object.assign(new Error("Authentication temporarily rate-limited"), { status: 429 });
+    }
     if (response.ok) {
       acceptAccount(await response.json(), audience);
       return true;
@@ -1535,8 +1545,22 @@ async function loadMatch(id, official = false) {
   } else if (!app.frames.length) toast("Trận bị gián đoạn trước khi có trạng thái replay.", true);
 }
 
+function scheduleOfficialReplayPoll(id, generation) {
+  if (generation !== app.generation || !app.account || !app.accountOnly ||
+      !["running", "queued"].includes(app.match?.status)) return;
+  // The live replay shares the same server-side auth budget as the calendar.
+  // Never send another replay request while a 429 Retry-After is in force.
+  const delay = Math.max(1600, app.pollPauseUntil - Date.now() + 250);
+  clearTimeout(app.reconnectTimer);
+  app.reconnectTimer = setTimeout(() => pollOfficialReplay(id, generation), delay);
+}
+
 async function pollOfficialReplay(id, generation) {
   if (generation !== app.generation || !app.account || !app.accountOnly) return;
+  if (Date.now() < app.pollPauseUntil) {
+    scheduleOfficialReplayPoll(id, generation);
+    return;
+  }
   try {
     const payload = await api("/api/" + app.accountAudience + "/official-matches/" + encodeURIComponent(id) + "/replay");
     if (generation !== app.generation) return;
@@ -1548,9 +1572,7 @@ async function pollOfficialReplay(id, generation) {
     if (generation !== app.generation || error.status === 401) return;
     // Preserve the previously received replay on transient network failure.
   }
-  if (generation === app.generation && ["running", "queued"].includes(app.match?.status)) {
-    app.reconnectTimer = setTimeout(() => pollOfficialReplay(id, generation), 1600);
-  }
+  scheduleOfficialReplayPoll(id, generation);
 }
 
 function connectSocket(id, generation) {
@@ -1761,8 +1783,22 @@ function animate(time) {
 requestAnimationFrame(animate);
 setInterval(() => { $("#clock").textContent = new Date().toLocaleTimeString("vi-VN", { hour12: false }); }, 1000);
 
+function scheduleAccountBootstrapRetry() {
+  if (!app.accountOnly || app.initialized || app.shuttingDown) return;
+  clearTimeout(app.bootstrapTimer);
+  // Wait until the shared source/session budget is replenished. A slight
+  // margin prevents retrying on the exact backend window boundary.
+  const delay = Math.max(1000, app.pollPauseUntil - Date.now() + 250);
+  app.bootstrapTimer = setTimeout(() => {
+    app.bootstrapTimer = null;
+    if (app.accountOnly && !app.initialized && !app.initializing &&
+        !app.shuttingDown) bootstrap();
+  }, delay);
+}
+
 async function bootstrap() {
   if (app.initializing) return;
+  clearTimeout(app.bootstrapTimer); app.bootstrapTimer = null;
   app.initializing = true;
   try {
     const health = await api("/api/health");
@@ -1807,7 +1843,10 @@ async function bootstrap() {
     else if (matchId && (!app.accountOnly || app.accountAudience === "admin")) await loadMatch(matchId);
   } catch (error) {
     // A 429 is a responsive server asking us to slow down, not a disconnect.
-    if (error.status !== 429) setConnection(false);
+    // Unlike the legacy polling loop, an uninitialized Account-Only workspace
+    // needs its own timed retry after Retry-After elapses.
+    if (app.accountOnly && error.status === 429) scheduleAccountBootstrapRetry();
+    else if (error.transport || !app.accountOnly) setConnection(false);
     toast(`Chưa kết nối được workspace: ${error.message}`, true);
   }
   finally { app.initializing = false; renderConnection(); }
@@ -1844,7 +1883,7 @@ setInterval(async () => {
   catch { setConnection(false); }
   finally { app.refreshing = false; }
 }, 2000);
-window.addEventListener("beforeunload", () => { app.shuttingDown = true; app.generation++; app.socket?.close(); clearTimeout(app.competitionTimer); clearInterval(app.heartbeatTimer); app.competitionSocket?.close(); });
+window.addEventListener("beforeunload", () => { app.shuttingDown = true; app.generation++; app.socket?.close(); clearTimeout(app.bootstrapTimer); clearTimeout(app.competitionTimer); clearInterval(app.heartbeatTimer); app.competitionSocket?.close(); });
 
 async function refreshAccountTeam() {
   if (!app.accountOnly || app.accountAudience !== "player" || !app.account) return;
@@ -1990,6 +2029,7 @@ setInterval(async () => {
   app.officialRefreshing = true;
   try {
     await refreshOfficialMatches({includeTeams: false});
+    if (app.accountOnly && app.account && app.initialized) setConnection(true);
   } catch (error) {
     // HTTP 429/403/validation errors do not mean that the network is down.
     if (error.transport) setConnection(false);

@@ -136,7 +136,9 @@ def run():
                 with runtime.database.writer_connection(runtime.writer) as connection, transaction(connection):
                     connection.execute("""UPDATE auth_sessions SET revoked_at=created_at
                         WHERE audience='PLAYER' AND revoked_at IS NULL""")
-                dialog.wait_for(state="visible", timeout=7000)
+                # Account-Only's official calendar refreshes every 10 seconds;
+                # allow a full interval plus headroom for the auth WS fallback.
+                dialog.wait_for(state="visible", timeout=16000)
                 page.wait_for_function("document.querySelector('#participant-role').textContent === 'SIGNED OUT'")
                 assert page.locator("#workspace-game-select").is_disabled()
                 assert not errors, errors

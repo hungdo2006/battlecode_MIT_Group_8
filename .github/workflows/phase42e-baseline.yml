@@ -1,0 +1,67 @@
+name: Phase 4.2E Baseline QA
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Read-only CI: no credentials, production migrations or live Docker volumes.
+permissions:
+  contents: read
+
+concurrency:
+  group: qa-baseline-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regression:
+    name: Python 3.13 and Node 24 (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install development dependencies
+        run: |
+          python -m pip install -r requirements-dev.txt
+          python -m pip check
+      - name: Validate frontend assets and syntax
+        run: |
+          node --check frontend/app.js
+          node --check frontend/renderers.js
+          python scripts/version_frontend.py --check
+      - name: Full Python and controller regression
+        run: |
+          python -m pytest tests controller_tests -ra --tb=short --junitxml=qa-ci/pytest.xml
+      - name: Verify clean generated file state
+        if: always()
+        run: git diff --check
+      - name: Upload baseline test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase42e-baseline-${{ matrix.os }}
+          path: qa-ci/pytest.xml
+          if-no-files-found: ignore
+          retention-days: 7
+
+# Browser, Docker sandbox, crash tests and Account-Only real execution are
+# separate release gates documented in docs/PHASE_4_2E_RELEASE_QA.md.
+# They are intentionally NOT reported as passing from this baseline workflow.

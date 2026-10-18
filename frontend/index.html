@@ -7,9 +7,9 @@
   <meta name="description" content="NEON ARENA — không gian thi đấu bot đa game trên local và LAN.">
   <title>NEON ARENA · Tournament workspace</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=0ab76a04fe4c">
-  <link rel="stylesheet" href="/static/styles.css?v=4b0d215a960e">
+  <link rel="stylesheet" href="/static/styles.css?v=fa45a7e5f352">
   <script src="/static/renderers.js?v=d15c4fb4c581" defer></script>
-  <script src="/static/app.js?v=6102556ad4cf" defer></script>
+  <script src="/static/app.js?v=d797f7e6d4c9" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#main-content">Đến nội dung chính</a>
@@ -120,7 +120,7 @@
         <section class="panel history-panel"><div class="panel-heading"><h2>Trận gần đây <span class="tag" id="history-count">Đang tải…</span></h2><button class="text-button" data-go="watch">Xem tất cả <span>↗</span></button></div><div id="recent-matches" class="match-list"><div class="empty-state">Đang tải lịch sử trận đấu…</div></div></section>
       </section>
 
-        <section class="view" id="view-standings" aria-label="Bảng xếp hạng"><div class="page-intro"><div class="eyebrow">FREE PLAY RANKINGS</div><h1>Bảng xếp hạng<br><em>đấu tự do</em></h1><p>Kết quả được tổng hợp từ các trận free-play đã hoàn tất.</p></div><section class="panel standings-panel"><div class="panel-heading"><h2>Bảng xếp hạng</h2><label class="standings-game-filter">Game<select id="standings-game-select" aria-label="Chọn game để xem bảng xếp hạng"></select></label></div><div class="standings-table-wrap"><table class="standings-table"><thead><tr><th>Hạng</th><th>Người chơi</th><th>Đã đấu</th><th>Thắng</th><th>Hòa</th><th>Thua</th></tr></thead><tbody id="standings-body"><tr><td colspan="6" class="empty-state">Đang tải bảng xếp hạng…</td></tr></tbody></table></div></section></section>
+        <section class="view" id="view-standings" aria-label="Bảng xếp hạng"><div class="page-intro"><div class="eyebrow">FREE PLAY RANKINGS</div><h1>Bảng xếp hạng<br><em>đấu tự do</em></h1><p>Kết quả được tổng hợp từ các trận free-play đã hoàn tất.</p></div><section class="panel standings-panel"><div class="panel-heading"><h2>Bảng xếp hạng</h2><label class="standings-game-filter">Game<select id="standings-game-select" aria-label="Chọn game để xem bảng xếp hạng"></select></label></div><div class="standings-table-wrap"><table class="standings-table"><thead><tr><th>Hạng</th><th>Người chơi</th><th>Đã đấu</th><th>Thắng</th><th>Hòa</th><th>Thua</th><th>Tỷ lệ thắng</th><th>Phong độ 5 trận gần nhất</th></tr></thead><tbody id="standings-body"><tr><td colspan="8" class="empty-state">Đang tải bảng xếp hạng…</td></tr></tbody></table></div></section></section>
 
         <section class="view" id="view-tournaments" aria-label="Giải đấu"><div class="page-intro"><div class="eyebrow">TOURNAMENT CONTROL</div><h1>Giải đấu<br><em>& nhánh đấu</em></h1><p>Organizer tạo giải, chọn thể thức và theo dõi tiến trình ghép trận.</p></div><section class="panel organizer-only tournament-create-panel"><div class="panel-heading"><h2>Tạo giải đấu</h2><span class="tag">Organizer</span></div><form id="tournament-create-form" class="padded-form"><label>Tên giải<input name="name" type="text" maxlength="64" required></label><label>Thể thức<select name="format" required><option value="single_elimination">Loại trực tiếp</option><option value="double_elimination">Double elimination</option><option value="round_robin">Vòng tròn tính điểm</option></select></label><div><span>Chọn người chơi</span><div id="tournament-player-options" class="match-list"><div class="empty-state">Đang tải danh sách người chơi…</div></div></div><p id="tournament-feedback" class="feedback"></p><button class="button primary" type="submit">Tạo giải <span>↗</span></button></form></section><section class="panel tournament-list-panel"><div class="panel-heading"><h2>Các giải đấu</h2><button class="button ghost small" id="refresh-tournaments" type="button">Làm mới</button></div><div id="tournaments-list" class="match-list"><div class="empty-state">Đang tải danh sách giải đấu…</div></div></section></section>
 

@@ -684,7 +684,7 @@ summary { cursor: pointer; width: fit-content; }
 
 .standings-panel { margin-top: 25px; }
 .standings-table-wrap { overflow-x: auto; }
-.standings-table { width: 100%; min-width: 560px; border-collapse: collapse; }
+.standings-table { width: 100%; min-width: 790px; border-collapse: collapse; }
 .standings-table th, .standings-table td { padding: 13px 20px; border-bottom: 1px solid #242a3980; text-align: left; white-space: nowrap; }
 .standings-table th { color: #79859a; font: 8px var(--mono); letter-spacing: 1px; text-transform: uppercase; }
 .standings-table td { color: #a5b3ca; font: 10px var(--mono); }
@@ -692,6 +692,12 @@ summary { cursor: pointer; width: fit-content; }
 .standings-table tbody tr:hover { background: #42e8ef08; }
 .standings-table th:nth-child(n+3), .standings-table td:nth-child(n+3) { text-align: right; }
 .standings-table .standing-wins { color: var(--cyan); font-weight: 700; }
+.standings-table .standing-win-rate { color: #e6d08a; font-variant-numeric: tabular-nums; }
+.standings-table .standing-form { display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
+.form-mark { display: inline-grid; place-items: center; width: 20px; height: 20px; border: 1px solid #34415a; border-radius: 50%; font: 8px var(--mono); }
+.form-mark.w { color: var(--green); border-color: #78edb455; background: #78edb40c; }
+.form-mark.d { color: #e6d08a; border-color: #e6d08a55; background: #e6d08a0c; }
+.form-mark.l { color: var(--pink); border-color: #f077c455; background: #f077c40c; }
 .panel-heading .standings-game-filter { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; color: #8292aa; font: 8px var(--mono); letter-spacing: .8px; }
 .panel-heading .standings-game-filter select { width: auto; min-width: 190px; margin-top: 0; padding: 8px 28px 8px 10px; font: 9px var(--mono); }
 

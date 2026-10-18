@@ -989,7 +989,7 @@ function renderStandings() {
   if (!app.standings.length) {
     const row = el("tr");
     const cell = el("td", "empty-state", "Game này chưa có kết quả trận đấu tự do.");
-    cell.colSpan = 6;
+    cell.colSpan = 8;
     row.append(cell);
     tbody.append(row);
     return;
@@ -1008,6 +1008,19 @@ function renderStandings() {
     ].forEach((value, index) => {
       row.append(el("td", index === 3 ? "standing-wins" : "", String(value ?? 0)));
     });
+
+    row.append(el("td", "standing-win-rate", `${Number(player.win_rate || 0).toFixed(1)}%`));
+    const formCell = el("td", "standing-form");
+    const formLabels = { W: ["T", "Thắng"], D: ["H", "Hòa"], L: ["B", "Thua"] };
+    for (const result of player.form || []) {
+      const [label, title] = formLabels[result] || ["—", "Không rõ"];
+      const mark = el("span", `form-mark ${result.toLowerCase()}`, label);
+      mark.title = title;
+      mark.setAttribute("aria-label", title);
+      formCell.append(mark);
+    }
+    if (!formCell.childElementCount) formCell.textContent = "—";
+    row.append(formCell);
 
     tbody.append(row);
   }

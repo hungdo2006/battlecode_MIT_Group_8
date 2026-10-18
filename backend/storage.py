@@ -174,8 +174,9 @@ class Store:
     def get_standings(self, game_id: str | None = None) -> list[dict]:
         with self.lock:
             players = {}
+            results_by_player = {}
 
-            for match in self.matches.values():
+            for match_order, match in enumerate(self.matches.values()):
                 if match.get("official_request_id"):
                     continue  # Official Team results have a separate standings policy.
                 if match.get("status") != "completed":
@@ -210,6 +211,8 @@ class Store:
                             "wins": 0,
                             "draws": 0,
                             "losses": 0,
+                            "win_rate": 0.0,
+                            "form": [],
                         }
 
                     players[player_id]["played"] += 1
@@ -217,16 +220,28 @@ class Store:
                     players[player_id]["nickname"] = name
 
                 winner = (match.get("result") or {}).get("winner")
+                outcomes = {"A": "D", "B": "D"}
 
                 if winner == "A":
                     players[player_ids["A"]]["wins"] += 1
                     players[player_ids["B"]]["losses"] += 1
+                    outcomes = {"A": "W", "B": "L"}
                 elif winner == "B":
                     players[player_ids["B"]]["wins"] += 1
                     players[player_ids["A"]]["losses"] += 1
+                    outcomes = {"A": "L", "B": "W"}
                 else:
                     players[player_ids["A"]]["draws"] += 1
                     players[player_ids["B"]]["draws"] += 1
+                finished_at = str(match.get("finished_at") or match.get("created_at") or "")
+                for side, player_id in player_ids.items():
+                    results_by_player.setdefault(player_id, []).append(
+                        (finished_at, match_order, outcomes[side]))
+
+            for player_id, player in players.items():
+                player["win_rate"] = round(player["wins"] * 100 / player["played"], 1)
+                recent = sorted(results_by_player[player_id], key=lambda item: (item[0], item[1]))[-5:]
+                player["form"] = [outcome for _, _, outcome in recent]
 
             standings = sorted(
                 players.values(),

@@ -468,6 +468,10 @@ def test_registration_validates_email_password_and_rate_limit(tmp_path):
         payload["email"] = "tester@example.org"
         payload["password"] = "short"
         assert client.post("/api/account/auth/register", json=payload).status_code == 422
+        # Valid character count but >1024 UTF-8 bytes: reaches service
+        # and consumes the second registration budget entry.
+        payload["password"] = "é" * 513
+        assert client.post("/api/account/auth/register", json=payload).status_code == 422
         payload["password"] = PASSWORD
         limited = client.post("/api/account/auth/register", json=payload)
         assert limited.status_code == 429

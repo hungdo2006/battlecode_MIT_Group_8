@@ -1,8 +1,49 @@
 # NEON ARENA
 
-## Tiến độ — Phase 4.2E Final System QA (đang triển khai)
+## Phase 4.3A — Unified Login & Player Self-Registration (QA candidate)
 
-Phase 4.2D Official Match (D1–D3) đã merge từ PR #7 vào `main` tại `631a9599704260372f6c7a6442ef52fb9fa16bd4`. `main` sau đó có thêm các thay đổi Tournament/Leaderboard, Player form và kiểm soát chỉnh sửa kết quả. Chúng ta **chưa nghiệm thu hệ thống tổng thể** và **chưa triển khai Internet/AWS**.
+Phase 4.3A adds one Account-Only entry point for Admin and Player. Users cannot
+choose a role in the browser or request: the backend verifies credentials, reads
+the persisted `users.system_role`, and issues the correctly scoped HttpOnly,
+SameSite=Strict Admin or Player cookie. Existing `/api/{admin|player}/auth/*`
+routes remain audience-scoped for compatibility; authorization is still enforced
+by backend and CSRF middleware.
+
+New Account-Only endpoints:
+- `POST /api/account/auth/login`: `{"username":"...","password":"..."}`; returns
+  `account`, `audience`, and a scoped session cookie. Wrong password always 401.
+- `POST /api/account/auth/register`: `{"username":"...","display_name":"...","email":"...","password":"..."}`.
+  When enabled, creates only an ACTIVE Player (201); rejects duplicates (409),
+  invalid inputs (422) and excessive attempts (429 Retry-After). No Admin signup.
+  Email is **stored but unverified**. There is currently **no email delivery,
+  email verification, password reset or MFA**. Do not rely on submitted email for
+  identity, recovery, or elevated privileges.
+
+Append-only **SQLite migration v6** creates `user_emails` (unique canonical email,
+nullable `verified_at`). It does not rewrite previous migrations or auto-run on
+server startup. Existing databases require an **offline** migration with WriterLock
+on a backed-up **disposable clone** first:
+
+```powershell
+python -m backend.admin_cli --data-dir <disposable-data-dir> migrate
+python -m backend.admin_cli --data-dir <disposable-data-dir> check
+```
+
+Do not run these against AWS or an existing live volume without a reviewed,
+owner-authorized migration window and tested rollback. Enable for isolated QA:
+`ARENA_ACCOUNT_AUTH=1`, `ARENA_ACCOUNT_ONLY=1`,
+`ARENA_SELF_REGISTRATION=1`, set explicit local/LAN `ARENA_AUTH_ORIGINS`,
+and `ARENA_AUTH_ALLOW_HTTP=1` **only for local QA**.
+
+**Not Internet-ready:** Current Host/Origin, peer and proxy policy explicitly
+supports only local/LAN, and the email-verification, anti-abuse/CAPTCHA, MFA,
+gateway TLS/WSS and deployment review are not implemented. Phase 4.3A needs
+independent Chrome, Docker, storage-migration and security QA on the exact
+branch HEAD. **No AWS deployment or merge without approval.**
+
+## Tiến độ — Phase 4.2E Final System QA (đã merge)
+
+Phase 4.2D Official Match (D1–D3) đã merge từ PR #7 vào `main` tại `631a9599704260372f6c7a6442ef52fb9fa16bd4`. `main` sau đó có thêm các thay đổi Tournament/Leaderboard, Player form và kiểm soát chỉnh sửa kết quả. Phase 4.2E đã merge qua PR #11 (QA 14/14 theo báo cáo Codex); hệ thống **chưa triển khai Internet/AWS**.
 
 Phase 4.2E chuẩn hóa kiểm thử và quy trình chấp thuận phát hành. Xem [Release QA/acceptance gate](docs/PHASE_4_2E_RELEASE_QA.md), [mẫu báo cáo](docs/PHASE_4_2E_QA_REPORT_TEMPLATE.md), và CI `.github/workflows/phase42e-baseline.yml`. CI chỉ kiểm tra baseline Windows/Linux; Chrome, Docker Sandbox, Account-Only end-to-end, fault injection và AWS readiness phải có báo cáo QA độc lập trên đúng commit.
 

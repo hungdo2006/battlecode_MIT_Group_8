@@ -231,6 +231,12 @@ class OfficialSchedule:
             if fixture is not None:
                 self.db.execute("UPDATE team_tournament_fixtures SET official_request_id=? WHERE id=?",
                                  (request_id, team_tournament_fixture_id))
+                attempt_number = self.db.execute("""SELECT coalesce(max(attempt_number),0)+1
+                    FROM team_tournament_fixture_matches WHERE fixture_id=?""",
+                    (team_tournament_fixture_id,)).fetchone()[0]
+                self.db.execute("""INSERT INTO team_tournament_fixture_matches
+                    (fixture_id,official_request_id,attempt_number,created_at)
+                    VALUES (?,?,?,?)""", (team_tournament_fixture_id, request_id, attempt_number, now))
                 self.db.execute("""INSERT INTO team_tournament_audit
                     (tournament_id,fixture_id,actor_user_id,action,occurred_at)
                     VALUES (?,?,?,'FIXTURE_SCHEDULED',?)""",
@@ -315,6 +321,74 @@ class OfficialSchedule:
             VALUES (?,NULL,?,'official_match',?,?)""",
             (now, "OFFICIAL_MATCH_" + status, request_id,
              json.dumps({"reason": reason}, separators=(",", ":"))))
+
+    def _handle_team_tournament_result(self, request_row, outcome, now):
+        fixture = self.db.execute("""SELECT f.*,t.game_id,coalesce(tf.format,t.format) AS format,
+                t.id AS tournament_id
+            FROM team_tournament_fixtures f JOIN team_tournaments t ON t.id=f.tournament_id
+            LEFT JOIN team_tournament_format_overrides tf ON tf.tournament_id=t.id
+            WHERE f.official_request_id=?""", (request_row["id"],)).fetchone()
+        if not fixture:
+            return
+        if fixture["format"] not in ("single_elimination", "group_knockout", "double_elimination", "swiss_single_elimination"):
+            return
+        if fixture["stage"] == "GROUP":
+            from .team_tournament_service import advance_single_elimination, advance_swiss_stage
+            if fixture["format"] == "swiss_single_elimination":
+                advance_swiss_stage(self.db, fixture["tournament_id"], now)
+            else:
+                advance_single_elimination(self.db, fixture["tournament_id"], now)
+            return
+        slot = self.db.execute("SELECT * FROM team_tournament_bracket_slots WHERE fixture_id=?",
+                               (fixture["id"],)).fetchone()
+        if not slot:
+            return
+        winner = outcome.get("winner_team_id")
+        if winner:
+            self.db.execute("UPDATE team_tournament_bracket_slots SET status='COMPLETED',winner_team_id=? WHERE id=?",
+                             (winner, slot["id"]))
+            from .team_tournament_service import advance_single_elimination
+            advance_single_elimination(self.db, fixture["tournament_id"], now)
+            return
+
+        attempts = self.db.execute("""SELECT count(*) FROM team_tournament_fixture_matches m
+            JOIN official_match_requests r ON r.id=m.official_request_id
+            WHERE m.fixture_id=? AND r.status='COMPLETED'""",
+            (fixture["id"],)).fetchone()[0]
+        if attempts < 3:
+            request_id = uuid4().hex
+            rematch_at = now + 60
+            self.db.execute("""INSERT INTO official_match_requests
+                (id,created_by,team_a_id,team_b_id,game_id,rules_json,bot_lock_at,
+                 scheduled_at,created_at,status)
+                VALUES (?,?,?,?,?,?,?, ?,?,'SCHEDULED')""",
+                (request_id, request_row["created_by"], fixture["team_a_id"],
+                 fixture["team_b_id"], fixture["game_id"], request_row["rules_json"],
+                 now, rematch_at, now))
+            self.db.execute("UPDATE team_tournament_fixtures SET official_request_id=? WHERE id=?",
+                             (request_id, fixture["id"]))
+            attempt_number = self.db.execute("""SELECT coalesce(max(attempt_number),0)+1
+                FROM team_tournament_fixture_matches WHERE fixture_id=?""",
+                (fixture["id"],)).fetchone()[0]
+            self.db.execute("""INSERT INTO team_tournament_fixture_matches
+                (fixture_id,official_request_id,attempt_number,created_at)
+                VALUES (?,?,?,?)""", (fixture["id"], request_id, attempt_number, now))
+            self.db.execute("""INSERT INTO audit_events
+                (occurred_at,actor_user_id,action,target_type,target_id,details_json)
+                VALUES (?,NULL,'OFFICIAL_MATCH_TIEBREAK_SCHEDULED','official_match',?,?)""",
+                (now, request_id, json.dumps({"fixture_id": fixture["id"],
+                                              "attempt_number": attempt_number})))
+            self.db.execute("""INSERT INTO team_tournament_audit
+                (tournament_id,fixture_id,actor_user_id,action,occurred_at)
+                VALUES (?,?,NULL,'TIEBREAK_SCHEDULED',?)""",
+                (fixture["tournament_id"], fixture["id"], now))
+        else:
+            self.db.execute("UPDATE team_tournament_bracket_slots SET status='TIE' WHERE id=?",
+                             (slot["id"],))
+            self.db.execute("""INSERT INTO team_tournament_audit
+                (tournament_id,fixture_id,actor_user_id,action,occurred_at)
+                VALUES (?,?,NULL,'TIEBREAKS_EXHAUSTED',?)""",
+                (fixture["tournament_id"], fixture["id"], now))
 
     def claim_due(self):
         """Reserve ONE due match in SQLite before any runner or JSON side effect.
@@ -424,6 +498,7 @@ class OfficialSchedule:
                         outcome = {"winner_side":winner,"winner_team_id":slots.get(winner),
                                    "result":match["result"],"turn":match.get("turn",0)}
                         self._stamp_execution(row["id"], "COMPLETED", now, outcome=outcome)
+                        self._handle_team_tournament_result(row, outcome, now)
                     changed.append(row["id"])
                 elif status == "interrupted":
                     self._stamp_execution(row["id"], "INTERRUPTED", now,

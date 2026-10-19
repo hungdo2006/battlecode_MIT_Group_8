@@ -5,6 +5,8 @@ import pytest
 
 from backend import account_database
 from backend.account_database import AccountDatabase, SCHEMA_VERSION, SchemaError, check_integrity, transaction
+from backend.account_schema import MIGRATIONS
+from backend.writer_lock import WriterLock
 
 
 @pytest.fixture
@@ -57,10 +59,44 @@ def test_schema_migration_is_idempotent_and_persists(database):
                           "official_match_requests", "official_match_slots",
                           "official_source_attestations", "user_emails", "admin_totp", "email_verification_tokens",
                           "team_tournaments", "team_tournament_entries", "team_tournament_fixtures",
-                          "team_tournament_audit"}
+                          "team_tournament_audit", "team_tournament_format_overrides",
+                          "team_tournament_bracket_slots", "team_tournament_groups",
+                          "team_tournament_group_entries",
+                          "team_tournament_fixture_matches", "team_tournament_swiss_byes"}
         check_integrity(connection)
         with pytest.raises(sqlite3.OperationalError, match="readonly"):
             connection.execute("DELETE FROM users")
+
+
+def test_existing_v10_database_migrates_to_v11_without_rewriting_v10(tmp_path):
+    database = AccountDatabase(tmp_path / "data")
+    with WriterLock(database.data_dir):
+        connection = database._connect(create=True)
+        try:
+            with transaction(connection):
+                connection.execute("""CREATE TABLE schema_migrations (
+                    version INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL UNIQUE,
+                    checksum TEXT NOT NULL CHECK (length(checksum) = 64),
+                    schema_checksum TEXT NOT NULL CHECK (length(schema_checksum) = 64),
+                    applied_at INTEGER NOT NULL
+                ) STRICT""")
+                for version, name, statements in MIGRATIONS[:10]:
+                    for statement in statements:
+                        connection.execute(statement)
+                    connection.execute("INSERT INTO schema_migrations VALUES (?,?,?,?,?)",
+                        (version, name, account_database._checksum(statements),
+                         account_database._schema_checksum(connection), 100 + version))
+                    connection.execute(f"PRAGMA user_version = {version}")
+                connection.execute(f"PRAGMA application_id = {account_database.APPLICATION_ID}")
+        finally:
+            connection.close()
+
+    database.migrate()
+    with database.read() as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+        assert connection.execute("SELECT count(*) FROM schema_migrations WHERE version=10").fetchone()[0] == 1
+        assert connection.execute("SELECT count(*) FROM team_tournament_format_overrides").fetchone()[0] == 0
 
 
 @pytest.mark.parametrize("corruption", ["newer", "unversioned", "ledger", "identity", "missing_table", "drift"])

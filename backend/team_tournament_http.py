@@ -13,11 +13,16 @@ class CreateTournamentBody(StrictBody):
     name: str = Field(min_length=1, max_length=64)
     game_id: str = Field(min_length=1, max_length=64)
     team_ids: list[str] = Field(min_length=2, max_length=16)
+    format: str = Field(default="round_robin", pattern="^(round_robin|single_elimination|group_knockout|double_elimination|swiss_single_elimination)$")
 
 
 class ScheduleFixtureBody(StrictBody):
     bot_lock_at: int = Field(ge=0)
     scheduled_at: int = Field(ge=0)
+
+
+class ResolveTieBody(StrictBody):
+    winner_team_id: str = Field(min_length=1, max_length=128)
 
 
 def install_team_tournament_http(app):
@@ -51,7 +56,7 @@ def install_team_tournament_http(app):
     async def create(body: CreateTournamentBody, request: Request):
         return {"tournament": await execute(request, "ADMIN", lambda service, auth, connection, actor, runtime:
             service.create(actor, name=body.name, game_id=body.game_id,
-                           team_ids=body.team_ids), mutation=True)}
+                           team_ids=body.team_ids, format=body.format), mutation=True)}
 
     @router.post("/api/admin/team-tournaments/{tournament_id}/start")
     async def start(tournament_id: str, request: Request):
@@ -75,6 +80,12 @@ def install_team_tournament_http(app):
             return {"request": scheduled}
 
         return await execute(request, "ADMIN", operation, mutation=True)
+
+    @router.post("/api/admin/team-tournaments/{tournament_id}/fixtures/{fixture_id}/resolve-tie")
+    async def resolve_tie(tournament_id: str, fixture_id: str, body: ResolveTieBody,
+                          request: Request):
+        return {"tournament": await execute(request, "ADMIN", lambda service, auth, connection, actor, runtime:
+            service.resolve_tie(actor, tournament_id, fixture_id, body.winner_team_id), mutation=True)}
 
     @router.get("/api/admin/team-tournaments/{tournament_id}")
     async def admin_detail(tournament_id: str, request: Request):

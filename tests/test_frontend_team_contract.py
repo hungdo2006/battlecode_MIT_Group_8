@@ -93,7 +93,8 @@ def test_official_workspace_is_account_only_and_form_has_deadlines():
     assert '/api/admin/official-matches' in js
     assert 'official-matches/" + encodeURIComponent(id) + "/replay' in js
     assert 'if (app.accountOnly) { app.tournaments = []; renderTournaments(); return; }' in js
-    assert 'if (app.accountOnly) { app.standings = []; renderStandings(); return; }' in js
+    assert 'async function refreshStandings()' in js
+    assert 'app.standings = await api(`/api/standings${query}`);' in js
 
 
 def test_account_only_background_poll_respects_auth_budget_and_keeps_online_on_429():

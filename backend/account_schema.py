@@ -292,4 +292,97 @@ MIGRATIONS = (
             occurred_at INTEGER NOT NULL CHECK (occurred_at >= 0)
         ) STRICT""",
     )),
+    (11, "team_tournament_brackets_and_attempts", (
+        """CREATE TABLE team_tournament_format_overrides (
+            tournament_id TEXT PRIMARY KEY NOT NULL REFERENCES team_tournaments(id) ON DELETE RESTRICT,
+            format TEXT NOT NULL CHECK (format IN ('single_elimination'))
+        ) STRICT""",
+        """CREATE TABLE team_tournament_bracket_slots (
+            id TEXT PRIMARY KEY NOT NULL,
+            tournament_id TEXT NOT NULL REFERENCES team_tournaments(id) ON DELETE RESTRICT,
+            round_number INTEGER NOT NULL CHECK (round_number > 0),
+            match_number INTEGER NOT NULL CHECK (match_number > 0),
+            team_a_id TEXT REFERENCES teams(id) ON DELETE RESTRICT,
+            team_b_id TEXT REFERENCES teams(id) ON DELETE RESTRICT,
+            source_a_slot_id TEXT REFERENCES team_tournament_bracket_slots(id) ON DELETE RESTRICT,
+            source_b_slot_id TEXT REFERENCES team_tournament_bracket_slots(id) ON DELETE RESTRICT,
+            fixture_id TEXT UNIQUE REFERENCES team_tournament_fixtures(id) ON DELETE RESTRICT,
+            winner_team_id TEXT REFERENCES teams(id) ON DELETE RESTRICT,
+            status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','READY','COMPLETED','BYE','TIE')),
+            UNIQUE (tournament_id,round_number,match_number),
+            CHECK (team_a_id IS NULL OR team_b_id IS NULL OR team_a_id <> team_b_id)
+        ) STRICT""",
+        "CREATE INDEX team_tournament_bracket_order ON team_tournament_bracket_slots(tournament_id,round_number,match_number)",
+        """CREATE TABLE team_tournament_fixture_matches (
+            fixture_id TEXT NOT NULL REFERENCES team_tournament_fixtures(id) ON DELETE RESTRICT,
+            official_request_id TEXT NOT NULL UNIQUE REFERENCES official_match_requests(id) ON DELETE RESTRICT,
+            attempt_number INTEGER NOT NULL CHECK (attempt_number > 0),
+            created_at INTEGER NOT NULL CHECK (created_at >= 0),
+            PRIMARY KEY (fixture_id,attempt_number)
+        ) STRICT""",
+    )),
+    (12, "team_tournament_group_stage", (
+        "ALTER TABLE team_tournament_format_overrides RENAME TO team_tournament_format_overrides_v11",
+        """CREATE TABLE team_tournament_format_overrides (
+            tournament_id TEXT PRIMARY KEY NOT NULL REFERENCES team_tournaments(id) ON DELETE RESTRICT,
+            format TEXT NOT NULL CHECK (format IN ('single_elimination','group_knockout'))
+        ) STRICT""",
+        """INSERT INTO team_tournament_format_overrides(tournament_id,format)
+            SELECT tournament_id,format FROM team_tournament_format_overrides_v11""",
+        "DROP TABLE team_tournament_format_overrides_v11",
+        """CREATE TABLE team_tournament_groups (
+            id TEXT PRIMARY KEY NOT NULL,
+            tournament_id TEXT NOT NULL REFERENCES team_tournaments(id) ON DELETE RESTRICT,
+            group_number INTEGER NOT NULL CHECK (group_number > 0),
+            name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 16),
+            UNIQUE (tournament_id,group_number), UNIQUE (tournament_id,id)
+        ) STRICT""",
+        """CREATE TABLE team_tournament_group_entries (
+            tournament_id TEXT NOT NULL,
+            group_id TEXT NOT NULL,
+            team_id TEXT NOT NULL,
+            PRIMARY KEY (tournament_id,team_id),
+            UNIQUE (group_id,team_id),
+            FOREIGN KEY (tournament_id,group_id) REFERENCES team_tournament_groups(tournament_id,id) ON DELETE RESTRICT,
+            FOREIGN KEY (tournament_id,team_id) REFERENCES team_tournament_entries(tournament_id,team_id) ON DELETE RESTRICT
+        ) STRICT""",
+        "ALTER TABLE team_tournament_fixtures ADD COLUMN stage TEXT NOT NULL DEFAULT 'KNOCKOUT' CHECK (stage IN ('GROUP','KNOCKOUT'))",
+        "ALTER TABLE team_tournament_fixtures ADD COLUMN group_id TEXT REFERENCES team_tournament_groups(id) ON DELETE RESTRICT",
+        "ALTER TABLE team_tournament_bracket_slots ADD COLUMN source_a_group_id TEXT REFERENCES team_tournament_groups(id) ON DELETE RESTRICT",
+        "ALTER TABLE team_tournament_bracket_slots ADD COLUMN source_a_group_rank INTEGER CHECK (source_a_group_rank IS NULL OR source_a_group_rank > 0)",
+        "ALTER TABLE team_tournament_bracket_slots ADD COLUMN source_b_group_id TEXT REFERENCES team_tournament_groups(id) ON DELETE RESTRICT",
+        "ALTER TABLE team_tournament_bracket_slots ADD COLUMN source_b_group_rank INTEGER CHECK (source_b_group_rank IS NULL OR source_b_group_rank > 0)",
+    )),
+    (13, "team_tournament_double_elimination", (
+        "ALTER TABLE team_tournament_format_overrides RENAME TO team_tournament_format_overrides_v12",
+        """CREATE TABLE team_tournament_format_overrides (
+            tournament_id TEXT PRIMARY KEY NOT NULL REFERENCES team_tournaments(id) ON DELETE RESTRICT,
+            format TEXT NOT NULL CHECK (format IN ('single_elimination','group_knockout','double_elimination'))
+        ) STRICT""",
+        """INSERT INTO team_tournament_format_overrides(tournament_id,format)
+            SELECT tournament_id,format FROM team_tournament_format_overrides_v12""",
+        "DROP TABLE team_tournament_format_overrides_v12",
+        "ALTER TABLE team_tournament_bracket_slots ADD COLUMN bracket TEXT NOT NULL DEFAULT 'MAIN' CHECK (bracket IN ('MAIN','WINNERS','LOSERS','FINAL','RESET'))",
+        "ALTER TABLE team_tournament_bracket_slots ADD COLUMN source_a_result TEXT NOT NULL DEFAULT 'WINNER' CHECK (source_a_result IN ('WINNER','LOSER'))",
+        "ALTER TABLE team_tournament_bracket_slots ADD COLUMN source_b_result TEXT NOT NULL DEFAULT 'WINNER' CHECK (source_b_result IN ('WINNER','LOSER'))",
+        "ALTER TABLE team_tournament_bracket_slots ADD COLUMN conditional_status TEXT NOT NULL DEFAULT '' CHECK (conditional_status IN ('','WAITING','ACTIVE','SKIPPED'))",
+    )),
+    (14, "team_tournament_swiss_stage", (
+        "ALTER TABLE team_tournament_format_overrides RENAME TO team_tournament_format_overrides_v13",
+        """CREATE TABLE team_tournament_format_overrides (
+            tournament_id TEXT PRIMARY KEY NOT NULL REFERENCES team_tournaments(id) ON DELETE RESTRICT,
+            format TEXT NOT NULL CHECK (format IN ('single_elimination','group_knockout','double_elimination','swiss_single_elimination'))
+        ) STRICT""",
+        """INSERT INTO team_tournament_format_overrides(tournament_id,format)
+            SELECT tournament_id,format FROM team_tournament_format_overrides_v13""",
+        "DROP TABLE team_tournament_format_overrides_v13",
+        """CREATE TABLE team_tournament_swiss_byes (
+            tournament_id TEXT NOT NULL REFERENCES team_tournaments(id) ON DELETE RESTRICT,
+            round_number INTEGER NOT NULL CHECK (round_number > 0),
+            team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE RESTRICT,
+            PRIMARY KEY (tournament_id,round_number),
+            UNIQUE (tournament_id,round_number,team_id),
+            FOREIGN KEY (tournament_id,team_id) REFERENCES team_tournament_entries(tournament_id,team_id) ON DELETE RESTRICT
+        ) STRICT""",
+    )),
 )

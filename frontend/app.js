@@ -435,8 +435,7 @@ function applyPermissions() {
       $("#account-team-panel").classList.add("hidden");
     }
     if (location.hash === "#create" || (!accountPlayer && location.hash === "#upload")) location.hash = "home";
-    $$('.nav-item[data-view="official"]').forEach(node => node.classList.remove("hidden"));
-    $$('.nav-item[data-view="tournaments"], .nav-item[data-view="standings"], .nav-item[data-view="watch"]').forEach(node => node.classList.add("hidden"));
+    $$('.nav-item[data-view="official"], .nav-item[data-view="tournaments"], .nav-item[data-view="standings"]').forEach(node => node.classList.remove("hidden"));
   } else {
     $$('.nav-item[data-view="official"]').forEach(node => node.classList.add("hidden"));
   }
@@ -1515,7 +1514,6 @@ function populateStandingsGameSelector() {
 }
 
 async function refreshStandings() {
-  if (app.accountOnly) { app.standings = []; renderStandings(); return; }
   const query = app.standingsGameId
     ? `?game_id=${encodeURIComponent(app.standingsGameId)}`
     : "";
@@ -1570,7 +1568,7 @@ function renderTeamTournaments() {
     const meta = el("div", "tournament-meta");
     meta.append(el("span", "tournament-meta-item", tournament.game_id),
       el("span", "tournament-meta-item", `${tournament.teams.length} đội`),
-      el("span", "tournament-meta-item", "Vòng tròn"));
+      el("span", "tournament-meta-item", ({round_robin:"Vòng tròn tính điểm", single_elimination:"Loại trực tiếp", double_elimination:"Double Elimination", group_knockout:"Vòng bảng + loại trực tiếp", swiss_single_elimination:"Vòng Thụy Sĩ + Loại trực tiếp"})[tournament.format] || tournament.format));
     const chips = el("div", "tournament-player-chips");
     tournament.teams.forEach(team => chips.append(el("span", "tournament-player-chip", team.team_name_snapshot)));
     const actions = el("div", "tournament-actions");
@@ -1584,26 +1582,95 @@ function renderTeamTournaments() {
       actions.append(start);
     }
     card.append(heading, meta, chips);
-    if (tournament.standings.length) {
+    if (["round_robin", "group_knockout", "swiss_single_elimination"].includes(tournament.format) && tournament.standings.length) {
+      const isSwiss = tournament.format === "swiss_single_elimination";
+      if (isSwiss) {
+        const progress = el("p", "tournament-feedback", `Vòng Swiss: ${tournament.swiss_rounds_completed}/${tournament.swiss_rounds_total} hoàn tất · top ${tournament.teams.length < 8 ? 4 : 8} vào vòng loại trực tiếp.`);
+        card.append(progress);
+      }
       const table = el("div", "tournament-standings"); table.setAttribute("role", "table");
-      const columns = [["rank", "HẠNG"], ["team_name", "ĐỘI"], ["played", "ĐẤU"], ["wins", "THẮNG"], ["draws", "HÒA"], ["losses", "THUA"], ["points", "ĐIỂM"]];
+      const columns = [["rank", "HẠNG"], ["team_name", "ĐỘI"], ["played", "ĐẤU"], ["wins", "THẮNG"], ["draws", "HÒA"], ["losses", "THUA"], ...(isSwiss ? [["byes", "BYE"], ["buchholz", "BUCHHOLZ"]] : []), ["points", "ĐIỂM"]];
       const headerRow = el("div", "tournament-standing-row heading");
       columns.forEach(([key, label]) => { const cell = el("span", `tournament-standing-cell ${key}`, label); cell.setAttribute("role", "columnheader"); headerRow.append(cell); });
       table.append(headerRow);
       tournament.standings.forEach(item => {
         const row = el("div", "tournament-standing-row"); row.setAttribute("role", "row");
-        columns.forEach(([key]) => { const cell = el("span", `tournament-standing-cell ${key}`, item[key]); cell.setAttribute("role", "cell"); row.append(cell); });
+        columns.forEach(([key]) => { const cell = el("span", `tournament-standing-cell ${key}`, item[key] ?? 0); cell.setAttribute("role", "cell"); row.append(cell); });
         table.append(row);
       });
       card.append(table);
+      if (isSwiss && tournament.swiss_byes?.length) {
+        const byeSummary = tournament.swiss_byes.map(item => `Vòng ${item.round_number}: ${item.team_name}`).join(" · ");
+        card.append(el("p", "tournament-feedback", `Lượt miễn đấu: ${byeSummary}`));
+      }
+    }
+    if (tournament.format === "group_knockout") {
+      for (const group of tournament.groups || []) {
+        const groupPanel = el("section", "tournament-group");
+        groupPanel.append(el("h4", "", `${group.name} · Hai đội đầu bảng vào vòng loại trực tiếp`));
+        const table = el("div", "tournament-standings"); table.setAttribute("role", "table");
+        const columns = [["rank", "HẠNG"], ["team_name", "ĐỘI"], ["played", "ĐẤU"], ["wins", "THẮNG"], ["draws", "HÒA"], ["losses", "THUA"], ["score_difference", "HIỆU SỐ"], ["score_for", "ĐIỂM SỐ"], ["points", "ĐIỂM"]];
+        const header = el("div", "tournament-standing-row heading");
+        columns.forEach(([key, label]) => header.append(el("span", `tournament-standing-cell ${key}`, label)));
+        table.append(header);
+        group.standings.forEach(item => {
+          const row = el("div", "tournament-standing-row");
+          columns.forEach(([key]) => row.append(el("span", `tournament-standing-cell ${key}`, String(item[key] ?? 0))));
+          table.append(row);
+        });
+        groupPanel.append(table); card.append(groupPanel);
+      }
     }
     if (actions.childElementCount) card.append(actions);
+    if (["single_elimination", "double_elimination", "group_knockout"].includes(tournament.format) && tournament.bracket.length) {
+      const bracket = el("div", "tournament-bracket");
+      const bracketRounds = [...new Set(tournament.bracket.map(slot => slot.round_number))].sort((a, b) => a - b);
+      const bracketStatus = { PENDING: "CHỜ VÒNG TRƯỚC", READY: "CHỜ XẾP LỊCH", COMPLETED: "ĐÃ CÓ ĐỘI ĐI TIẾP", BYE: "MIỄN ĐẤU", TIE: "CẦN PHÂN ĐỊNH" };
+      for (let roundIndex = 0; roundIndex < bracketRounds.length; roundIndex++) {
+        const round = bracketRounds[roundIndex];
+        const roundSlots = tournament.bracket.filter(slot => slot.round_number === round);
+        const column = el("section", "tournament-bracket-round");
+        const qualified = tournament.bracket.filter(slot => slot.round_number === bracketRounds[0]).length;
+        const knockoutRounds = qualified === 2 ? ["BÁN KẾT", "CHUNG KẾT"] : qualified === 4 ? ["TỨ KẾT", "BÁN KẾT", "CHUNG KẾT"] : [];
+        const roundName = ["group_knockout", "swiss_single_elimination"].includes(tournament.format) ? knockoutRounds[roundIndex] : null;
+        column.append(el("h4", "", roundName || (roundIndex === bracketRounds.length - 1 ? "CHUNG KẾT" : `VÒNG ${roundIndex + 1}`)));
+        for (const slot of roundSlots) {
+          const matchCard = el("div", `tournament-bracket-match ${slot.status.toLowerCase()}`);
+          const teamName = id => tournament.teams.find(team => team.team_id === id)?.team_name_snapshot || "Chờ đội đi tiếp";
+          matchCard.append(el("span", "tournament-bracket-player", teamName(slot.team_a_id)),
+            el("span", "tournament-bracket-player", teamName(slot.team_b_id)),
+            el("small", "", slot.conditional_status === "SKIPPED" ? "CHUNG KẾT RESET KHÔNG CẦN THI ĐẤU" : bracketStatus[slot.status] || slot.status),
+            el("small", "", ({WINNERS:"NHÁNH THẮNG",LOSERS:"NHÁNH THUA",FINAL:"CHUNG KẾT TỔNG",RESET:"CHUNG KẾT RESET"})[slot.bracket] || "NHÁNH CHÍNH"));
+          if (slot.winner_team_id) matchCard.append(el("small", "tournament-match-winner", `ĐI TIẾP · ${teamName(slot.winner_team_id)}`));
+          if (slot.status === "TIE" && app.accountAudience === "admin" && slot.fixture_id) {
+            for (const teamId of [slot.team_a_id, slot.team_b_id]) {
+              const resolve = el("button", "button ghost small", `Chọn ${teamName(teamId)} đi tiếp`);
+              resolve.type = "button";
+              resolve.onclick = async () => {
+                resolve.disabled = true;
+                try {
+                  await api(`/api/admin/team-tournaments/${encodeURIComponent(tournament.id)}/fixtures/${encodeURIComponent(slot.fixture_id)}/resolve-tie`,
+                    jsonOptions("POST", { winner_team_id: teamId }));
+                  await refreshTeamTournaments();
+                } catch (error) { resolve.disabled = false; toast(error.message, true); }
+              };
+              matchCard.append(resolve);
+            }
+          }
+          column.append(matchCard);
+        }
+        bracket.append(column);
+      }
+      card.append(bracket);
+    }
     const fixtureList = el("div", "tournament-schedule");
     tournament.fixtures.forEach(fixture => {
       const fixtureCard = el("section", "tournament-schedule-match");
       const teamA = tournament.teams.find(team => team.team_id === fixture.team_a_id)?.team_name_snapshot || "Team A";
       const teamB = tournament.teams.find(team => team.team_id === fixture.team_b_id)?.team_name_snapshot || "Team B";
-      fixtureCard.append(el("span", "", `Vòng ${fixture.round_number} · ${teamA} VS ${teamB}`));
+      const groupName = tournament.groups?.find(group => group.id === fixture.group_id)?.name;
+      const stageName = fixture.stage === "GROUP" ? (tournament.format === "swiss_single_elimination" ? `Swiss · Vòng ${fixture.round_number}` : `${groupName || "Vòng bảng"} · Vòng ${fixture.round_number}`) : ["group_knockout", "swiss_single_elimination"].includes(tournament.format) ? `Loại trực tiếp · Vòng ${fixture.round_number}` : `Vòng ${fixture.round_number}`;
+      fixtureCard.append(el("span", "", `${stageName} · ${teamA} VS ${teamB}`));
       fixtureCard.append(el("small", `tournament-match-state ${(fixture.match_status || "pending").toLowerCase()}`, fixture.match_status || "CHƯA XẾP LỊCH"));
       if (app.accountAudience === "admin" && tournament.status === "ACTIVE" && !fixture.official_request_id) {
         const controls = el("div", "form-buttons");
@@ -1640,6 +1707,7 @@ async function refreshTeamTournaments() {
   if (!Array.isArray(response.tournaments)) throw new Error("Dữ liệu giải đấu Team không hợp lệ.");
   app.teamTournaments = response.tournaments;
   renderTeamTournaments();
+  renderStandings();
 }
 async function refreshBots() {
   if (app.accountOnly) {
@@ -1683,10 +1751,11 @@ $("#team-tournament-create").addEventListener("submit", async event => {
   button.disabled = true;
   try {
     await api("/api/admin/team-tournaments", jsonOptions("POST", {
-      name: form.elements.name.value, game_id: form.elements.game_id.value, team_ids
+      name: form.elements.name.value, game_id: form.elements.game_id.value, team_ids,
+      format: form.elements.format.value
     }));
     form.reset();
-    feedback("#team-tournament-feedback", "Đã tạo giải. Bắt đầu giải để sinh lịch vòng tròn.");
+    feedback("#team-tournament-feedback", "Đã tạo giải. Bắt đầu giải để tạo lịch hoặc nhánh đấu.");
     await refreshTeamTournaments();
   } catch (error) { feedback("#team-tournament-feedback", error.message, true); }
   finally { button.disabled = false; }

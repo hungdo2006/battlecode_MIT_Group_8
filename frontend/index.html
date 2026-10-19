@@ -8,9 +8,9 @@
   <meta name="description" content="NEON ARENA — không gian thi đấu bot đa game trên local và LAN.">
   <title>NEON ARENA · Tournament workspace</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=0ab76a04fe4c">
-  <link rel="stylesheet" href="/static/styles.css?v=fa04ce536687">
+  <link rel="stylesheet" href="/static/styles.css?v=3e609600b26a">
   <script src="/static/renderers.js?v=d15c4fb4c581" defer></script>
-  <script src="/static/app.js?v=f94db336dd94" defer></script>
+  <script src="/static/app.js?v=186d67dd9c09" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#main-content">Đến nội dung chính</a>
@@ -125,12 +125,13 @@
 
         <section class="view" id="view-tournaments" aria-label="Giải đấu"><div class="page-intro"><div class="eyebrow">TOURNAMENT CONTROL</div><h1>Giải đấu<br><em>& nhánh đấu</em></h1><p>Organizer tạo giải, chọn thể thức và theo dõi tiến trình ghép trận.</p></div><section class="panel organizer-only tournament-create-panel"><div class="panel-heading"><h2>Tạo giải đấu</h2><span class="tag">Organizer</span></div><form id="tournament-create-form" class="padded-form"><label>Tên giải<input name="name" type="text" maxlength="64" required></label><label>Thể thức<select name="format" required><option value="single_elimination">Loại trực tiếp</option><option value="double_elimination">Double elimination</option><option value="round_robin">Vòng tròn tính điểm</option></select></label><div><span>Chọn người chơi</span><div id="tournament-player-options" class="match-list"><div class="empty-state">Đang tải danh sách người chơi…</div></div></div><p id="tournament-feedback" class="feedback"></p><button class="button primary" type="submit">Tạo giải <span>↗</span></button></form></section><section class="panel tournament-list-panel"><div class="panel-heading"><h2>Các giải đấu</h2><button class="button ghost small" id="refresh-tournaments" type="button">Làm mới</button></div><div id="tournaments-list" class="match-list"><div class="empty-state">Đang tải danh sách giải đấu…</div></div></section>
           <div id="account-team-tournaments" class="hidden">
-            <div class="page-intro"><div class="eyebrow">TEAM COMPETITION</div><h1>Giải đấu<br><em>của các đội</em></h1><p>Admin tổ chức giải vòng tròn. Các đội thi đấu qua Official Match; thành viên theo dõi lịch và bảng điểm.</p></div>
+            <div class="page-intro"><div class="eyebrow">TEAM COMPETITION</div><h1>Giải đấu<br><em>của các đội</em></h1><p>Admin tổ chức giải vòng tròn hoặc loại trực tiếp. Các đội thi đấu qua Official Match; thành viên theo dõi lịch, nhánh đấu và bảng điểm.</p></div>
             <section class="panel tournament-create-panel hidden" id="team-tournament-admin-panel"><div class="panel-heading"><h2>Tạo giải Team</h2><span class="tag">ADMIN</span></div><form id="team-tournament-create" class="padded-form">
               <label>Tên giải<input name="name" type="text" maxlength="64" required></label>
               <label>Game<select name="game_id" id="team-tournament-game" required></select></label>
-              <div><span>Chọn 2–16 đội đang hoạt động</span><div id="team-tournament-team-options" class="match-list"></div></div>
-              <div class="feedback hidden" id="team-tournament-feedback" role="status"></div><button class="button primary" type="submit">Tạo giải vòng tròn</button>
+              <label>Thể thức<select name="format"><option value="round_robin">Vòng tròn tính điểm</option><option value="single_elimination">Loại trực tiếp</option><option value="double_elimination">Double Elimination (nhánh thắng/thua)</option><option value="group_knockout">Vòng bảng + loại trực tiếp</option><option value="swiss_single_elimination">Vòng Thụy Sĩ + Loại trực tiếp</option></select></label>
+              <div><span>Chọn 2–16 đội đang hoạt động; thể thức vòng bảng cần ít nhất 4 đội</span><div id="team-tournament-team-options" class="match-list"></div></div>
+              <div class="feedback hidden" id="team-tournament-feedback" role="status"></div><button class="button primary" type="submit">Tạo giải</button>
             </form></section>
             <section class="panel tournament-list-panel"><div class="panel-heading"><h2>Giải đấu Team</h2><button class="button ghost small" id="refresh-team-tournaments" type="button">Làm mới</button></div><div id="team-tournaments-list" class="match-list"><div class="empty-state">Đang tải giải đấu…</div></div></section>
           </div></section>

@@ -402,9 +402,9 @@ def test_login_rechecks_credentials_after_argon2_without_open_transaction(env, m
 def test_competing_activations_consume_once_on_independent_connections(env, monkeypatch):
     invitation = env.service.issue_invitation(env.admin, "alice")
     barrier, real_hash = threading.Barrier(2), passwords.hash_password
-    def hash_after_rendezvous(password):
+    def hash_after_rendezvous(password, **kwargs):
         barrier.wait(timeout=10)
-        return real_hash(password)
+        return real_hash(password, **kwargs)
     monkeypatch.setattr(passwords, "hash_password", hash_after_rendezvous)
     work = PasswordWorkLimiter(2)  # test two concurrent hashes; production default is one
     def activate():
@@ -426,9 +426,9 @@ def test_competing_activations_consume_once_on_independent_connections(env, monk
 def test_activation_rechecks_token_after_hashing(env, monkeypatch):
     invitation = env.service.issue_invitation(env.admin, "alice")
     real_hash = passwords.hash_password
-    def revoke_during_hash(password):
+    def revoke_during_hash(password, **kwargs):
         assert not env.connection.in_transaction
-        result = real_hash(password)
+        result = real_hash(password, **kwargs)
         env.service.revoke_invitation(env.admin, invitation.invitation_id)
         return result
     monkeypatch.setattr(passwords, "hash_password", revoke_during_hash)
@@ -440,9 +440,9 @@ def test_activation_rechecks_token_after_hashing(env, monkeypatch):
 def test_activation_token_expiring_during_argon2_is_not_consumed(env, monkeypatch):
     invitation = env.service.issue_invitation(env.admin, "alice", ttl_seconds=10)
     real_hash = passwords.hash_password
-    def late_hash(password):
+    def late_hash(password, **kwargs):
         assert not env.connection.in_transaction
-        encoded = real_hash(password)
+        encoded = real_hash(password, **kwargs)
         env.clock.now += 10
         return encoded
     monkeypatch.setattr(passwords, "hash_password", late_hash)

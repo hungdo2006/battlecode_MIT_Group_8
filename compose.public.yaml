@@ -19,6 +19,7 @@ services:
       # verification, abuse review and completed end-to-end acceptance.
       ARENA_SELF_REGISTRATION: "${ARENA_SELF_REGISTRATION:-0}"
       ARENA_EMAIL_VERIFICATION: "${ARENA_EMAIL_VERIFICATION:-0}"
+      ARENA_PUBLIC_USERNAME_SIGNUP: "${ARENA_PUBLIC_USERNAME_SIGNUP:-0}"
 
   gateway:
     image: caddy:2.9.1-alpine

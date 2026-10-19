@@ -98,6 +98,13 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
     installed = registry or create_registry()
     settings = network or NetworkSettings.from_environment()
     account_settings = HTTPAuthSettings.from_environment() if account_http is None else account_http
+    if settings.public_gateway != account_settings.public_https:
+        raise ValueError("Network Public Gateway and authenticated HTTPS Gateway settings must agree")
+    if settings.public_gateway:
+        from backend.auth_http import canonical_origin
+        required_hosts = {canonical_origin(o)[1] for o in account_settings.origins}
+        if set(settings.allowed_hosts) != required_hosts:
+            raise ValueError("Public Gateway allowed hosts must exactly match HTTPS origins")
     # The shared Organizer secret has no authority in account-only mode and is
     # deliberately not even loaded into the application process in that mode.
     admin_code = "" if account_settings.account_only else os.environ.get("ARENA_ADMIN_CODE", "")

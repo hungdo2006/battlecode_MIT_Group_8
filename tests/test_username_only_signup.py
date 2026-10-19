@@ -61,8 +61,9 @@ def test_username_only_registration_login_recovery_and_session_fencing(tmp_path)
     secret = enroll_admin_totp(data_dir, "teacher.admin")
 
     with create_client(tmp_path, clock) as client:
+        # A same-origin browser GET to /api/health omits the Origin header.
+        health = client.get("/api/health", headers={"Host": DOMAIN}).json()
         client.headers.update(headers())
-        health = client.get("/api/health").json()
         assert health["self_registration"] is True
         assert health["username_only_signup"] is True
         response = client.post("/api/account/auth/register",

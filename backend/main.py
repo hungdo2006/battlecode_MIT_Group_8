@@ -1094,7 +1094,9 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
                         raise HTTPException(403, "Invalid WebSocket cursor")
                 token = strict_cookie(websocket.headers, account_cookie_name(audience))
                 runtime = app.state.account_http
-                runtime.limiter.request(websocket.client.host, audience, token)
+                from backend.auth_http import trusted_client_address
+                runtime.limiter.request(trusted_client_address(
+                    websocket.scope, websocket.headers, account_settings), audience, token)
                 principal = await runtime.run(
                     lambda auth, _: auth.validate_session(token, audience=audience, touch=False))
                 revoked = runtime.register_websocket(principal.session_id)

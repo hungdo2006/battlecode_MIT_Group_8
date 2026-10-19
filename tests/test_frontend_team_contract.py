@@ -105,7 +105,7 @@ def test_account_only_does_not_fetch_legacy_standings_during_admin_bootstrap():
     # /api/admin/standings does not exist. This must be checked before
     # the generic API helper scopes /api/standings to the Admin audience.
     assert standings.index("if (app.accountOnly) {") < standings.index(
-        'app.standings = await api(`/api/standings${query}`);'.replace("\\`", "`").replace("\\$", "$")
+        'app.standings = await api(`/api/standings${query}`);'
     )
     assert "app.standings = [];" in standings
     assert "renderStandings();" in standings

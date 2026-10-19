@@ -13,16 +13,29 @@ assert(start >= 0 && end > start, "Frontend account API helpers not found");
 const sourceHelpers = source.slice(start, end);
 const origin = "https://arena-qa.example.org";
 const calls = [];
-const app = { accountOnly: true, accountAudience: null, csrf: null, pollPauseUntil: 0 };
+let forbiddenMode = "none", expiredCalls = 0;
+const app = { accountOnly: true, accountAudience: null, account: null, csrf: null, pollPauseUntil: 0 };
 async function fakeFetch(url, options = {}) {
   const pathname = new URL(url, origin).pathname;
   calls.push({ pathname, method: (options.method || "GET").toUpperCase(), headers: options.headers || {} });
+  if (pathname === "/api/player/team" && forbiddenMode !== "none") {
+    return { ok: false, status: 403, text: async () => '{"detail":"Forbidden"}',
+             headers: { get: () => null } };
+  }
+  if (pathname === "/api/player/auth/me" && forbiddenMode !== "none") {
+    if (forbiddenMode === "offline") throw new Error("QA simulated transport outage");
+    if (forbiddenMode === "changed-session") app.account = { id: "new-session" };
+    const status = forbiddenMode === "permission" ? 200 : 401;
+    return { ok: status === 200, status, text: async () => '{"detail":"Session"}',
+             headers: { get: () => null } };
+  }
   if (pathname.endsWith("/auth/csrf")) {
     return { ok: true, status: 200, json: async () => ({ csrf_token: "session-csrf-qa" }) };
   }
   return { ok: true, status: 200, text: async () => '{"ok":true}', headers: { get: () => null } };
 }
-const context = vm.createContext({ app, window: { location: { origin } }, URL, fetch: fakeFetch });
+const context = vm.createContext({ app, window: { location: { origin } }, URL, fetch: fakeFetch,
+  accountExpired: () => { expiredCalls++; app.account = null; app.accountAudience = null; app.csrf = null; } });
 const { api, scopedApiPath } = vm.runInContext(sourceHelpers + "\n({api,scopedApiPath})", context);
 
 (async () => {
@@ -63,5 +76,34 @@ const { api, scopedApiPath } = vm.runInContext(sourceHelpers + "\n({api,scopedAp
   app.csrf = null;
   await api("/api/matches", { method: "POST" });
   assert.equal(calls.at(-1).pathname, "/api/matches");
-  console.log("PASS: account entry paths, anonymous CSRF exceptions, Player/Admin CSRF and legacy routing");
+  // QA-03: recheck account after a 403 without confusing genuine forbidden
+  // actions, revoked sessions, late probes, or transport failures.
+  app.accountOnly = true;
+  app.accountAudience = "player";
+  app.csrf = null;
+  app.account = { id: "before-revocation" };
+  forbiddenMode = "permission";
+  await assert.rejects(api("/api/player/team"), error => error.status === 403);
+  assert.deepEqual(calls.slice(-2).map(call => call.pathname),
+    ["/api/player/team", "/api/player/auth/me"]);
+  assert.equal(expiredCalls, 0);
+  assert(app.account, "genuine 403 should preserve valid account");
+
+  forbiddenMode = "revoked";
+  await assert.rejects(api("/api/player/team"), error => error.status === 403);
+  assert.equal(expiredCalls, 1, "401 session proof should clear expired account");
+  assert.equal(app.account, null);
+
+  app.accountAudience = "player";
+  app.account = { id: "old-session" };
+  forbiddenMode = "changed-session";
+  await assert.rejects(api("/api/player/team"), error => error.status === 403);
+  assert.equal(expiredCalls, 1, "late proof must not logout a new session");
+  assert.equal(app.account.id, "new-session");
+
+  forbiddenMode = "offline";
+  await assert.rejects(api("/api/player/team"), error => error.status === 403);
+  assert.equal(expiredCalls, 1, "failed probe is not revocation proof");
+  assert.equal(app.account.id, "new-session");
+  console.log("PASS: account routing/CSRF, forbidden-session recheck, stale-login guard and legacy");
 })().catch(error => { console.error(error); process.exitCode = 1; });

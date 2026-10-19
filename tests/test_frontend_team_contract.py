@@ -194,3 +194,18 @@ def test_anonymous_account_entry_paths_are_exact_and_authenticated_writes_keep_c
     # retrieves the token through accountCsrf().
     assert "const token = await accountCsrf();" in js
     assert 'if (!app.accountAudience) throw new Error(' in js
+
+
+def test_mid_bootstrap_revocation_rechecks_session_without_conflating_permission_denial():
+    js = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
+    assert 'async function recheckAccountAfterForbidden(accountAtRequest, audienceAtRequest)' in js
+    assert 'if (app.accountOnly && response.status === 403)' in js
+    assert 'await recheckAccountAfterForbidden(accountAtRequest, audienceAtRequest);' in js
+    assert 'app.account !== accountAtRequest' in js
+    assert 'proof.status === 401 && app.account === accountAtRequest' in js
+    assert 'cache: "no-store"' in js
+    smoke = (ROOT / "scripts" / "check_account_frontend_routing.cjs").read_text(encoding="utf-8")
+    for scenario in ('"permission"', '"revoked"', '"changed-session"', '"offline"'):
+        assert scenario in smoke
+    checker = (ROOT / "scripts" / "check_account_ui.py").read_text(encoding="utf-8")
+    assert 'dialog.wait_for(state="visible", timeout=16000)' in checker

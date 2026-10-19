@@ -99,6 +99,25 @@ const PUBLIC_ACCOUNT_ENTRY_PATHS = new Set([
   "/api/player/auth/activate",
 ]);
 
+// A 403 can mean a forbidden operation or a session revoked between the
+// request boundary and a domain permission check. Confirm auth before logout.
+async function recheckAccountAfterForbidden(accountAtRequest, audienceAtRequest) {
+  if (!app.accountOnly || !accountAtRequest || app.account !== accountAtRequest
+      || app.accountAudience !== audienceAtRequest
+      || !["player", "admin"].includes(audienceAtRequest)) return;
+  try {
+    const proof = await fetch(`/api/${audienceAtRequest}/auth/me`, {
+      headers: { "Accept": "application/json" }, cache: "no-store"
+    });
+    // Genuine permission errors, throttling and failed probes do not prove
+    // revocation. Never clear a newer login while an old probe is in flight.
+    if (proof.status === 401 && app.account === accountAtRequest
+        && app.accountAudience === audienceAtRequest) accountExpired();
+  } catch {
+    // Keep the original 403; a network error is not a revocation proof.
+  }
+}
+
 async function api(path, options = {}) {
   if (typeof path !== "string" || !path.startsWith("/") || path.startsWith("//") || /^[a-zA-Z][a-zA-Z\d+.-]*:/.test(path)) {
     throw new Error("Đường dẫn API không hợp lệ.");
@@ -108,6 +127,7 @@ async function api(path, options = {}) {
   if (requestUrl.origin !== window.location.origin || !requestUrl.pathname.startsWith("/api/")) {
     throw new Error("Đường dẫn API không hợp lệ.");
   }
+  const accountAtRequest = app.account, audienceAtRequest = app.accountAudience;
   const method = (options.method || "GET").toUpperCase();
   if (app.accountOnly && !["GET", "HEAD", "OPTIONS"].includes(method)
       && !PUBLIC_ACCOUNT_ENTRY_PATHS.has(requestUrl.pathname)) {
@@ -146,6 +166,9 @@ async function api(path, options = {}) {
       app.pollPauseUntil = Math.max(app.pollPauseUntil, Date.now() + seconds * 1000);
     }
     if (app.accountOnly && response.status === 401 && !path.includes("/auth/login")) accountExpired();
+    if (app.accountOnly && response.status === 403) {
+      await recheckAccountAfterForbidden(accountAtRequest, audienceAtRequest);
+    }
     throw error;
   }
   return data;

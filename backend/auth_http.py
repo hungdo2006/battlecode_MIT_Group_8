@@ -174,6 +174,9 @@ class HTTPAuthSettings:
     allow_public_username_signup: bool = False
     email_sender: object = field(default=None, repr=False)
     require_admin_totp: bool = False
+    # Explicit owner risk acceptance for supervised HTTPS demos only.
+    # Never let a missing environment flag disable public Admin MFA silently.
+    public_admin_password_only: bool = False
     public_https: bool = False
     gateway_secret: str = field(default="", repr=False)
     origins: tuple[str, ...] = ()
@@ -190,6 +193,10 @@ class HTTPAuthSettings:
             raise ValueError("Self-registration requires Account-Only mode")
         if self.require_admin_totp and not self.account_only:
             raise ValueError("Admin TOTP requires Account-Only mode")
+        if self.public_admin_password_only and not (self.enabled and self.account_only and self.public_https):
+            raise ValueError("Public password-only Admin opt-in requires HTTPS Account-Only Gateway")
+        if self.public_admin_password_only and self.require_admin_totp:
+            raise ValueError("Public Admin MFA mode flags cannot both be enabled")
         # Closing new signups must NOT disable email verification for pending
         # Players or password recovery for previously verified Players.
         if self.require_email_verification and (
@@ -201,8 +208,9 @@ class HTTPAuthSettings:
         if self.allow_public_username_signup and not (self.public_https and self.account_only):
             raise ValueError("Username-only signup opt-in requires HTTPS Account-Only Gateway")
         if self.public_https:
-            if not (self.enabled and self.account_only and self.require_admin_totp):
-                raise ValueError("Public Gateway requires Account-Only and Admin TOTP")
+            if not (self.enabled and self.account_only and (
+                    self.require_admin_totp or self.public_admin_password_only)):
+                raise ValueError("Public Gateway requires Account-Only and Admin TOTP or explicit password-only Admin opt-in")
             if not isinstance(self.gateway_secret, str) or len(self.gateway_secret) < 48:
                 raise ValueError("Public Gateway requires a >=48 character random secret")
             if self.allow_http:
@@ -234,6 +242,7 @@ class HTTPAuthSettings:
                    allow_public_username_signup=_env_bool("ARENA_PUBLIC_USERNAME_SIGNUP"),
                    email_sender=sender,
                    require_admin_totp=_env_bool("ARENA_ADMIN_TOTP_REQUIRED"),
+                   public_admin_password_only=_env_bool("ARENA_PUBLIC_ADMIN_PASSWORD_ONLY"),
                    public_https=_env_bool("ARENA_PUBLIC_GATEWAY"),
                    gateway_secret=os.environ.get("ARENA_PROXY_SECRET", ""),
                    origins=origins,

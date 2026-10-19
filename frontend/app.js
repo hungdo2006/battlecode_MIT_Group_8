@@ -1514,6 +1514,13 @@ function populateStandingsGameSelector() {
 }
 
 async function refreshStandings() {
+  // Legacy free-play standings have no Account-Only route. Team tournament
+  // standings are provided by the audience-scoped Team Tournament endpoints.
+  if (app.accountOnly) {
+    app.standings = [];
+    renderStandings();
+    return;
+  }
   const query = app.standingsGameId
     ? `?game_id=${encodeURIComponent(app.standingsGameId)}`
     : "";

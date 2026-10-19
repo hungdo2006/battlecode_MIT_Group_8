@@ -1,4 +1,4 @@
-"""Append-only Team, Official Match and email migrations v3 through v6."""
+"""Append-only Team, Official Match, registration email and TOTP through v7."""
 import sqlite3
 import pytest
 
@@ -7,7 +7,7 @@ from backend.account_database import AccountDatabase, SCHEMA_VERSION, SchemaErro
 from backend.account_schema import MIGRATIONS
 
 
-def test_new_database_creates_v6_with_team_official_and_email_indexes(tmp_path):
+def test_new_database_creates_v7_with_team_official_email_and_totp(tmp_path):
     db = AccountDatabase(tmp_path)
     db.migrate()
     with db.read() as connection:
@@ -20,6 +20,7 @@ def test_new_database_creates_v6_with_team_official_and_email_indexes(tmp_path):
             (4, "team_submission_journal"),
             (5, "official_match_scheduling"),
             (6, "player_registration_email"),
+            (7, "admin_totp_mfa"),
         ]
         indexes = {row[0] for row in connection.execute("SELECT name FROM sqlite_schema WHERE type='index'")}
         assert "membership_active_user_global" in indexes
@@ -33,6 +34,7 @@ def test_new_database_creates_v6_with_team_official_and_email_indexes(tmp_path):
         assert connection.execute("SELECT 1 FROM sqlite_schema WHERE name='official_match_slots'").fetchone()
         assert connection.execute("SELECT 1 FROM sqlite_schema WHERE name='official_source_attestations'").fetchone()
         assert connection.execute("SELECT 1 FROM sqlite_schema WHERE name='user_emails'").fetchone()
+        assert connection.execute("SELECT 1 FROM sqlite_schema WHERE name='admin_totp'").fetchone()
         check_integrity(connection)
 
 
@@ -183,8 +185,8 @@ def test_v4_to_v5_and_v6_upgrade_is_append_only_and_idempotent(tmp_path,monkeypa
     db.migrate()
     db.migrate()
     with db.read() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0]==6
-        assert connection.execute("SELECT count(*) FROM schema_migrations").fetchone()[0]==6
+        assert connection.execute("PRAGMA user_version").fetchone()[0]==7
+        assert connection.execute("SELECT count(*) FROM schema_migrations").fetchone()[0]==7
         assert connection.execute("SELECT count(*) FROM user_emails").fetchone()[0]==0
         check_integrity(connection)
 

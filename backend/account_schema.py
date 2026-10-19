@@ -229,4 +229,12 @@ MIGRATIONS = (
             verified_at INTEGER CHECK (verified_at >= 0)
         ) STRICT""",
     )),
+    (7, "admin_totp_mfa", (
+        """CREATE TABLE admin_totp (
+            user_id TEXT PRIMARY KEY NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+            secret TEXT NOT NULL CHECK (length(secret) = 32 AND secret NOT GLOB '*[^A-Z2-7]*'),
+            last_counter INTEGER NOT NULL DEFAULT -1 CHECK (last_counter >= -1),
+            enrolled_at INTEGER NOT NULL CHECK (enrolled_at >= 0)
+        ) STRICT""",
+    )),
 )

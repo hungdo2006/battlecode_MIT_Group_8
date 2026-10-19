@@ -136,6 +136,7 @@ class HTTPAuthSettings:
     enabled: bool = False
     account_only: bool = False
     self_registration: bool = False
+    require_admin_totp: bool = False
     origins: tuple[str, ...] = ()
     allow_http: bool = False  # Explicit local/LAN QA exception, never HTTPS override.
     policy: AuthPolicy = field(default_factory=AuthPolicy)
@@ -148,6 +149,8 @@ class HTTPAuthSettings:
             raise ValueError("ARENA_ACCOUNT_ONLY requires ARENA_ACCOUNT_AUTH=1")
         if self.self_registration and not self.account_only:
             raise ValueError("Self-registration requires Account-Only mode")
+        if self.require_admin_totp and not self.account_only:
+            raise ValueError("Admin TOTP requires Account-Only mode")
         if self.enabled:
             if not self.origins:
                 raise ValueError("ARENA_AUTH_ORIGINS is required when account HTTP auth is enabled")
@@ -163,6 +166,7 @@ class HTTPAuthSettings:
             return cls(account_only=account_only)  # Validates the impossible ON/OFF combination.
         return cls(enabled=True, account_only=account_only,
                    self_registration=_env_bool("ARENA_SELF_REGISTRATION"),
+                   require_admin_totp=_env_bool("ARENA_ADMIN_TOTP_REQUIRED"),
                    origins=tuple(value.strip() for value in os.environ.get("ARENA_AUTH_ORIGINS", "").split(",") if value.strip()),
                    allow_http=_env_bool("ARENA_AUTH_ALLOW_HTTP"))
 
@@ -181,7 +185,8 @@ class HTTPAuthRuntime:
 
     def _service(self, connection):
         return AuthService(connection, self.writer, login_limiter=self.limiter,
-                           policy=self.settings.policy, clock=self.settings.clock)
+                           policy=self.settings.policy, clock=self.settings.clock,
+                           require_admin_totp=self.settings.require_admin_totp)
 
     def startup(self):
         # Exactly once, before legacy Store or Controller starts. No migration.
@@ -284,6 +289,7 @@ class StrictBody(BaseModel):
 class LoginBody(StrictBody):
     username: str = Field(min_length=1, max_length=64)
     password: SecretStr = Field(min_length=1, max_length=1024)
+    otp: SecretStr | None = Field(default=None, min_length=6, max_length=6)
 
 
 class RegisterBody(StrictBody):
@@ -473,7 +479,8 @@ def install_auth_http(app, settings, network):
         async def login(body: LoginBody, request: Request):
             runtime = runtime_for(request)
             grant = await runtime.run(lambda auth, _: auth.login(body.username, body.password.get_secret_value(),
-                audience=audience, source_key=request.client.host))
+                audience=audience, source_key=request.client.host,
+                otp=body.otp.get_secret_value() if body.otp else None))
             response = JSONResponse(account_response(grant.principal.account, expires_at=grant.expires_at))
             response.set_cookie(cookie_name(audience), grant.token,
                 max_age=max(0, grant.expires_at - int(settings.clock())), httponly=True,
@@ -559,7 +566,8 @@ def install_auth_http(app, settings, network):
     async def unified_login(body: LoginBody, request: Request):
         runtime = runtime_for(request)
         grant = await runtime.run(lambda auth, _: auth.login_unified(
-            body.username, body.password.get_secret_value(), source_key=request.client.host))
+            body.username, body.password.get_secret_value(), source_key=request.client.host,
+            otp=body.otp.get_secret_value() if body.otp else None))
         audience = grant.principal.audience
         response = JSONResponse(account_response(grant.principal.account,
             expires_at=grant.expires_at, account_only=True, audience=audience.lower()))
@@ -596,7 +604,8 @@ def install_auth_http(app, settings, network):
             runtime = runtime_for(request)
             grant = await runtime.run(lambda auth, _: auth.login(
                 body.username, body.password.get_secret_value(), audience=audience,
-                source_key=request.client.host))
+                source_key=request.client.host,
+                otp=body.otp.get_secret_value() if body.otp else None))
             response = JSONResponse(account_response(
                 grant.principal.account, expires_at=grant.expires_at, account_only=settings.account_only))
             response.set_cookie(account_cookie_name(audience), grant.token,

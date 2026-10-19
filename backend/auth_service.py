@@ -20,7 +20,7 @@ import uuid
 
 from .account_database import require_writer, transaction, validate_service_connection
 from .account_identity import display_name, normalize_username
-from . import passwords
+from . import passwords, totp
 
 
 class AuthenticationFailed(ValueError):
@@ -178,7 +178,8 @@ def _account(row):
 
 class AuthService:
     def __init__(self, connection, writer_lock, *, login_limiter: LoginLimiter,
-                 policy=None, clock=time.time, password_work=None):
+                 policy=None, clock=time.time, password_work=None,
+                 require_admin_totp=False):
         validate_service_connection(connection, writer_lock)
         if not callable(getattr(login_limiter, "check", None)) or not callable(getattr(login_limiter, "record", None)):
             raise ValueError("An explicit LoginLimiter is required")
@@ -189,6 +190,9 @@ class AuthService:
         if not isinstance(self.policy, AuthPolicy):
             raise ValueError("policy must be AuthPolicy")
         self._clock, self._limiter = clock, login_limiter
+        if type(require_admin_totp) is not bool:
+            raise ValueError("require_admin_totp must be bool")
+        self.require_admin_totp = require_admin_totp
         self._work = password_work or _PASSWORD_WORK
         # Cached initialization must not make validation/logout wait for an
         # unrelated password verification when B.3 uses per-thread connections.
@@ -400,7 +404,7 @@ class AuthService:
             self._audit(now,user_id,"PLAYER_SELF_REGISTERED","user",user_id)
             return _account(self._user(user_id))
 
-    def login_unified(self, username, password, *, source_key):
+    def login_unified(self, username, password, *, source_key, otp=None):
         """Verify one password, derive audience from the persisted user role."""
         self._ready()
         if not isinstance(source_key, str) or not 1 <= len(source_key) <= 256:
@@ -415,14 +419,14 @@ class AuthService:
         row = self._db.execute("SELECT system_role FROM users WHERE username=?", (canonical,)).fetchone()
         audience = row["system_role"] if row else "PLAYER"
         try:
-            grant = self._login(canonical, password, audience)
+            grant = self._login(canonical, password, audience, otp=otp)
         except AuthenticationFailed:
             self._limiter.record(attempt, succeeded=False)
             raise
         self._limiter.record(attempt, succeeded=True)
         return grant
 
-    def login(self, username, password, *, audience, source_key):
+    def login(self, username, password, *, audience, source_key, otp=None):
         self._ready()
         if audience not in ("PLAYER", "ADMIN"):
             raise AuthenticationFailed()
@@ -435,14 +439,14 @@ class AuthService:
         attempt = LoginAttempt(hashlib.sha256((canonical or "<invalid>").encode()).hexdigest(), source_key, audience)
         self._limiter.check(attempt)
         try:
-            grant = self._login(canonical, password, audience)
+            grant = self._login(canonical, password, audience, otp=otp)
         except AuthenticationFailed:
             self._limiter.record(attempt, succeeded=False)
             raise
         self._limiter.record(attempt, succeeded=True)
         return grant
 
-    def _login(self, username, password, audience):
+    def _login(self, username, password, audience, *, otp=None):
         original = self._db.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
         eligible = original and original["status"] == "ACTIVE" and original["system_role"] == audience
         with self._work.slot():
@@ -457,6 +461,15 @@ class AuthService:
                     or user["auth_version"] != original["auth_version"]
                     or user["password_hash"] != original["password_hash"] or now < user["created_at"]):
                 raise AuthenticationFailed()
+            if audience == "ADMIN" and self.require_admin_totp:
+                enrolled = self._db.execute(
+                    "SELECT secret,last_counter FROM admin_totp WHERE user_id=?", (user["id"],)).fetchone()
+                counter = (totp.accepted_counter(enrolled["secret"], otp, now, enrolled["last_counter"])
+                           if enrolled else None)
+                if counter is None:
+                    raise AuthenticationFailed()
+                self._db.execute("UPDATE admin_totp SET last_counter=? WHERE user_id=?",
+                                 (counter, user["id"]))
             token, session_id = secrets.token_urlsafe(32), uuid.uuid4().hex
             ttl = self.policy.session_ttl(audience)
             self._db.execute("""INSERT INTO auth_sessions (id, token_hash, user_id, audience,

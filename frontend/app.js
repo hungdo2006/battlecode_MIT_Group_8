@@ -610,9 +610,10 @@ $("#account-login-form").addEventListener("submit", async event => {
   busyButton(button, true);
   try {
     const data = await api("/api/account/auth/login", jsonOptions("POST", {
-      username: form.elements.username.value, password: form.elements.password.value
+      username: form.elements.username.value, password: form.elements.password.value,
+      ...(form.elements.otp.value ? { otp: form.elements.otp.value } : {})
     }));
-    form.elements.password.value = "";
+    form.elements.password.value = ""; form.elements.otp.value = "";
     acceptAccount(data, data.audience);
     app.initialized = false;
     await bootstrap();

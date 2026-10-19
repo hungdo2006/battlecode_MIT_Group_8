@@ -241,6 +241,11 @@ class AuthService:
         if (now < session["created_at"] or now < seen or now >= session["expires_at"]
                 or now >= seen + session["idle_timeout_seconds"]):
             raise InvalidSession()
+        # Even a previously valid Admin session becomes invalid when public
+        # MFA enforcement is enabled. Enrollment alone is not sufficient proof
+        # that this particular session completed a TOTP challenge.
+        if audience == "ADMIN" and self.require_admin_totp and session["mfa_verified"] != 1:
+            raise InvalidSession()
         return session, user
 
     def _require_actor(self, actor, now, *, admin=False, touch=True):
@@ -521,6 +526,7 @@ class AuthService:
                     or user["auth_version"] != original["auth_version"]
                     or user["password_hash"] != original["password_hash"] or now < user["created_at"]):
                 raise AuthenticationFailed()
+            mfa_verified = 0
             if audience == "ADMIN" and self.require_admin_totp:
                 enrolled = self._db.execute(
                     "SELECT secret,last_counter FROM admin_totp WHERE user_id=?", (user["id"],)).fetchone()
@@ -530,12 +536,13 @@ class AuthService:
                     raise AuthenticationFailed()
                 self._db.execute("UPDATE admin_totp SET last_counter=? WHERE user_id=?",
                                  (counter, user["id"]))
+                mfa_verified = 1
             token, session_id = secrets.token_urlsafe(32), uuid.uuid4().hex
             ttl = self.policy.session_ttl(audience)
             self._db.execute("""INSERT INTO auth_sessions (id, token_hash, user_id, audience,
-                auth_version, created_at, expires_at, last_seen_at, idle_timeout_seconds)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""", (session_id, _token_hash(token), user["id"], audience,
-                user["auth_version"], now, now + ttl.absolute, now, ttl.idle))
+                auth_version, created_at, expires_at, last_seen_at, idle_timeout_seconds,mfa_verified)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", (session_id, _token_hash(token), user["id"], audience,
+                user["auth_version"], now, now + ttl.absolute, now, ttl.idle,mfa_verified))
             self._audit(now, user["id"], "SESSION_CREATED", "auth_session", session_id, audience=audience)
             return SessionGrant(Principal(_account(user), audience, session_id, _PRINCIPAL_PROOF), now + ttl.absolute, token)
 

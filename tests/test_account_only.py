@@ -646,3 +646,25 @@ def test_public_registration_requires_email_verification_sender():
     with pytest.raises(ValueError, match="Email verification requires"):
         HTTPAuthSettings(enabled=True, account_only=True, self_registration=True,
             require_email_verification=True, origins=(ORIGIN,))
+
+
+def test_turning_on_admin_mfa_revokes_privilege_of_old_password_only_session(tmp_path):
+    from backend.admin_cli import enroll_admin_totp
+    clock = Clock()
+    seed_accounts(tmp_path, clock)
+    with WriterLock(tmp_path / "data") as writer, AccountDatabase(tmp_path / "data").writer_connection(writer) as conn:
+        service = AuthService(conn, writer, clock=clock, login_limiter=AuthRateLimiter())
+        prior = service.login_unified("admin", PASSWORD, source_key="127.0.0.1")
+        assert service.validate_session(prior.token, audience="ADMIN").account.system_role == "ADMIN"
+        # Simulate a pre-existing enrollment record but no session proof.
+        conn.execute("""INSERT INTO admin_totp (user_id,secret,last_counter,enrolled_at)
+            SELECT id,?,-1,created_at FROM users WHERE username='admin'""",
+            ("A" * 32,))
+    with WriterLock(tmp_path / "data") as writer, AccountDatabase(tmp_path / "data").writer_connection(writer) as conn:
+        enforce = AuthService(conn, writer, clock=clock, login_limiter=AuthRateLimiter(),
+                              require_admin_totp=True)
+        from backend.auth_service import InvalidSession
+        with pytest.raises(InvalidSession):
+            enforce.validate_session(prior.token, audience="ADMIN")
+        assert conn.execute("SELECT mfa_verified FROM auth_sessions WHERE token_hash=?",
+            (__import__("hashlib").sha256(prior.token.encode()).hexdigest(),)).fetchone()[0] == 0

@@ -249,4 +249,8 @@ MIGRATIONS = (
         ) STRICT""",
         "CREATE INDEX email_verification_user ON email_verification_tokens(user_id,consumed_at)",
     )),
+    (9, "admin_mfa_session_proof", (
+        """ALTER TABLE auth_sessions ADD COLUMN mfa_verified INTEGER NOT NULL
+            DEFAULT 0 CHECK (mfa_verified IN (0,1))""",
+    )),
 )

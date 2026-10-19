@@ -372,8 +372,8 @@ class AuthService:
             raise ValueError("Invalid email")
         return value.lower()
 
-    def register_player(self, username, name, email, password):
-        """Create only an ACTIVE Player; never accept a client-supplied role.
+    def register_player(self, username, name, email, password, *, verify_email=False):
+        """Create a Player; verified-email registrations remain INVITED pending proof.
 
         Caller must enforce source-based registration rate limits and the
         account-only feature gate before expensive Argon2 hashing.
@@ -394,15 +394,75 @@ class AuthService:
                 or self._db.execute("SELECT 1 FROM user_emails WHERE email=?", (canonical_email,)).fetchone()):
                 raise AccountConflict("Registration unavailable")
             user_id = uuid.uuid4().hex
+            status = "INVITED" if verify_email else "ACTIVE"
             self._db.execute("""INSERT INTO users (
                 id,username,display_name,system_role,status,password_hash,
                 created_at,updated_at,password_changed_at)
-                VALUES (?,?,?,'PLAYER','ACTIVE',?,?,?,?)""",
-                (user_id,username,name,encoded,now,now,now))
+                VALUES (?,?,?,'PLAYER',?,?,?,?,?)""",
+                (user_id,username,name,status,encoded,now,now,now))
             self._db.execute("""INSERT INTO user_emails (user_id,email,verified_at)
                 VALUES (?,?,NULL)""", (user_id,canonical_email))
-            self._audit(now,user_id,"PLAYER_SELF_REGISTERED","user",user_id)
-            return _account(self._user(user_id))
+            token = self._issue_email_verification(user_id, now) if verify_email else None
+            self._audit(now,user_id,"PLAYER_SELF_REGISTERED","user",user_id,
+                        email_verification_required=verify_email)
+            account = _account(self._user(user_id))
+            return (account, token, canonical_email) if verify_email else account
+
+    def _issue_email_verification(self, user_id, now):
+        self._db.execute("""UPDATE email_verification_tokens SET consumed_at=?
+            WHERE user_id=? AND consumed_at IS NULL""", (now, user_id))
+        token = secrets.token_urlsafe(32)
+        self._db.execute("""INSERT INTO email_verification_tokens
+            (id,user_id,token_hash,created_at,expires_at)
+            VALUES (?,?,?,?,?)""",
+            (uuid.uuid4().hex,user_id,_token_hash(token),now,now+24*3600))
+        return token
+
+    def resend_email_verification(self, username, email):
+        """Return delivery tuple or None, never reveal account existence to HTTP."""
+        self._ready()
+        try:
+            username = normalize_username(username)
+            email = self._registration_email(email)
+        except ValueError:
+            return None
+        with transaction(self._db):
+            now = self._now()
+            row = self._db.execute("""SELECT u.id FROM users u JOIN user_emails e
+                ON e.user_id=u.id WHERE u.username=? AND e.email=?
+                AND u.system_role='PLAYER' AND u.status='INVITED'
+                AND e.verified_at IS NULL AND u.password_hash IS NOT NULL""",
+                (username,email)).fetchone()
+            if not row:
+                return None
+            return email, self._issue_email_verification(row["id"], now)
+
+    def verify_registration_email(self, token):
+        self._ready()
+        digest = _token_hash(token)
+        if digest is None:
+            raise InvalidInvitation()
+        with transaction(self._db):
+            now = self._now()
+            row = self._db.execute("""SELECT t.id,t.user_id,t.created_at,t.expires_at,
+                t.consumed_at,u.status,u.system_role,e.verified_at
+                FROM email_verification_tokens t
+                JOIN users u ON u.id=t.user_id
+                JOIN user_emails e ON e.user_id=t.user_id
+                WHERE t.token_hash=?""", (digest,)).fetchone()
+            if (not row or row["consumed_at"] is not None
+                    or not row["created_at"] <= now < row["expires_at"]
+                    or row["status"] != "INVITED" or row["system_role"] != "PLAYER"
+                    or row["verified_at"] is not None):
+                raise InvalidInvitation()
+            self._db.execute("UPDATE email_verification_tokens SET consumed_at=? WHERE id=?",
+                             (now,row["id"]))
+            self._db.execute("UPDATE user_emails SET verified_at=? WHERE user_id=?",
+                             (now,row["user_id"]))
+            self._db.execute("""UPDATE users SET status='ACTIVE',auth_version=auth_version+1,
+                updated_at=? WHERE id=?""", (now,row["user_id"]))
+            self._audit(now,row["user_id"],"PLAYER_EMAIL_VERIFIED","user",row["user_id"])
+            return _account(self._user(row["user_id"]))
 
     def login_unified(self, username, password, *, source_key, otp=None):
         """Verify one password, derive audience from the persisted user role."""

@@ -237,4 +237,16 @@ MIGRATIONS = (
             enrolled_at INTEGER NOT NULL CHECK (enrolled_at >= 0)
         ) STRICT""",
     )),
+    (8, "player_email_verification", (
+        """CREATE TABLE email_verification_tokens (
+            id TEXT PRIMARY KEY NOT NULL,
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+            token_hash TEXT NOT NULL UNIQUE CHECK (
+                length(token_hash)=64 AND token_hash NOT GLOB '*[^0-9a-f]*'),
+            created_at INTEGER NOT NULL CHECK(created_at>=0),
+            expires_at INTEGER NOT NULL CHECK(expires_at>created_at),
+            consumed_at INTEGER CHECK(consumed_at IS NULL OR consumed_at>=created_at)
+        ) STRICT""",
+        "CREATE INDEX email_verification_user ON email_verification_tokens(user_id,consumed_at)",
+    )),
 )

@@ -8,13 +8,16 @@ from argon2.low_level import Type
 # Never pass a manual salt; argon2-cffi generates a fresh random one per hash.
 _HASHER = PasswordHasher(time_cost=3, memory_cost=65536, parallelism=4,
                          hash_len=32, salt_len=16, type=Type.ID)
-MIN_PASSWORD_LENGTH = 15
+MIN_PASSWORD_LENGTH = 15  # Admin account creation keeps the stronger requirement.
+MIN_PLAYER_PASSWORD_LENGTH = 8
 MAX_PASSWORD_BYTES = 1024
 
 
-def validate_new_password(password: str):
-    if not isinstance(password, str) or len(password) < MIN_PASSWORD_LENGTH:
-        raise ValueError(f"Password must contain at least {MIN_PASSWORD_LENGTH} characters")
+def validate_new_password(password: str, *, min_length=MIN_PASSWORD_LENGTH):
+    if min_length not in (MIN_PASSWORD_LENGTH, MIN_PLAYER_PASSWORD_LENGTH):
+        raise ValueError("Unsupported password policy")
+    if not isinstance(password, str) or len(password) < min_length:
+        raise ValueError(f"Password must contain at least {min_length} characters")
     try:
         size = len(password.encode("utf-8"))
     except UnicodeEncodeError:
@@ -23,8 +26,8 @@ def validate_new_password(password: str):
         raise ValueError(f"Password must not exceed {MAX_PASSWORD_BYTES} UTF-8 bytes")
 
 
-def hash_password(password: str) -> str:
-    validate_new_password(password)
+def hash_password(password: str, *, min_length=MIN_PASSWORD_LENGTH) -> str:
+    validate_new_password(password, min_length=min_length)
     return _HASHER.hash(password)
 
 

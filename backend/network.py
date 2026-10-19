@@ -53,14 +53,19 @@ def same_origin(origin: str | None, host: str, scheme: str | None = None) -> boo
 class NetworkSettings:
     read_only: bool = False
     allowed_hosts: tuple[str, ...] = ()
+    public_gateway: bool = False
 
     def __post_init__(self):
+        if type(self.public_gateway) is not bool or (self.public_gateway and self.read_only):
+            raise ValueError("Invalid Public Gateway network mode")
+        if self.public_gateway and not self.allowed_hosts:
+            raise ValueError("Public Gateway requires explicit hosts")
         for host in self.allowed_hosts:
             parsed = parse_host(host)
             if parsed.port is not None or "*" in host:
                 raise ValueError("ARENA_ALLOWED_HOSTS: use exact hostnames without ports or wildcards.")
-            if not demo_host(host) and not self.read_only:
-                raise ValueError("Named/public hosts require ARENA_READ_ONLY=1. Bot execution is LAN-only.")
+            if not demo_host(host) and not (self.read_only or self.public_gateway):
+                raise ValueError("Named/public hosts require read-only or explicit Public Gateway mode")
 
     @classmethod
     def from_environment(cls):
@@ -68,7 +73,10 @@ class NetworkSettings:
         if mode not in {"0", "1", "false", "true"}:
             raise ValueError("ARENA_READ_ONLY must be 0 or 1.")
         hosts = tuple(h.strip().lower() for h in os.environ.get("ARENA_ALLOWED_HOSTS", "").split(",") if h.strip())
-        return cls(mode in {"1", "true"}, hosts)
+        gateway = os.environ.get("ARENA_PUBLIC_GATEWAY", "0").strip().lower()
+        if gateway not in {"0", "1", "false", "true"}:
+            raise ValueError("ARENA_PUBLIC_GATEWAY must be 0 or 1")
+        return cls(mode in {"1", "true"}, hosts, gateway in {"1", "true"})
 
     def allows_host(self, host: str) -> bool:
         try:

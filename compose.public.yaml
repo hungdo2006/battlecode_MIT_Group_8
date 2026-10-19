@@ -1,0 +1,51 @@
+# PRE-DEPLOYMENT TEMPLATE ONLY. Do not run against active volumes or AWS.
+# docker compose -f compose.yaml -f compose.public.yaml config
+# Requires a separate, reviewed go-live plan and approved DNS/TLS credentials.
+services:
+  arena:
+    ports: !reset []
+    networks: [ingress_private, runner_private]
+    environment:
+      ARENA_READ_ONLY: "0"
+      ARENA_ACCOUNT_AUTH: "1"
+      ARENA_ACCOUNT_ONLY: "1"
+      ARENA_AUTH_ALLOW_HTTP: "0"
+      ARENA_PUBLIC_GATEWAY: "1"
+      ARENA_AUTH_ORIGINS: "https://${ARENA_PUBLIC_DOMAIN:?Set an approved FQDN}"
+      ARENA_ALLOWED_HOSTS: "${ARENA_PUBLIC_DOMAIN:?Set an approved FQDN}"
+      ARENA_PROXY_SECRET: "${ARENA_PROXY_SECRET:?Set a private random 48+ character token}"
+      ARENA_ADMIN_TOTP_REQUIRED: "1"
+      # Do not allow Internet self-registration without delivered email
+      # verification, abuse review and completed end-to-end acceptance.
+      ARENA_SELF_REGISTRATION: "${ARENA_SELF_REGISTRATION:-0}"
+      ARENA_EMAIL_VERIFICATION: "${ARENA_EMAIL_VERIFICATION:-0}"
+
+  gateway:
+    image: caddy:2.9.1-alpine
+    restart: unless-stopped
+    depends_on: [arena]
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    networks: [default, ingress_private]
+    environment:
+      ARENA_PUBLIC_DOMAIN: "${ARENA_PUBLIC_DOMAIN:?Set an approved FQDN}"
+      ARENA_PROXY_SECRET: "${ARENA_PROXY_SECRET:?Set a private random 48+ character token}"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    security_opt: [no-new-privileges:true]
+    logging:
+      options:
+        max-size: 5m
+        max-file: "2"
+
+networks:
+  ingress_private:
+    internal: true
+
+volumes:
+  caddy_data:
+  caddy_config:

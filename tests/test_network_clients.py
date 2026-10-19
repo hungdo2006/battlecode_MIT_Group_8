@@ -169,7 +169,7 @@ def test_untrusted_forwarded_scheme_is_not_accepted(tmp_path):
 
 
 def test_network_configuration_and_origin_validation(monkeypatch):
-    with pytest.raises(ValueError, match="READ_ONLY"):
+    with pytest.raises(ValueError, match="read-only or explicit Public Gateway mode"):
         NetworkSettings(allowed_hosts=("arena.example.com",))
     with pytest.raises(ValueError):
         NetworkSettings(read_only=True, allowed_hosts=("*.example.com",))

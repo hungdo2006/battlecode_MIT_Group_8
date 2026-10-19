@@ -219,4 +219,38 @@ MIGRATIONS = (
                 REFERENCES submission_ownership(team_id,game_id,bot_id) ON DELETE RESTRICT
         ) STRICT""",
     )),
+    # Append-only v6. Self-registration email addresses are UNVERIFIED until a
+    # future delivery/verification provider is configured; never authorize
+    # password recovery or account elevation based on these addresses.
+    (6, "player_registration_email", (
+        """CREATE TABLE user_emails (
+            user_id TEXT PRIMARY KEY NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+            email TEXT NOT NULL UNIQUE CHECK (length(email) BETWEEN 3 AND 254),
+            verified_at INTEGER CHECK (verified_at >= 0)
+        ) STRICT""",
+    )),
+    (7, "admin_totp_mfa", (
+        """CREATE TABLE admin_totp (
+            user_id TEXT PRIMARY KEY NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+            secret TEXT NOT NULL CHECK (length(secret) = 32 AND secret NOT GLOB '*[^A-Z2-7]*'),
+            last_counter INTEGER NOT NULL DEFAULT -1 CHECK (last_counter >= -1),
+            enrolled_at INTEGER NOT NULL CHECK (enrolled_at >= 0)
+        ) STRICT""",
+    )),
+    (8, "player_email_verification", (
+        """CREATE TABLE email_verification_tokens (
+            id TEXT PRIMARY KEY NOT NULL,
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+            token_hash TEXT NOT NULL UNIQUE CHECK (
+                length(token_hash)=64 AND token_hash NOT GLOB '*[^0-9a-f]*'),
+            created_at INTEGER NOT NULL CHECK(created_at>=0),
+            expires_at INTEGER NOT NULL CHECK(expires_at>created_at),
+            consumed_at INTEGER CHECK(consumed_at IS NULL OR consumed_at>=created_at)
+        ) STRICT""",
+        "CREATE INDEX email_verification_user ON email_verification_tokens(user_id,consumed_at)",
+    )),
+    (9, "admin_mfa_session_proof", (
+        """ALTER TABLE auth_sessions ADD COLUMN mfa_verified INTEGER NOT NULL
+            DEFAULT 0 CHECK (mfa_verified IN (0,1))""",
+    )),
 )

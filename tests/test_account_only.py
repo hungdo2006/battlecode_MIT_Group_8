@@ -377,3 +377,416 @@ def test_existing_account_only_still_rejects_unclaimed_legacy_or_forged_job(tmp_
         with TestClient(create_app(tmp_path, account_http=settings), base_url=ORIGIN):
             pass
     assert json.loads((data / "matches.json").read_text())["unknown"]["status"] == "running"
+
+
+def test_unified_login_derives_role_and_uses_separate_session_paths(account_room):
+    room = account_room
+    for username, role, audience in (("admin", "ADMIN", "admin"),
+                                     ("alice", "PLAYER", "player")):
+        response = room.client.post("/api/account/auth/login", json={
+            "username": username, "password": PASSWORD,
+        })
+        assert response.status_code == 200, response.text
+        assert response.json()["account"]["system_role"] == role
+        assert response.json()["audience"] == audience
+        cookie = response.headers["set-cookie"].lower()
+        assert "httponly" in cookie and "samesite=strict" in cookie
+        assert "path=/api/" + audience in cookie
+        assert room.client.get("/api/" + audience + "/auth/me").status_code == 200
+        if audience == "player":
+            # The unified login removes any previously retained Admin cookie.
+            assert room.client.get("/api/admin/auth/me").status_code == 401
+    failed = room.client.post("/api/account/auth/login", json={
+        "username": "admin", "password": "incorrect password",
+    })
+    assert failed.status_code == 401
+    escalation = room.client.post("/api/account/auth/login", json={
+        "username": "alice", "password": PASSWORD, "audience": "admin",
+    })
+    assert escalation.status_code == 422
+
+
+def test_player_self_registration_is_gated_and_never_provisions_admin(tmp_path):
+    from backend.storage import Store
+    clock = Clock()
+    seed_accounts(tmp_path, clock)
+    settings = HTTPAuthSettings(enabled=True, account_only=True, origins=(ORIGIN,),
+                                clock=clock, rate_clock=clock)
+    registration = {
+        "username": "new_player", "display_name": "New Player",
+        "email": "New.Player@example.org", "password": PASSWORD,
+    }
+    with TestClient(create_app(tmp_path, account_http=settings), base_url=ORIGIN,
+                    client=("127.0.0.1", 51001)) as blocked:
+        blocked.headers["Origin"] = ORIGIN
+        response = blocked.post("/api/account/auth/register", json=registration)
+        assert response.status_code == 404
+        assert blocked.get("/api/health").json()["self_registration"] is False
+    opened = HTTPAuthSettings(enabled=True, account_only=True, self_registration=True,
+                              origins=(ORIGIN,), clock=clock, rate_clock=clock)
+    with TestClient(create_app(tmp_path, account_http=opened), base_url=ORIGIN,
+                    client=("127.0.0.1", 51002)) as client:
+        client.headers["Origin"] = ORIGIN
+        assert client.get("/api/health").json()["self_registration"] is True
+        created = client.post("/api/account/auth/register", json=registration)
+        assert created.status_code == 201, created.text
+        assert created.json()["account"]["system_role"] == "PLAYER"
+        assert created.json()["email_verified"] is False
+        assert "password" not in json.dumps(created.json())
+        duplicate = client.post("/api/account/auth/register", json={
+            **registration, "username": "another_name", "email": "new.player@example.org",
+        })
+        assert duplicate.status_code == 409
+        duplicate_name = client.post("/api/account/auth/register", json={
+            **registration, "email": "new.else@example.org",
+        })
+        assert duplicate_name.status_code == 409
+        with AccountDatabase(tmp_path / "data").read() as connection:
+            row = connection.execute("""SELECT u.system_role,u.status,e.email,e.verified_at
+                FROM users u JOIN user_emails e ON u.id=e.user_id WHERE u.username=?""",
+                ("new_player",)).fetchone()
+            assert tuple(row) == ("PLAYER", "ACTIVE", "new.player@example.org", None)
+        login = client.post("/api/account/auth/login", json={
+            "username": "new_player", "password": PASSWORD,
+        })
+        assert login.status_code == 200 and login.json()["audience"] == "player"
+        assert client.get("/api/player/auth/me").status_code == 200
+        # A bad Origin or a spoofed trusted proxy may not create accounts.
+        blocked_origin = client.post("/api/account/auth/register", json={
+            **registration, "username": "outside", "email": "outside@example.org",
+        }, headers={"Origin": "https://evil.example"})
+        assert blocked_origin.status_code == 403
+        blocked_proxy = client.post("/api/account/auth/register", json={
+            **registration, "username": "outside", "email": "outside@example.org",
+        }, headers={"X-Forwarded-For": "127.0.0.1"})
+        assert blocked_proxy.status_code == 403
+        unauthorized = client.post("/api/account/auth/register", json={
+            **registration, "username": "hacker", "email": "hacker@example.org", "system_role": "ADMIN",
+        })
+        assert unauthorized.status_code == 422
+
+
+def test_registration_validates_email_password_and_rate_limit(tmp_path):
+    clock = Clock()
+    seed_accounts(tmp_path, clock)
+    settings = HTTPAuthSettings(
+        enabled=True, account_only=True, self_registration=True, origins=(ORIGIN,),
+        clock=clock, rate_clock=clock,
+        limits=RateLimits(registration_source=2),
+    )
+    with TestClient(create_app(tmp_path, account_http=settings), base_url=ORIGIN,
+                    client=("127.0.0.1", 51003)) as client:
+        client.headers["Origin"] = ORIGIN
+        payload = {"username": "tester", "display_name": "Tester",
+                   "email": "bad@domain", "password": PASSWORD}
+        assert client.post("/api/account/auth/register", json=payload).status_code == 422
+        payload["email"] = "tester@example.org"
+        payload["password"] = "short"
+        assert client.post("/api/account/auth/register", json=payload).status_code == 422
+        # Valid character count but >1024 UTF-8 bytes: reaches service
+        # and consumes the second registration budget entry.
+        payload["password"] = "é" * 513
+        assert client.post("/api/account/auth/register", json=payload).status_code == 422
+        payload["password"] = PASSWORD
+        limited = client.post("/api/account/auth/register", json=payload)
+        assert limited.status_code == 429
+        assert limited.headers["retry-after"] == "60"
+        assert client.get("/api/account/auth/register").status_code in (404, 405)
+    with pytest.raises(ValueError, match="Self-registration requires"):
+        HTTPAuthSettings(enabled=True, self_registration=True, origins=(ORIGIN,))
+
+
+
+def test_admin_totp_required_for_unified_and_legacy_login(tmp_path):
+    from backend.admin_cli import enroll_admin_totp
+    from backend.totp import code_at
+    clock = Clock()
+    seed_accounts(tmp_path, clock)
+    secret = enroll_admin_totp(tmp_path / "data", "admin")
+    settings = HTTPAuthSettings(enabled=True, account_only=True, require_admin_totp=True,
+                                origins=(ORIGIN,), clock=clock, rate_clock=clock)
+    with TestClient(create_app(tmp_path, account_http=settings), base_url=ORIGIN,
+                    client=("127.0.0.1", 51018)) as client:
+        client.headers["Origin"] = ORIGIN
+        for path in ("/api/account/auth/login", "/api/admin/auth/login"):
+            response = client.post(path, json={"username": "admin", "password": PASSWORD})
+            assert response.status_code == 401, response.text
+        response = client.post("/api/account/auth/login", json={
+            "username": "admin", "password": PASSWORD,
+            "otp": code_at(secret, clock.now // 30),
+        })
+        assert response.status_code == 200, response.text
+        assert response.json()["audience"] == "admin"
+        # A replayed six-digit code cannot issue a second privileged session.
+        repeated = client.post("/api/admin/auth/login", json={
+            "username": "admin", "password": PASSWORD,
+            "otp": code_at(secret, clock.now // 30),
+        })
+        assert repeated.status_code == 401
+        # Player login does not require MFA.
+        player = client.post("/api/account/auth/login", json={
+            "username": "alice", "password": PASSWORD,
+        })
+        assert player.status_code == 200 and player.json()["audience"] == "player"
+        assert client.get("/api/admin/auth/me").status_code == 401
+        clock.now += 30
+        next_code = client.post("/api/admin/auth/login", json={
+            "username": "admin", "password": PASSWORD,
+            "otp": code_at(secret, clock.now // 30),
+        })
+        assert next_code.status_code == 200
+
+
+def test_totp_secret_not_present_in_audit_and_offline_rotation_fences_sessions(tmp_path):
+    from backend.admin_cli import enroll_admin_totp
+    from backend.totp import code_at
+    from backend.auth_service import InvalidSession
+    clock = Clock()
+    seed_accounts(tmp_path, clock)
+    first = enroll_admin_totp(tmp_path / "data", "admin")
+    with WriterLock(tmp_path / "data") as writer, AccountDatabase(tmp_path / "data").writer_connection(writer) as conn:
+        service = AuthService(conn, writer, clock=clock, login_limiter=AuthRateLimiter(),
+                              require_admin_totp=True)
+        grant = service.login_unified("admin", PASSWORD, source_key="127.0.0.1",
+                                      otp=code_at(first, clock.now // 30))
+    replacement = enroll_admin_totp(tmp_path / "data", "admin")
+    assert first != replacement
+    with WriterLock(tmp_path / "data") as writer, AccountDatabase(tmp_path / "data").writer_connection(writer) as conn:
+        service = AuthService(conn, writer, clock=clock, login_limiter=AuthRateLimiter(),
+                              require_admin_totp=True)
+        with pytest.raises(InvalidSession):
+            service.validate_session(grant.token, audience="ADMIN")
+        audit = "".join(row[0] for row in conn.execute("SELECT details_json FROM audit_events"))
+        assert first not in audit and replacement not in audit
+        assert conn.execute("SELECT count(*) FROM admin_totp").fetchone()[0] == 1
+
+
+def test_verified_email_registration_requires_real_token_before_login(tmp_path):
+    from types import SimpleNamespace
+    clock = Clock()
+    seed_accounts(tmp_path, clock)
+    sent = []
+    sender = SimpleNamespace(send=lambda address, token: sent.append((address, token)))
+    settings = HTTPAuthSettings(enabled=True, account_only=True,
+        self_registration=True, require_email_verification=True, email_sender=sender,
+        origins=(ORIGIN,), clock=clock, rate_clock=clock)
+    payload = {"username": "verifiedplayer", "display_name": "Verified Player",
+               "email": "Verified@example.org", "password": PASSWORD}
+    with TestClient(create_app(tmp_path, account_http=settings), base_url=ORIGIN,
+                    client=("127.0.0.1", 51119)) as client:
+        client.headers["Origin"] = ORIGIN
+        result = client.post("/api/account/auth/register", json=payload)
+        assert result.status_code == 201, result.text
+        assert result.json()["registration_pending"] is True
+        assert len(sent) == 1 and sent[0][0] == "verified@example.org"
+        assert "token" not in result.text.lower()
+        token = sent[0][1]
+        assert len(token) == 43
+        unverified = client.post("/api/account/auth/login", json={
+            "username": payload["username"], "password": PASSWORD})
+        assert unverified.status_code == 401
+        with AccountDatabase(tmp_path / "data").read() as conn:
+            assert conn.execute("SELECT status FROM users WHERE username='verifiedplayer'").fetchone()[0] == "INVITED"
+            assert conn.execute("SELECT verified_at FROM user_emails WHERE email='verified@example.org'").fetchone()[0] is None
+            assert conn.execute("SELECT token_hash FROM email_verification_tokens").fetchone()[0] != token
+        again = client.post("/api/account/auth/resend-verification", json={
+            "username": payload["username"], "email": payload["email"]})
+        assert again.status_code == 202
+        assert len(sent) == 2
+        assert client.post("/api/account/auth/verify-email", json={"token": token}).status_code == 400
+        new_token = sent[1][1]
+        activated = client.post("/api/account/auth/verify-email", json={"token": new_token})
+        assert activated.status_code == 200, activated.text
+        assert activated.json()["account"]["status"] == "ACTIVE"
+        assert client.post("/api/account/auth/verify-email", json={"token": new_token}).status_code == 400
+        signin = client.post("/api/account/auth/login", json={
+            "username": payload["username"], "password": PASSWORD})
+        assert signin.status_code == 200 and signin.json()["audience"] == "player"
+        with AccountDatabase(tmp_path / "data").read() as conn:
+            assert conn.execute("SELECT verified_at FROM user_emails WHERE email='verified@example.org'").fetchone()[0] == clock.now
+        unknown = client.post("/api/account/auth/resend-verification", json={
+            "username": "unknown", "email": "unknown@example.org"})
+        assert unknown.status_code == 202 and len(sent) == 2
+
+
+def test_verified_email_sender_failure_resends_from_pending_account(tmp_path):
+    from types import SimpleNamespace
+    clock = Clock()
+    seed_accounts(tmp_path, clock)
+    sent, broken = [], {"yes": True}
+    def deliver(address, token):
+        if broken["yes"]:
+            raise OSError("SMTP not available")
+        sent.append((address, token))
+    settings = HTTPAuthSettings(enabled=True, account_only=True,
+        self_registration=True, require_email_verification=True,
+        email_sender=SimpleNamespace(send=deliver), origins=(ORIGIN,),
+        clock=clock, rate_clock=clock)
+    payload = {"username": "mailretry", "display_name": "Mail Retry",
+               "email": "mailretry@example.org", "password": PASSWORD}
+    with TestClient(create_app(tmp_path, account_http=settings), base_url=ORIGIN,
+                    client=("127.0.0.1", 51120)) as client:
+        client.headers["Origin"] = ORIGIN
+        assert client.post("/api/account/auth/register", json=payload).status_code == 503
+        assert client.post("/api/account/auth/login", json={
+            "username": "mailretry", "password": PASSWORD}).status_code == 401
+        broken["yes"] = False
+        resent = client.post("/api/account/auth/resend-verification", json={
+            "username": "mailretry", "email": "mailretry@example.org"})
+        assert resent.status_code == 202 and len(sent) == 1
+        assert client.post("/api/account/auth/verify-email", json={"token": sent[0][1]}).status_code == 200
+
+
+def test_public_registration_requires_email_verification_sender():
+    from types import SimpleNamespace
+    with pytest.raises(ValueError, match="Public registration requires delivered"):
+        HTTPAuthSettings(enabled=True, account_only=True, self_registration=True,
+            require_admin_totp=True, public_https=True,
+            gateway_secret="a"*64, origins=("https://arena.example.org",))
+    with pytest.raises(ValueError, match="Email verification requires"):
+        HTTPAuthSettings(enabled=True, account_only=True, self_registration=True,
+            require_email_verification=True, origins=(ORIGIN,))
+
+
+def test_turning_on_admin_mfa_revokes_privilege_of_old_password_only_session(tmp_path):
+    from backend.admin_cli import enroll_admin_totp
+    clock = Clock()
+    seed_accounts(tmp_path, clock)
+    with WriterLock(tmp_path / "data") as writer, AccountDatabase(tmp_path / "data").writer_connection(writer) as conn:
+        service = AuthService(conn, writer, clock=clock, login_limiter=AuthRateLimiter())
+        prior = service.login_unified("admin", PASSWORD, source_key="127.0.0.1")
+        assert service.validate_session(prior.token, audience="ADMIN").account.system_role == "ADMIN"
+        # Simulate a pre-existing enrollment record but no session proof.
+        conn.execute("""INSERT INTO admin_totp (user_id,secret,last_counter,enrolled_at)
+            SELECT id,?,-1,created_at FROM users WHERE username='admin'""",
+            ("A" * 32,))
+    with WriterLock(tmp_path / "data") as writer, AccountDatabase(tmp_path / "data").writer_connection(writer) as conn:
+        enforce = AuthService(conn, writer, clock=clock, login_limiter=AuthRateLimiter(),
+                              require_admin_totp=True)
+        from backend.auth_service import InvalidSession
+        with pytest.raises(InvalidSession):
+            enforce.validate_session(prior.token, audience="ADMIN")
+        assert conn.execute("SELECT mfa_verified FROM auth_sessions WHERE token_hash=?",
+            (__import__("hashlib").sha256(prior.token.encode()).hexdigest(),)).fetchone()[0] == 0
+
+
+def test_verified_player_password_reset_single_use_expiry_and_session_fence(tmp_path):
+    from types import SimpleNamespace
+    clock = Clock()
+    seed_accounts(tmp_path, clock)
+    sent, recovered = [], []
+    sender = SimpleNamespace(
+        send=lambda email,token: sent.append((email,token)),
+        send_password_reset=lambda email,token: recovered.append((email,token)),
+    )
+    settings = HTTPAuthSettings(enabled=True, account_only=True, self_registration=True,
+        require_email_verification=True, email_sender=sender, origins=(ORIGIN,),
+        clock=clock, rate_clock=clock)
+    registered = {"username": "recoverytest", "display_name": "Recovery",
+                  "email": "recovery@example.org", "password": PASSWORD}
+    with TestClient(create_app(tmp_path, account_http=settings), base_url=ORIGIN,
+                    client=("127.0.0.1", 51132)) as client:
+        client.headers["Origin"] = ORIGIN
+        assert client.post("/api/account/auth/register", json=registered).status_code == 201
+        assert client.post("/api/account/auth/verify-email", json={"token": sent[0][1]}).status_code == 200
+        assert client.post("/api/account/auth/login", json={
+            "username": "recoverytest", "password": PASSWORD}).status_code == 200
+        assert client.get("/api/player/auth/me").status_code == 200
+        recovery = {"username": "recoverytest", "email": "recovery@example.org"}
+        assert client.post("/api/account/auth/request-reset", json=recovery).status_code == 202
+        assert len(recovered) == 1 and recovered[0][0] == recovery["email"]
+        first = recovered[0][1]
+        assert "token" not in client.post("/api/account/auth/request-reset", json={
+            "username": "no-such-player", "email": "unknown@example.org"}).text.lower()
+        # A second reset request invalidates an older token.
+        assert client.post("/api/account/auth/request-reset", json=recovery).status_code == 202
+        second = recovered[1][1]
+        assert client.post("/api/account/auth/reset-password", json={
+            "token": first, "password": PASSWORD+" new"}).status_code == 400
+        updated = client.post("/api/account/auth/reset-password", json={
+            "token": second, "password": PASSWORD+" new"})
+        assert updated.status_code == 200, updated.text
+        assert updated.json()["reset"] is True
+        assert client.get("/api/player/auth/me").status_code == 401
+        assert client.post("/api/account/auth/reset-password", json={
+            "token": second, "password": PASSWORD+" new again"}).status_code == 400
+        assert client.post("/api/account/auth/login", json={
+            "username": "recoverytest", "password": PASSWORD}).status_code == 401
+        assert client.post("/api/account/auth/login", json={
+            "username": "recoverytest", "password": PASSWORD+" new"}).status_code == 200
+        # An expired token fails and cannot reset the password.
+        assert client.post("/api/account/auth/request-reset", json=recovery).status_code == 202
+        clock.now += 1801
+        expired = client.post("/api/account/auth/reset-password", json={
+            "token": recovered[-1][1], "password": PASSWORD+" expired"})
+        assert expired.status_code == 400
+        with AccountDatabase(tmp_path / "data").read() as conn:
+            assert conn.execute("SELECT count(*) FROM account_tokens WHERE purpose='PASSWORD_RESET'").fetchone()[0] >= 3
+
+
+def test_password_recovery_disabled_without_email_verification(tmp_path):
+    clock = Clock()
+    seed_accounts(tmp_path, clock)
+    settings = HTTPAuthSettings(enabled=True, account_only=True, origins=(ORIGIN,),
+                                clock=clock, rate_clock=clock)
+    with TestClient(create_app(tmp_path, account_http=settings), base_url=ORIGIN,
+                    client=("127.0.0.1", 51133)) as client:
+        client.headers["Origin"] = ORIGIN
+        assert client.post("/api/account/auth/request-reset", json={
+            "username": "alice", "email": "alice@example.org"}).status_code == 404
+        assert client.post("/api/account/auth/reset-password", json={
+            "token": "a"*43, "password": PASSWORD}).status_code == 404
+
+
+def test_registration_closed_preserves_pending_verification_and_verified_recovery(tmp_path):
+    """Signup is independent from servicing existing verified/pending Players."""
+    clock = Clock()
+    seed_accounts(tmp_path, clock)
+    sent, recovered = [], []
+    sender = SimpleNamespace(
+        send=lambda email, token: sent.append((email, token)),
+        send_password_reset=lambda email, token: recovered.append((email, token)),
+    )
+    options = dict(enabled=True, account_only=True, require_email_verification=True,
+                   email_sender=sender, origins=(ORIGIN,), clock=clock, rate_clock=clock)
+    active = {"username": "closedactive", "display_name": "Existing Player",
+              "email": "closedactive@example.org", "password": PASSWORD}
+    pending = {"username": "closedpending", "display_name": "Pending Player",
+               "email": "closedpending@example.org", "password": PASSWORD}
+    with TestClient(create_app(tmp_path, account_http=HTTPAuthSettings(
+            self_registration=True, **options)), base_url=ORIGIN,
+            client=("127.0.0.1", 51134)) as client:
+        client.headers["Origin"] = ORIGIN
+        assert client.post("/api/account/auth/register", json=active).status_code == 201
+        assert client.post("/api/account/auth/verify-email", json={
+            "token": sent[-1][1]}).status_code == 200
+        assert client.post("/api/account/auth/register", json=pending).status_code == 201
+        pending_token = sent[-1][1]
+
+    # A subsequent scheduled registration closure must preserve both flows.
+    closed = HTTPAuthSettings(self_registration=False, **options)
+    with TestClient(create_app(tmp_path, account_http=closed), base_url=ORIGIN,
+                    client=("127.0.0.1", 51135)) as client:
+        client.headers["Origin"] = ORIGIN
+        assert client.post("/api/account/auth/register", json={
+            **active, "username": "newblocked", "email": "newblocked@example.org"
+        }).status_code == 404
+        assert client.post("/api/account/auth/resend-verification", json={
+            "username": pending["username"], "email": pending["email"]
+        }).status_code == 202
+        assert len(sent) == 3 and sent[-1][1] != pending_token
+        assert client.post("/api/account/auth/verify-email", json={
+            "token": pending_token}).status_code == 400
+        assert client.post("/api/account/auth/verify-email", json={
+            "token": sent[-1][1]}).status_code == 200
+        assert client.post("/api/account/auth/login", json={
+            "username": pending["username"], "password": PASSWORD}).status_code == 200
+        recovery = {"username": active["username"], "email": active["email"]}
+        assert client.post("/api/account/auth/request-reset", json=recovery).status_code == 202
+        assert len(recovered) == 1
+        assert client.post("/api/account/auth/reset-password", json={
+            "token": recovered[0][1], "password": PASSWORD + " rotated"
+        }).status_code == 200
+        assert client.post("/api/account/auth/login", json={
+            "username": active["username"], "password": PASSWORD + " rotated"
+        }).status_code == 200

@@ -37,7 +37,7 @@ HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \
 
 # One worker: the data-volume writer lock rejects a second backend process.
 # Exec form forwards SIGTERM; Compose init reaps orphaned children.
-CMD ["python", "-m", "uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--timeout-graceful-shutdown", "20"]
+CMD ["python", "-m", "uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--no-proxy-headers", "--timeout-graceful-shutdown", "20"]
 
 # Optional Linux regression image, never used by the Compose service.
 FROM application AS tests

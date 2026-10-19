@@ -84,6 +84,40 @@ function toast(message, error = false) {
   toastTimer = setTimeout(() => node.classList.add("hidden"), error ? 8500 : 4000);
 }
 
+// Anonymous account-entry mutations require a trusted Origin, strict JSON/body
+// limits and source rate limits on the server; they do not have a session CSRF
+// token yet. Keep this list exact: other Account-Only writes still require CSRF.
+const PUBLIC_ACCOUNT_ENTRY_PATHS = new Set([
+  "/api/account/auth/login",
+  "/api/account/auth/register",
+  "/api/account/auth/verify-email",
+  "/api/account/auth/resend-verification",
+  "/api/account/auth/request-reset",
+  "/api/account/auth/reset-password",
+  "/api/player/auth/login",
+  "/api/admin/auth/login",
+  "/api/player/auth/activate",
+]);
+
+// A 403 can mean a forbidden operation or a session revoked between the
+// request boundary and a domain permission check. Confirm auth before logout.
+async function recheckAccountAfterForbidden(accountAtRequest, audienceAtRequest) {
+  if (!app.accountOnly || !accountAtRequest || app.account !== accountAtRequest
+      || app.accountAudience !== audienceAtRequest
+      || !["player", "admin"].includes(audienceAtRequest)) return;
+  try {
+    const proof = await fetch(`/api/${audienceAtRequest}/auth/me`, {
+      headers: { "Accept": "application/json" }, cache: "no-store"
+    });
+    // Genuine permission errors, throttling and failed probes do not prove
+    // revocation. Never clear a newer login while an old probe is in flight.
+    if (proof.status === 401 && app.account === accountAtRequest
+        && app.accountAudience === audienceAtRequest) accountExpired();
+  } catch {
+    // Keep the original 403; a network error is not a revocation proof.
+  }
+}
+
 async function api(path, options = {}) {
   if (typeof path !== "string" || !path.startsWith("/") || path.startsWith("//") || /^[a-zA-Z][a-zA-Z\d+.-]*:/.test(path)) {
     throw new Error("Đường dẫn API không hợp lệ.");
@@ -93,9 +127,10 @@ async function api(path, options = {}) {
   if (requestUrl.origin !== window.location.origin || !requestUrl.pathname.startsWith("/api/")) {
     throw new Error("Đường dẫn API không hợp lệ.");
   }
+  const accountAtRequest = app.account, audienceAtRequest = app.accountAudience;
   const method = (options.method || "GET").toUpperCase();
-  if (app.accountOnly && !["GET", "HEAD", "OPTIONS"].includes(method) && !path.includes("/auth/login")
-      && !path.includes("/auth/activate")) {
+  if (app.accountOnly && !["GET", "HEAD", "OPTIONS"].includes(method)
+      && !PUBLIC_ACCOUNT_ENTRY_PATHS.has(requestUrl.pathname)) {
     const token = await accountCsrf();
     options = { ...options, headers: { ...(options.headers || {}), "X-CSRF-Token": token } };
     if (options.body === undefined) {
@@ -131,6 +166,9 @@ async function api(path, options = {}) {
       app.pollPauseUntil = Math.max(app.pollPauseUntil, Date.now() + seconds * 1000);
     }
     if (app.accountOnly && response.status === 401 && !path.includes("/auth/login")) accountExpired();
+    if (app.accountOnly && response.status === 403) {
+      await recheckAccountAfterForbidden(accountAtRequest, audienceAtRequest);
+    }
     throw error;
   }
   return data;
@@ -138,7 +176,8 @@ async function api(path, options = {}) {
 
 function scopedApiPath(path) {
   if (!app.accountOnly || !path.startsWith("/api/") || path === "/api/health"
-      || path.startsWith("/api/player/") || path.startsWith("/api/admin/")) return path;
+      || path.startsWith("/api/player/") || path.startsWith("/api/admin/")
+      || path.startsWith("/api/account/")) return path;
   return `/api/${app.accountAudience || "player"}${path.slice(4)}`;
 }
 
@@ -530,12 +569,33 @@ function acceptSession(data) {
   renderInvitations();
 }
 
+function accountEntryTab(tab) {
+  const registration = tab === "register" && app.selfRegistration;
+  $("#account-login-form").classList.toggle("hidden", registration);
+  $("#account-register-form").classList.toggle("hidden", !registration);
+  $("#account-login-choice").classList.toggle("primary", !registration);
+  $("#account-login-choice").classList.toggle("ghost", registration);
+  $("#account-register-choice").classList.toggle("primary", registration);
+  $("#account-register-choice").classList.toggle("ghost", !registration);
+  $("#account-title").textContent = registration ? "Đăng ký Player" : "Đăng nhập NEON ARENA";
+  const first = registration ? $("#account-register-form [name=username]") : $("#account-username");
+  first.focus();
+}
+
 function showAccountDialog(message = "Đăng nhập để tiếp tục vào workspace.") {
   const dialog = $("#account-dialog");
   $("#account-feedback").textContent = message;
   $("#account-feedback").classList.remove("hidden", "error");
   if (!dialog.open) dialog.showModal();
-  $("#account-username").focus();
+  $("#account-register-choice").classList.toggle("hidden", !app.selfRegistration);
+  $("#account-email-tools").classList.toggle("hidden", !app.emailVerification);
+  $("#account-password-tools").classList.toggle("hidden", !app.emailVerification);
+  accountEntryTab("login");
+  if (app.resetTokenLoaded) {
+    $("#account-password-tools").open = true;
+    $("#account-reset-password-form [name=password]").focus();
+    app.resetTokenLoaded = false;
+  }
 }
 
 function acceptAccount(data, audience) {
@@ -554,6 +614,8 @@ function acceptAccount(data, audience) {
 }
 
 $("#account-dialog").addEventListener("cancel", event => event.preventDefault());
+$("#account-login-choice").addEventListener("click", () => accountEntryTab("login"));
+$("#account-register-choice").addEventListener("click", () => accountEntryTab("register"));
 
 function accountExpired() {
   if (!app.accountOnly || !app.account) return;
@@ -590,20 +652,104 @@ async function restoreAccount() {
 $("#account-login-form").addEventListener("submit", async event => {
   event.preventDefault();
   const form = event.currentTarget;
-  const audience = form.elements.audience.value;
   const button = form.querySelector("[type=submit]");
   busyButton(button, true);
   try {
-    const data = await api(`/api/${audience}/auth/login`, jsonOptions("POST", {
-      username: form.elements.username.value, password: form.elements.password.value
+    const data = await api("/api/account/auth/login", jsonOptions("POST", {
+      username: form.elements.username.value, password: form.elements.password.value,
+      ...(form.elements.otp.value ? { otp: form.elements.otp.value } : {})
     }));
-    form.elements.password.value = "";
-    acceptAccount(data, audience);
+    form.elements.password.value = ""; form.elements.otp.value = "";
+    acceptAccount(data, data.audience);
     app.initialized = false;
     await bootstrap();
   } catch (error) {
     feedback("#account-feedback", error.message, true);
   } finally { busyButton(button, false); button.disabled = false; }
+});
+
+$("#account-register-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector("[type=submit]");
+  busyButton(button, true);
+  try {
+    if (!app.selfRegistration) throw new Error("Đăng ký hiện chưa được mở.");
+    const registered = await api("/api/account/auth/register", jsonOptions("POST", {
+      username: form.elements.username.value,
+      display_name: form.elements.display_name.value,
+      email: form.elements.email.value,
+      password: form.elements.password.value
+    }));
+    const username = form.elements.username.value;
+    form.reset();
+    accountEntryTab("login");
+    $("#account-username").value = username;
+    feedback("#account-feedback", registered.registration_pending
+      ? "Đã nhận yêu cầu. Kiểm tra email, mở liên kết xác minh rồi mới đăng nhập."
+      : "Tạo tài khoản Player thành công. Email chưa được xác minh; hãy đăng nhập để tiếp tục.");
+  } catch (error) {
+    feedback("#account-feedback", error.message, true);
+  } finally { busyButton(button, false); button.disabled = false; }
+});
+
+$("#account-request-reset-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const form = event.currentTarget, button = form.querySelector("[type=submit]");
+  busyButton(button, true);
+  try {
+    await api("/api/account/auth/request-reset", jsonOptions("POST", {
+      username: form.elements.username.value, email: form.elements.email.value
+    }));
+    feedback("#account-feedback", "Nếu tài khoản đủ điều kiện, email khôi phục đã được gửi.");
+  } catch (error) { feedback("#account-feedback", error.message, true); }
+  finally { busyButton(button, false); button.disabled = false; }
+});
+
+$("#account-reset-password-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const form = event.currentTarget, button = form.querySelector("[type=submit]");
+  if (form.elements.password.value !== form.elements.confirm_password.value) {
+    feedback("#account-feedback", "Hai mật khẩu chưa trùng nhau.", true);
+    return;
+  }
+  busyButton(button, true);
+  try {
+    await api("/api/account/auth/reset-password", jsonOptions("POST", {
+      token: form.elements.token.value, password: form.elements.password.value
+    }));
+    form.reset();
+    $("#account-password-tools").open = false;
+    feedback("#account-feedback", "Đã đổi mật khẩu và thu hồi phiên cũ. Hãy đăng nhập lại.");
+  } catch (error) { feedback("#account-feedback", error.message, true); }
+  finally { busyButton(button, false); button.disabled = false; }
+});
+
+$("#account-email-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const form = event.currentTarget, button = form.querySelector("[type=submit]");
+  busyButton(button, true);
+  try {
+    await api("/api/account/auth/verify-email", jsonOptions("POST", {
+      token: form.elements.token.value
+    }));
+    form.reset();
+    feedback("#account-feedback", "Xác minh email thành công. Bạn có thể đăng nhập.");
+  } catch (error) { feedback("#account-feedback", error.message, true); }
+  finally { busyButton(button, false); button.disabled = false; }
+});
+
+$("#account-resend-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const form = event.currentTarget, button = form.querySelector("[type=submit]");
+  busyButton(button, true);
+  try {
+    await api("/api/account/auth/resend-verification", jsonOptions("POST", {
+      username: form.elements.username.value, email: form.elements.email.value
+    }));
+    feedback("#account-feedback", "Nếu tài khoản cần xác minh, email mới sẽ được gửi.");
+  } catch (error) { feedback("#account-feedback", error.message, true); }
+  finally { busyButton(button, false); button.disabled = false; }
 });
 
 $("#account-activation-form").addEventListener("submit", async event => {
@@ -1903,10 +2049,35 @@ async function bootstrap() {
     setConnection(health.status === "ok");
     app.accountAuth = health.account_auth === true;
     app.accountOnly = health.account_only === true;
+    app.selfRegistration = health.self_registration === true;
+    app.emailVerification = health.email_verification === true;
+    if (app.accountOnly && app.emailVerification) {
+      const reset = /^#reset-password=([A-Za-z0-9_-]{43})$/.exec(location.hash);
+      if (reset) {
+        history.replaceState(null, "", location.pathname + location.search);
+        $("#account-reset-password-form [name=token]").value = reset[1];
+        app.resetTokenLoaded = true;
+      }
+      const verification = /^#verify-email=([A-Za-z0-9_-]{43})$/.exec(location.hash);
+      if (verification) {
+        history.replaceState(null, "", location.pathname + location.search);
+        try {
+          await api("/api/account/auth/verify-email", jsonOptions("POST", {
+            token: verification[1]
+          }));
+          app.emailVerificationNotice = "Xác minh email thành công. Bạn có thể đăng nhập.";
+        } catch (error) {
+          app.emailVerificationNotice = "Không thể xác minh email: " + error.message;
+        }
+      }
+    }
     if (app.accountOnly) {
       $("#account-mode-note").classList.remove("hidden");
       if (!app.account && !await restoreAccount()) {
-        setConnection(true); renderSession(); showAccountDialog(); return;
+        setConnection(true); renderSession();
+        showAccountDialog(app.emailVerificationNotice || undefined);
+        app.emailVerificationNotice = null;
+        return;
       }
     } else {
       // Establish the legacy cookie first; parallel startup requests then share one identity.

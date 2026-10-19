@@ -21,6 +21,7 @@ class RateLimits:
     login_account: int = 10
     activation_source: int = 10
     activation_token: int = 5
+    registration_source: int = 5
     session_token: int = 60
     max_keys: int = 8192
 
@@ -56,14 +57,21 @@ class AuthRateLimiter:
             keys.append((("session", audience, digest), self.limits.session_token))
         self._consume(keys)
 
+    def registration(self, source):
+        self._consume([(("registration-source", source), self.limits.registration_source)])
+
     def activation(self, source, token):
         digest = hashlib.sha256(token.encode("utf-8")).digest()
         self._consume([(("activation-source", source), self.limits.activation_source),
                        (("activation-token", digest), self.limits.activation_token)])
 
     def check(self, attempt):
+        # Shared budgets prevent splitting attempts across the unified and
+        # legacy audience-specific login routes to triple brute-force capacity.
         self._consume([(("login-source", attempt.audience, attempt.source_key), self.limits.login_source),
-                       (("login-account", attempt.audience, attempt.username_key), self.limits.login_account)])
+                       (("login-account", attempt.audience, attempt.username_key), self.limits.login_account),
+                       (("login-source-all", attempt.source_key), self.limits.login_source),
+                       (("login-account-all", attempt.username_key), self.limits.login_account)])
 
     def record(self, attempt, *, succeeded):
         # Every attempt was charged by check(), including successes. Do not reset

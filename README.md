@@ -1,8 +1,50 @@
 # NEON ARENA
 
-## Tiến độ — Phase 4.2E Final System QA (đang triển khai)
+## Phase 4.3 — Unified Login, Verified Player Signup & Pre-AWS (Draft PR #12)
 
-Phase 4.2D Official Match (D1–D3) đã merge từ PR #7 vào `main` tại `631a9599704260372f6c7a6442ef52fb9fa16bd4`. `main` sau đó có thêm các thay đổi Tournament/Leaderboard, Player form và kiểm soát chỉnh sửa kết quả. Chúng ta **chưa nghiệm thu hệ thống tổng thể** và **chưa triển khai Internet/AWS**.
+This is an **unmerged pre-AWS QA candidate**, not a deployed release. See
+[pre-AWS design](docs/PHASE_4_3_PRE_AWS.md),
+[organizer handover](docs/PHASE_4_3_OPERATOR_HANDOVER.md), and the mandatory
+[P01–P20 independent QA](docs/PHASE_4_3_CONSOLIDATED_QA.md).
+
+Account-Only uses a **single** `POST /api/account/auth/login` for both Player and
+Admin. The server verifies a password once, derives role from the persisted
+`users.system_role`, and issues a path-scoped HttpOnly/SameSite=Strict cookie.
+The browser cannot choose its role. Existing audience-scoped auth and RBAC/CSRF
+guards remain for compatibility.
+
+- `POST /api/account/auth/register` is **OFF by default**. When enabled it
+  creates **PLAYER only**, never Admin. With `ARENA_EMAIL_VERIFICATION=1`,
+  registration remains pending until a one-use, 24-hour email token is verified;
+  email delivery uses authenticated SMTP with mandatory STARTTLS.
+- `POST /api/account/auth/resend-verification`, `/verify-email`,
+  `/request-reset`, and `/reset-password` support pending-account
+  activation and verified-Player password recovery (one-use 30-minute token).
+  When the enrollment window closes, set `ARENA_SELF_REGISTRATION=0`
+  **without disabling** `ARENA_EMAIL_VERIFICATION` or the sender; existing
+  Players must still be able to activate and recover accounts.
+- Admin TOTP is enrolled/rotated offline:
+  `python -m backend.admin_cli --data-dir <offline-data-dir> enroll-admin-totp --username <admin>`.
+  Require `ARENA_ADMIN_TOTP_REQUIRED=1` for any public gateway. This
+  six-digit factor is replay-fenced, session-scoped, and not phishing-resistant.
+- SQLite migrations **v6–v9** are append-only. Existing databases must be
+  migrated **offline after a verified backup and disposal-clone rehearsal**:
+
+```powershell
+python -m backend.admin_cli --data-dir <disposable-data-dir> migrate
+python -m backend.admin_cli --data-dir <disposable-data-dir> check
+```
+
+The versioned `compose.public.yaml` and `deploy/Caddyfile` are **templates
+only**, not authorization to start a public stack. Enablement requires approved
+DNS/domain, operator-owned SMTP and Admin TOTP, authenticated private gateway
+proof, static Compose render, real Chrome/Docker/TLS/WebSocket/security QA and
+explicit owner approval. Do not merge, deploy, mutate AWS or migrate a running
+volume based solely on GitHub Actions passing.
+
+## Tiến độ — Phase 4.2E Final System QA (đã merge)
+
+Phase 4.2D Official Match (D1–D3) đã merge từ PR #7 vào `main` tại `631a9599704260372f6c7a6442ef52fb9fa16bd4`. `main` sau đó có thêm các thay đổi Tournament/Leaderboard, Player form và kiểm soát chỉnh sửa kết quả. Phase 4.2E đã merge qua PR #11 (QA 14/14 theo báo cáo Codex); hệ thống **chưa triển khai Internet/AWS**.
 
 Phase 4.2E chuẩn hóa kiểm thử và quy trình chấp thuận phát hành. Xem [Release QA/acceptance gate](docs/PHASE_4_2E_RELEASE_QA.md), [mẫu báo cáo](docs/PHASE_4_2E_QA_REPORT_TEMPLATE.md), và CI `.github/workflows/phase42e-baseline.yml`. CI chỉ kiểm tra baseline Windows/Linux; Chrome, Docker Sandbox, Account-Only end-to-end, fault injection và AWS readiness phải có báo cáo QA độc lập trên đúng commit.
 

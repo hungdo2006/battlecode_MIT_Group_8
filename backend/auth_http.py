@@ -32,6 +32,7 @@ from .network import demo_host
 
 PREFIX = "/api/auth"
 ACCOUNT_PREFIXES = {"PLAYER": "/api/player", "ADMIN": "/api/admin"}
+ENTRY_PREFIX = "/api/account"
 MAX_BODY = 4096
 MAX_API_BODY = 64 * 1024
 MAX_TEAM_UPLOAD_BODY = 384 * 1024  # base64 of 256 KiB source plus bounded metadata
@@ -48,7 +49,8 @@ def account_prefix(audience):
 
 
 def account_path(path):
-    return any(path == prefix or path.startswith(prefix + "/") for prefix in ACCOUNT_PREFIXES.values())
+    return (path == ENTRY_PREFIX or path.startswith(ENTRY_PREFIX + "/")
+        or any(path == prefix or path.startswith(prefix + "/") for prefix in ACCOUNT_PREFIXES.values()))
 
 
 def public_account_auth_path(path):
@@ -56,6 +58,12 @@ def public_account_auth_path(path):
         account_prefix("PLAYER") + "/auth/login",
         account_prefix("PLAYER") + "/auth/activate",
         account_prefix("ADMIN") + "/auth/login",
+        ENTRY_PREFIX + "/auth/login",
+        ENTRY_PREFIX + "/auth/register",
+        ENTRY_PREFIX + "/auth/verify-email",
+        ENTRY_PREFIX + "/auth/resend-verification",
+        ENTRY_PREFIX + "/auth/request-reset",
+        ENTRY_PREFIX + "/auth/reset-password",
     }
 
 
@@ -95,6 +103,28 @@ def canonical_origin(value):
         raise ValueError("Exact HTTP(S) origins without paths are required") from None
 
 
+def trusted_client_address(scope, headers, settings):
+    """Only authenticated private HTTPS edge may claim a client IP."""
+    if not settings.public_https:
+        return scope["client"][0]
+    supplied, remote = headers.getlist("x-arena-proxy-secret"), headers.getlist("x-arena-client-ip")
+    if (len(supplied) != 1 or not hmac.compare_digest(supplied[0], settings.gateway_secret)
+            or len(remote) != 1):
+        raise HTTPException(403, "Authenticated gateway required")
+    try:
+        address = ip_address(remote[0])
+        if str(address) != remote[0]:
+            raise ValueError()
+    except ValueError:
+        raise HTTPException(403, "Invalid gateway client IP") from None
+    return str(address)
+
+
+def secure_account_cookie(request, settings):
+    # Never trust unsigned Forwarded / X-Forwarded-* for Secure cookie issuance.
+    return settings.public_https or request.scope["scheme"] == "https"
+
+
 def guard_account_scope(scope, headers, settings, network, *, websocket=False):
     hosts, origins = headers.getlist("host"), headers.getlist("origin")
     if len(hosts) != 1 or not network.allows_host(hosts[0]):
@@ -102,8 +132,16 @@ def guard_account_scope(scope, headers, settings, network, *, websocket=False):
     if any(key.lower().startswith("x-forwarded-") or key.lower() in {"forwarded", "x-real-ip"}
            for key in headers):
         raise HTTPException(403, "Proxy headers are not supported for account auth")
+    if not settings.public_https and any(key.lower().startswith("x-arena-") for key in headers):
+        raise HTTPException(403, "Gateway headers are not supported in LAN mode")
     try:
-        scheme = {"ws": "http", "wss": "https"}.get(scope["scheme"], scope["scheme"])
+        if settings.public_https:
+            if headers.getlist("x-arena-https") != ["1"] or scope["scheme"] not in {"http", "ws"}:
+                raise ValueError()
+            trusted_client_address(scope, headers, settings)
+            scheme = "https"
+        else:
+            scheme = {"ws": "http", "wss": "https"}.get(scope["scheme"], scope["scheme"])
         target = canonical_origin(scheme + "://" + hosts[0])
         peer = ip_address(scope["client"][0])
         peer_host = f"[{peer}]" if peer.version == 6 else str(peer)
@@ -131,6 +169,12 @@ def _env_bool(name):
 class HTTPAuthSettings:
     enabled: bool = False
     account_only: bool = False
+    self_registration: bool = False
+    require_email_verification: bool = False
+    email_sender: object = field(default=None, repr=False)
+    require_admin_totp: bool = False
+    public_https: bool = False
+    gateway_secret: str = field(default="", repr=False)
     origins: tuple[str, ...] = ()
     allow_http: bool = False  # Explicit local/LAN QA exception, never HTTPS override.
     policy: AuthPolicy = field(default_factory=AuthPolicy)
@@ -141,21 +185,53 @@ class HTTPAuthSettings:
     def __post_init__(self):
         if self.account_only and not self.enabled:
             raise ValueError("ARENA_ACCOUNT_ONLY requires ARENA_ACCOUNT_AUTH=1")
+        if self.self_registration and not self.account_only:
+            raise ValueError("Self-registration requires Account-Only mode")
+        if self.require_admin_totp and not self.account_only:
+            raise ValueError("Admin TOTP requires Account-Only mode")
+        # Closing new signups must NOT disable email verification for pending
+        # Players or password recovery for previously verified Players.
+        if self.require_email_verification and (
+                not self.account_only or not callable(getattr(self.email_sender, "send", None))):
+            raise ValueError("Email verification requires Account-Only mode and a configured mail sender")
+        if self.public_https and self.self_registration and not self.require_email_verification:
+            raise ValueError("Public registration requires delivered email verification")
+        if self.public_https:
+            if not (self.enabled and self.account_only and self.require_admin_totp):
+                raise ValueError("Public Gateway requires Account-Only and Admin TOTP")
+            if not isinstance(self.gateway_secret, str) or len(self.gateway_secret) < 48:
+                raise ValueError("Public Gateway requires a >=48 character random secret")
+            if self.allow_http:
+                raise ValueError("Public Gateway forbids HTTP QA mode")
         if self.enabled:
             if not self.origins:
                 raise ValueError("ARENA_AUTH_ORIGINS is required when account HTTP auth is enabled")
             for value in self.origins:
                 scheme, host, _ = canonical_origin(value)
-                if not demo_host(f"[{host}]" if ":" in host else host) or (scheme == "http" and not self.allow_http):
-                    raise ValueError("Account auth supports local/LAN origins; HTTP requires explicit QA opt-in")
+                if ((not self.public_https and not demo_host(f"[{host}]" if ":" in host else host))
+                        or (scheme == "http" and (self.public_https or not self.allow_http))
+                        or (self.public_https and scheme != "https")):
+                    raise ValueError("Account origins must be local/LAN or explicit HTTPS Public Gateway")
 
     @classmethod
     def from_environment(cls):
         enabled, account_only = _env_bool("ARENA_ACCOUNT_AUTH"), _env_bool("ARENA_ACCOUNT_ONLY")
         if not enabled:
             return cls(account_only=account_only)  # Validates the impossible ON/OFF combination.
+        origins = tuple(value.strip() for value in os.environ.get("ARENA_AUTH_ORIGINS", "").split(",") if value.strip())
+        needs_email = _env_bool("ARENA_EMAIL_VERIFICATION")
+        sender = None
+        if needs_email:
+            from .email_delivery import SMTPVerificationSender
+            sender = SMTPVerificationSender.from_environment(origin=origins[0] if origins else "")
         return cls(enabled=True, account_only=account_only,
-                   origins=tuple(value.strip() for value in os.environ.get("ARENA_AUTH_ORIGINS", "").split(",") if value.strip()),
+                   self_registration=_env_bool("ARENA_SELF_REGISTRATION"),
+                   require_email_verification=needs_email,
+                   email_sender=sender,
+                   require_admin_totp=_env_bool("ARENA_ADMIN_TOTP_REQUIRED"),
+                   public_https=_env_bool("ARENA_PUBLIC_GATEWAY"),
+                   gateway_secret=os.environ.get("ARENA_PROXY_SECRET", ""),
+                   origins=origins,
                    allow_http=_env_bool("ARENA_AUTH_ALLOW_HTTP"))
 
 
@@ -173,7 +249,8 @@ class HTTPAuthRuntime:
 
     def _service(self, connection):
         return AuthService(connection, self.writer, login_limiter=self.limiter,
-                           policy=self.settings.policy, clock=self.settings.clock)
+                           policy=self.settings.policy, clock=self.settings.clock,
+                           require_admin_totp=self.settings.require_admin_totp)
 
     def startup(self):
         # Exactly once, before legacy Store or Controller starts. No migration.
@@ -276,6 +353,28 @@ class StrictBody(BaseModel):
 class LoginBody(StrictBody):
     username: str = Field(min_length=1, max_length=64)
     password: SecretStr = Field(min_length=1, max_length=1024)
+    otp: SecretStr | None = Field(default=None, min_length=6, max_length=6)
+
+
+class VerifyEmailBody(StrictBody):
+    token: SecretStr = Field(min_length=43, max_length=43)
+
+
+class ResendEmailBody(StrictBody):
+    username: str = Field(min_length=3, max_length=32)
+    email: str = Field(min_length=3, max_length=254)
+
+
+class ResetPasswordBody(StrictBody):
+    token: SecretStr = Field(min_length=43, max_length=43)
+    password: SecretStr = Field(min_length=15, max_length=1024)
+
+
+class RegisterBody(StrictBody):
+    username: str = Field(min_length=3, max_length=32)
+    display_name: str = Field(min_length=1, max_length=64)
+    email: str = Field(min_length=3, max_length=254)
+    password: SecretStr = Field(min_length=15, max_length=1024)
 
 
 class ActivateBody(StrictBody):
@@ -362,7 +461,7 @@ class AccountAuthBoundary:
             token = request.cookies.get(token_name) if token_name else None
             if token and len(token) > 128:
                 raise HTTPException(400, "Invalid authentication request")
-            runtime.limiter.request(scope["client"][0], audience, token)
+            runtime.limiter.request(trusted_client_address(scope, request.headers, self.settings), audience, token)
             if scope["query_string"] and (auth_path(scope["path"]) or "/auth/" in scope["path"]):
                 raise HTTPException(400, "Authentication query parameters are not supported")
             mutation = request.method not in {"GET", "HEAD", "OPTIONS"}
@@ -444,7 +543,7 @@ def install_auth_http(app, settings, network):
         runtime = runtime_for(request)
         token = body.token.get_secret_value()
         try:
-            runtime.limiter.activation(request.client.host, token)
+            runtime.limiter.activation(trusted_client_address(request.scope, request.headers, settings), token)
         except AuthRateLimited as exc:
             raise HTTPException(429, "Too many authentication requests", headers={"Retry-After": str(exc.retry_after)}) from None
         account = await runtime.run(lambda auth, _: auth.activate(token, body.password.get_secret_value()))
@@ -458,11 +557,12 @@ def install_auth_http(app, settings, network):
         async def login(body: LoginBody, request: Request):
             runtime = runtime_for(request)
             grant = await runtime.run(lambda auth, _: auth.login(body.username, body.password.get_secret_value(),
-                audience=audience, source_key=request.client.host))
+                audience=audience, source_key=trusted_client_address(request.scope, request.headers, settings),
+                otp=body.otp.get_secret_value() if body.otp else None))
             response = JSONResponse(account_response(grant.principal.account, expires_at=grant.expires_at))
             response.set_cookie(cookie_name(audience), grant.token,
                 max_age=max(0, grant.expires_at - int(settings.clock())), httponly=True,
-                secure=request.scope["scheme"] == "https", samesite="strict", path=cookie_path(audience))
+                secure=secure_account_cookie(request, settings), samesite="strict", path=cookie_path(audience))
             return response
 
         @router.get(base + "/me")
@@ -487,7 +587,7 @@ def install_auth_http(app, settings, network):
             await runtime.run(operation)
             response = JSONResponse({"logged_out": True})
             response.delete_cookie(cookie_name(audience), path=cookie_path(audience), httponly=True,
-                                   secure=request.scope["scheme"] == "https", samesite="strict")
+                                   secure=secure_account_cookie(request, settings), samesite="strict")
             return response
 
     audience_routes("PLAYER")
@@ -523,6 +623,128 @@ def install_auth_http(app, settings, network):
         result = await admin_operation(request, lambda auth, _, actor: auth.revoke_invitation(actor, invitation_id))
         return {"revoked": result}
 
+    entry = APIRouter(prefix=ENTRY_PREFIX + "/auth", tags=["Unified Account Entry"])
+
+    @entry.post("/register", status_code=201)
+    async def self_register(body: RegisterBody, request: Request):
+        if not settings.self_registration:
+            raise HTTPException(404, "Registration is not enabled")
+        runtime = runtime_for(request)
+        try:
+            runtime.limiter.registration(trusted_client_address(request.scope, request.headers, settings))
+        except AuthRateLimited as exc:
+            raise HTTPException(429, "Too many registration requests",
+                                headers={"Retry-After": str(exc.retry_after)}) from None
+        result = await runtime.run(lambda auth, _: auth.register_player(
+            body.username, body.display_name, body.email, body.password.get_secret_value(),
+            verify_email=settings.require_email_verification))
+        if settings.require_email_verification:
+            account, token, email = result
+            try:
+                await asyncio.to_thread(settings.email_sender.send, email, token)
+            except Exception:
+                # Account remains INVITED. Resend with the same username/email;
+                # never return a verification token or sender details in JSON.
+                raise HTTPException(503, "Verification delivery unavailable") from None
+            return {"registration_pending": True, "email_verified": False,
+                    "message": "Check your email to activate your Player account"}
+        return {"account": account_json(result), "email_verified": False,
+                "message": "Registration completed; email is not verified"}
+
+    @entry.post("/verify-email")
+    async def verify_email(body: VerifyEmailBody, request: Request):
+        if not settings.require_email_verification:
+            raise HTTPException(404, "Email verification is not enabled")
+        runtime = runtime_for(request)
+        token = body.token.get_secret_value()
+        try:
+            runtime.limiter.activation(trusted_client_address(
+                request.scope, request.headers, settings), token)
+        except AuthRateLimited as exc:
+            raise HTTPException(429, "Too many requests",
+                                headers={"Retry-After": str(exc.retry_after)}) from None
+        account = await runtime.run(lambda auth, _: auth.verify_registration_email(token))
+        return {"verified": True, "account": account_json(account)}
+
+    @entry.post("/resend-verification", status_code=202)
+    async def resend_email(body: ResendEmailBody, request: Request):
+        if not settings.require_email_verification:
+            raise HTTPException(404, "Email verification is not enabled")
+        runtime = runtime_for(request)
+        try:
+            runtime.limiter.registration(trusted_client_address(
+                request.scope, request.headers, settings))
+        except AuthRateLimited as exc:
+            raise HTTPException(429, "Too many requests",
+                                headers={"Retry-After": str(exc.retry_after)}) from None
+        delivery = await runtime.run(lambda auth, _: auth.resend_email_verification(
+            body.username, body.email))
+        if delivery:
+            try:
+                await asyncio.to_thread(settings.email_sender.send, delivery[0], delivery[1])
+            except Exception:
+                raise HTTPException(503, "Verification delivery unavailable") from None
+        # Same status/response for unknown or already activated accounts.
+        return {"message": "If eligible, a verification email has been sent"}
+
+    @entry.post("/request-reset", status_code=202)
+    async def request_reset(body: ResendEmailBody, request: Request):
+        if not settings.require_email_verification:
+            raise HTTPException(404, "Password recovery is not enabled")
+        runtime = runtime_for(request)
+        try:
+            runtime.limiter.registration(trusted_client_address(
+                request.scope, request.headers, settings))
+        except AuthRateLimited as exc:
+            raise HTTPException(429, "Too many requests",
+                                headers={"Retry-After": str(exc.retry_after)}) from None
+        delivery = await runtime.run(lambda auth, _: auth.request_player_password_reset(
+            body.username, body.email))
+        if delivery:
+            try:
+                await asyncio.to_thread(settings.email_sender.send_password_reset, delivery[0], delivery[1])
+            except Exception:
+                raise HTTPException(503, "Recovery email unavailable") from None
+        return {"message": "If eligible, a password recovery email has been sent"}
+
+    @entry.post("/reset-password")
+    async def reset_password(body: ResetPasswordBody, request: Request):
+        if not settings.require_email_verification:
+            raise HTTPException(404, "Password recovery is not enabled")
+        runtime = runtime_for(request)
+        token = body.token.get_secret_value()
+        try:
+            runtime.limiter.activation(trusted_client_address(
+                request.scope, request.headers, settings), token)
+        except AuthRateLimited as exc:
+            raise HTTPException(429, "Too many requests",
+                                headers={"Retry-After": str(exc.retry_after)}) from None
+        account = await runtime.run(lambda auth, _: auth.reset_player_password(
+            token, body.password.get_secret_value()))
+        return {"reset": True, "account": account_json(account)}
+
+    @entry.post("/login")
+    async def unified_login(body: LoginBody, request: Request):
+        runtime = runtime_for(request)
+        grant = await runtime.run(lambda auth, _: auth.login_unified(
+            body.username, body.password.get_secret_value(), source_key=trusted_client_address(request.scope, request.headers, settings),
+            otp=body.otp.get_secret_value() if body.otp else None))
+        audience = grant.principal.audience
+        response = JSONResponse(account_response(grant.principal.account,
+            expires_at=grant.expires_at, account_only=True, audience=audience.lower()))
+        response.set_cookie(account_cookie_name(audience), grant.token,
+            max_age=max(0, grant.expires_at - int(settings.clock())), httponly=True,
+            secure=secure_account_cookie(request, settings), samesite="strict",
+            path=account_cookie_path(audience))
+        response.delete_cookie(cookie_name(audience), path=cookie_path(audience),
+                               httponly=True, secure=secure_account_cookie(request, settings), samesite="strict")
+        # A single login UI must not leave both audience cookies in this
+        # browser. This clears the other cookie path without granting authority.
+        other = "PLAYER" if audience == "ADMIN" else "ADMIN"
+        response.delete_cookie(account_cookie_name(other), path=account_cookie_path(other),
+                               httponly=True, secure=secure_account_cookie(request, settings), samesite="strict")
+        return response
+
     player = APIRouter(prefix=account_prefix("PLAYER") + "/auth", tags=["Player Account Auth"])
     admin = APIRouter(prefix=account_prefix("ADMIN") + "/auth", tags=["Admin Account Auth"])
 
@@ -531,7 +753,7 @@ def install_auth_http(app, settings, network):
         runtime = runtime_for(request)
         token = body.token.get_secret_value()
         try:
-            runtime.limiter.activation(request.client.host, token)
+            runtime.limiter.activation(trusted_client_address(request.scope, request.headers, settings), token)
         except AuthRateLimited as exc:
             raise HTTPException(429, "Too many authentication requests", headers={"Retry-After": str(exc.retry_after)}) from None
         account = await runtime.run(lambda auth, _: auth.activate(token, body.password.get_secret_value()))
@@ -543,16 +765,17 @@ def install_auth_http(app, settings, network):
             runtime = runtime_for(request)
             grant = await runtime.run(lambda auth, _: auth.login(
                 body.username, body.password.get_secret_value(), audience=audience,
-                source_key=request.client.host))
+                source_key=trusted_client_address(request.scope, request.headers, settings),
+                otp=body.otp.get_secret_value() if body.otp else None))
             response = JSONResponse(account_response(
                 grant.principal.account, expires_at=grant.expires_at, account_only=settings.account_only))
             response.set_cookie(account_cookie_name(audience), grant.token,
                 max_age=max(0, grant.expires_at - int(settings.clock())), httponly=True,
-                secure=request.scope["scheme"] == "https", samesite="strict",
+                secure=secure_account_cookie(request, settings), samesite="strict",
                 path=account_cookie_path(audience))
             # A namespace change never promotes or transports an old B.3.1 cookie.
             response.delete_cookie(cookie_name(audience), path=cookie_path(audience), httponly=True,
-                                   secure=request.scope["scheme"] == "https", samesite="strict")
+                                   secure=secure_account_cookie(request, settings), samesite="strict")
             return response
 
         @target.get("/me")
@@ -574,7 +797,7 @@ def install_auth_http(app, settings, network):
             runtime.notify_revoked(principal.session_id)
             response = JSONResponse({"logged_out": True})
             response.delete_cookie(account_cookie_name(audience), path=account_cookie_path(audience),
-                                   httponly=True, secure=request.scope["scheme"] == "https", samesite="strict")
+                                   httponly=True, secure=secure_account_cookie(request, settings), samesite="strict")
             return response
 
     account_audience_routes("PLAYER", player)
@@ -616,6 +839,8 @@ def install_auth_http(app, settings, network):
     app.add_exception_handler(RequestValidationError, validation_error)
     if not settings.account_only:
         app.include_router(router)
+    if settings.account_only:
+        app.include_router(entry)
     app.include_router(player)
     app.include_router(admin)
     app.add_middleware(AccountAuthBoundary, owner=app, settings=settings, network=network)

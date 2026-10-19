@@ -20,7 +20,7 @@ import uuid
 
 from .account_database import require_writer, transaction, validate_service_connection
 from .account_identity import display_name, normalize_username
-from . import passwords
+from . import passwords, totp
 
 
 class AuthenticationFailed(ValueError):
@@ -178,7 +178,8 @@ def _account(row):
 
 class AuthService:
     def __init__(self, connection, writer_lock, *, login_limiter: LoginLimiter,
-                 policy=None, clock=time.time, password_work=None):
+                 policy=None, clock=time.time, password_work=None,
+                 require_admin_totp=False):
         validate_service_connection(connection, writer_lock)
         if not callable(getattr(login_limiter, "check", None)) or not callable(getattr(login_limiter, "record", None)):
             raise ValueError("An explicit LoginLimiter is required")
@@ -189,6 +190,9 @@ class AuthService:
         if not isinstance(self.policy, AuthPolicy):
             raise ValueError("policy must be AuthPolicy")
         self._clock, self._limiter = clock, login_limiter
+        if type(require_admin_totp) is not bool:
+            raise ValueError("require_admin_totp must be bool")
+        self.require_admin_totp = require_admin_totp
         self._work = password_work or _PASSWORD_WORK
         # Cached initialization must not make validation/logout wait for an
         # unrelated password verification when B.3 uses per-thread connections.
@@ -236,6 +240,11 @@ class AuthService:
         seen = session["last_seen_at"] if session["last_seen_at"] is not None else session["created_at"]
         if (now < session["created_at"] or now < seen or now >= session["expires_at"]
                 or now >= seen + session["idle_timeout_seconds"]):
+            raise InvalidSession()
+        # Even a previously valid Admin session becomes invalid when public
+        # MFA enforcement is enabled. Enrollment alone is not sufficient proof
+        # that this particular session completed a TOTP challenge.
+        if audience == "ADMIN" and self.require_admin_totp and session["mfa_verified"] != 1:
             raise InvalidSession()
         return session, user
 
@@ -353,7 +362,208 @@ class AuthService:
             self._audit(now, user["id"], "ACCOUNT_ACTIVATED", "user", user["id"])
             return _account(self._user(user["id"]))
 
-    def login(self, username, password, *, audience, source_key):
+    @staticmethod
+    def _registration_email(value):
+        # ASCII email only for the initial local/LAN milestone. No DNS/MX
+        # claims, verified delivery or password-reset capability are implied.
+        if not isinstance(value, str) or not 3 <= len(value) <= 254 or value != value.strip():
+            raise ValueError("Invalid email")
+        if not re.fullmatch(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+", value, re.ASCII):
+            raise ValueError("Invalid email")
+        local, domain = value.rsplit("@", 1)
+        if (len(local) > 64 or local.startswith(".") or local.endswith(".")
+                or ".." in local or any(label.startswith("-") or label.endswith("-")
+                or len(label) > 63 for label in domain.split("."))):
+            raise ValueError("Invalid email")
+        return value.lower()
+
+    def register_player(self, username, name, email, password, *, verify_email=False):
+        """Create a Player; verified-email registrations remain INVITED pending proof.
+
+        Caller must enforce source-based registration rate limits and the
+        account-only feature gate before expensive Argon2 hashing.
+        """
+        self._ready()
+        username = normalize_username(username)
+        name = display_name(name)
+        canonical_email = self._registration_email(email)
+        if (self._db.execute("SELECT 1 FROM users WHERE username=?", (username,)).fetchone()
+            or self._db.execute("SELECT 1 FROM user_emails WHERE email=?", (canonical_email,)).fetchone()):
+            raise AccountConflict("Registration unavailable")
+        with self._work.slot():
+            encoded = passwords.hash_password(password)
+        self._ready()
+        with transaction(self._db):
+            now = self._now()
+            if (self._db.execute("SELECT 1 FROM users WHERE username=?", (username,)).fetchone()
+                or self._db.execute("SELECT 1 FROM user_emails WHERE email=?", (canonical_email,)).fetchone()):
+                raise AccountConflict("Registration unavailable")
+            user_id = uuid.uuid4().hex
+            status = "INVITED" if verify_email else "ACTIVE"
+            self._db.execute("""INSERT INTO users (
+                id,username,display_name,system_role,status,password_hash,
+                created_at,updated_at,password_changed_at)
+                VALUES (?,?,?,'PLAYER',?,?,?,?,?)""",
+                (user_id,username,name,status,encoded,now,now,now))
+            self._db.execute("""INSERT INTO user_emails (user_id,email,verified_at)
+                VALUES (?,?,NULL)""", (user_id,canonical_email))
+            token = self._issue_email_verification(user_id, now) if verify_email else None
+            self._audit(now,user_id,"PLAYER_SELF_REGISTERED","user",user_id,
+                        email_verification_required=verify_email)
+            account = _account(self._user(user_id))
+            return (account, token, canonical_email) if verify_email else account
+
+    def _issue_email_verification(self, user_id, now):
+        self._db.execute("""UPDATE email_verification_tokens SET consumed_at=?
+            WHERE user_id=? AND consumed_at IS NULL""", (now, user_id))
+        token = secrets.token_urlsafe(32)
+        self._db.execute("""INSERT INTO email_verification_tokens
+            (id,user_id,token_hash,created_at,expires_at)
+            VALUES (?,?,?,?,?)""",
+            (uuid.uuid4().hex,user_id,_token_hash(token),now,now+24*3600))
+        return token
+
+    def resend_email_verification(self, username, email):
+        """Return delivery tuple or None, never reveal account existence to HTTP."""
+        self._ready()
+        try:
+            username = normalize_username(username)
+            email = self._registration_email(email)
+        except ValueError:
+            return None
+        with transaction(self._db):
+            now = self._now()
+            row = self._db.execute("""SELECT u.id FROM users u JOIN user_emails e
+                ON e.user_id=u.id WHERE u.username=? AND e.email=?
+                AND u.system_role='PLAYER' AND u.status='INVITED'
+                AND e.verified_at IS NULL AND u.password_hash IS NOT NULL""",
+                (username,email)).fetchone()
+            if not row:
+                return None
+            return email, self._issue_email_verification(row["id"], now)
+
+    def verify_registration_email(self, token):
+        self._ready()
+        digest = _token_hash(token)
+        if digest is None:
+            raise InvalidInvitation()
+        with transaction(self._db):
+            now = self._now()
+            row = self._db.execute("""SELECT t.id,t.user_id,t.created_at,t.expires_at,
+                t.consumed_at,u.status,u.system_role,e.verified_at
+                FROM email_verification_tokens t
+                JOIN users u ON u.id=t.user_id
+                JOIN user_emails e ON e.user_id=t.user_id
+                WHERE t.token_hash=?""", (digest,)).fetchone()
+            if (not row or row["consumed_at"] is not None
+                    or not row["created_at"] <= now < row["expires_at"]
+                    or row["status"] != "INVITED" or row["system_role"] != "PLAYER"
+                    or row["verified_at"] is not None):
+                raise InvalidInvitation()
+            self._db.execute("UPDATE email_verification_tokens SET consumed_at=? WHERE id=?",
+                             (now,row["id"]))
+            self._db.execute("UPDATE user_emails SET verified_at=? WHERE user_id=?",
+                             (now,row["user_id"]))
+            self._db.execute("""UPDATE users SET status='ACTIVE',auth_version=auth_version+1,
+                updated_at=? WHERE id=?""", (now,row["user_id"]))
+            self._audit(now,row["user_id"],"PLAYER_EMAIL_VERIFIED","user",row["user_id"])
+            return _account(self._user(row["user_id"]))
+
+    def request_player_password_reset(self, username, email):
+        """Return optional delivery tuple; HTTP response must stay uniform."""
+        self._ready()
+        try:
+            username, email = normalize_username(username), self._registration_email(email)
+        except ValueError:
+            return None
+        with transaction(self._db):
+            now = self._now()
+            user = self._db.execute("""SELECT u.id FROM users u JOIN user_emails e
+                ON e.user_id=u.id WHERE u.username=? AND e.email=? AND
+                u.status='ACTIVE' AND u.system_role='PLAYER'
+                AND e.verified_at IS NOT NULL""", (username,email)).fetchone()
+            if not user:
+                return None
+            self._db.execute("""UPDATE account_tokens SET revoked_at=?
+                WHERE purpose='PASSWORD_RESET' AND user_id=?
+                AND consumed_at IS NULL AND revoked_at IS NULL""", (now,user["id"]))
+            token = secrets.token_urlsafe(32)
+            self._db.execute("""INSERT INTO account_tokens
+                (id,token_hash,purpose,user_id,created_at,expires_at)
+                VALUES (?,?,'PASSWORD_RESET',?,?,?)""",
+                (uuid.uuid4().hex,_token_hash(token),user["id"],now,now+30*60))
+            self._audit(now,user["id"],"PLAYER_PASSWORD_RESET_REQUESTED","user",user["id"])
+            return email, token
+
+    def reset_player_password(self, token, password):
+        """Consume a 30-minute token once, update Argon2 hash and fence sessions."""
+        self._ready()
+        digest = _token_hash(token)
+        if digest is None:
+            raise InvalidInvitation()
+        def original():
+            return self._db.execute("""SELECT a.id,a.user_id,a.expires_at,a.created_at,
+                a.consumed_at,a.revoked_at,u.status,u.system_role,e.verified_at
+                FROM account_tokens a JOIN users u ON a.user_id=u.id
+                JOIN user_emails e ON e.user_id=u.id
+                WHERE a.token_hash=? AND a.purpose='PASSWORD_RESET'""",
+                (digest,)).fetchone()
+        row = original()
+        now = self._now()
+        if (not row or row["consumed_at"] is not None or row["revoked_at"] is not None
+                or not row["created_at"] <= now < row["expires_at"]
+                or row["status"] != "ACTIVE" or row["system_role"] != "PLAYER"
+                or row["verified_at"] is None):
+            raise InvalidInvitation()
+        with self._work.slot():
+            encoded = passwords.hash_password(password)
+        self._ready()
+        with transaction(self._db):
+            current = original()
+            now = self._now()
+            if (not current or current["id"] != row["id"]
+                    or current["consumed_at"] is not None or current["revoked_at"] is not None
+                    or not current["created_at"] <= now < current["expires_at"]
+                    or current["status"] != "ACTIVE" or current["system_role"] != "PLAYER"
+                    or current["verified_at"] is None):
+                raise InvalidInvitation()
+            self._db.execute("UPDATE account_tokens SET consumed_at=? WHERE id=?",
+                             (now,current["id"]))
+            self._db.execute("""UPDATE account_tokens SET revoked_at=?
+                WHERE user_id=? AND purpose='PASSWORD_RESET'
+                AND consumed_at IS NULL AND revoked_at IS NULL""",
+                (now,current["user_id"]))
+            self._db.execute("""UPDATE users SET password_hash=?,auth_version=auth_version+1,
+                updated_at=?,password_changed_at=? WHERE id=?""",
+                (encoded,now,now,current["user_id"]))
+            self._db.execute("""UPDATE auth_sessions SET revoked_at=max(created_at,?)
+                WHERE user_id=? AND revoked_at IS NULL""", (now,current["user_id"]))
+            self._audit(now,current["user_id"],"PLAYER_PASSWORD_RESET","user",current["user_id"])
+            return _account(self._user(current["user_id"]))
+
+    def login_unified(self, username, password, *, source_key, otp=None):
+        """Verify one password, derive audience from the persisted user role."""
+        self._ready()
+        if not isinstance(source_key, str) or not 1 <= len(source_key) <= 256:
+            raise ValueError("A trusted source_key is required")
+        try:
+            canonical = normalize_username(username)
+        except ValueError:
+            canonical = None
+        attempt = LoginAttempt(hashlib.sha256((canonical or "<invalid>").encode()).hexdigest(),
+                               source_key, "UNIFIED")
+        self._limiter.check(attempt)
+        row = self._db.execute("SELECT system_role FROM users WHERE username=?", (canonical,)).fetchone()
+        audience = row["system_role"] if row else "PLAYER"
+        try:
+            grant = self._login(canonical, password, audience, otp=otp)
+        except AuthenticationFailed:
+            self._limiter.record(attempt, succeeded=False)
+            raise
+        self._limiter.record(attempt, succeeded=True)
+        return grant
+
+    def login(self, username, password, *, audience, source_key, otp=None):
         self._ready()
         if audience not in ("PLAYER", "ADMIN"):
             raise AuthenticationFailed()
@@ -366,14 +576,14 @@ class AuthService:
         attempt = LoginAttempt(hashlib.sha256((canonical or "<invalid>").encode()).hexdigest(), source_key, audience)
         self._limiter.check(attempt)
         try:
-            grant = self._login(canonical, password, audience)
+            grant = self._login(canonical, password, audience, otp=otp)
         except AuthenticationFailed:
             self._limiter.record(attempt, succeeded=False)
             raise
         self._limiter.record(attempt, succeeded=True)
         return grant
 
-    def _login(self, username, password, audience):
+    def _login(self, username, password, audience, *, otp=None):
         original = self._db.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
         eligible = original and original["status"] == "ACTIVE" and original["system_role"] == audience
         with self._work.slot():
@@ -388,12 +598,23 @@ class AuthService:
                     or user["auth_version"] != original["auth_version"]
                     or user["password_hash"] != original["password_hash"] or now < user["created_at"]):
                 raise AuthenticationFailed()
+            mfa_verified = 0
+            if audience == "ADMIN" and self.require_admin_totp:
+                enrolled = self._db.execute(
+                    "SELECT secret,last_counter FROM admin_totp WHERE user_id=?", (user["id"],)).fetchone()
+                counter = (totp.accepted_counter(enrolled["secret"], otp, now, enrolled["last_counter"])
+                           if enrolled else None)
+                if counter is None:
+                    raise AuthenticationFailed()
+                self._db.execute("UPDATE admin_totp SET last_counter=? WHERE user_id=?",
+                                 (counter, user["id"]))
+                mfa_verified = 1
             token, session_id = secrets.token_urlsafe(32), uuid.uuid4().hex
             ttl = self.policy.session_ttl(audience)
             self._db.execute("""INSERT INTO auth_sessions (id, token_hash, user_id, audience,
-                auth_version, created_at, expires_at, last_seen_at, idle_timeout_seconds)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""", (session_id, _token_hash(token), user["id"], audience,
-                user["auth_version"], now, now + ttl.absolute, now, ttl.idle))
+                auth_version, created_at, expires_at, last_seen_at, idle_timeout_seconds,mfa_verified)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", (session_id, _token_hash(token), user["id"], audience,
+                user["auth_version"], now, now + ttl.absolute, now, ttl.idle,mfa_verified))
             self._audit(now, user["id"], "SESSION_CREATED", "auth_session", session_id, audience=audience)
             return SessionGrant(Principal(_account(user), audience, session_id, _PRINCIPAL_PROOF), now + ttl.absolute, token)
 

@@ -160,3 +160,52 @@ def test_successful_account_poll_restores_network_indicator():
     assert 'await refreshOfficialMatches({includeTeams: false});' in official
     assert 'if (app.accountOnly && app.account && app.initialized) setConnection(true);' in official
     assert 'if (error.transport) setConnection(false);' in official
+
+
+def test_phase43a_auth_choice_has_no_browser_selected_role():
+    html = (ROOT / "frontend" / "index.html").read_text(encoding="utf-8")
+    js = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
+    assert 'id="account-login-choice"' in html
+    assert 'id="account-register-choice"' in html
+    assert 'id="account-register-form"' in html
+    assert 'name="audience"' not in html
+    assert 'app.selfRegistration = health.self_registration === true;' in js
+    assert 'api("/api/account/auth/login"' in js
+    assert 'api("/api/account/auth/register"' in js
+    assert 'acceptAccount(data, data.audience);' in js
+
+
+
+def test_anonymous_account_entry_paths_are_exact_and_authenticated_writes_keep_csrf():
+    js = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
+    routing = js.split("const PUBLIC_ACCOUNT_ENTRY_PATHS = new Set([", 1)[1]
+    routing = routing.split("]);", 1)[0]
+    expected = {
+        "/api/account/auth/login", "/api/account/auth/register",
+        "/api/account/auth/verify-email", "/api/account/auth/resend-verification",
+        "/api/account/auth/request-reset", "/api/account/auth/reset-password",
+        "/api/player/auth/login", "/api/admin/auth/login", "/api/player/auth/activate",
+    }
+    assert set(re.findall(r'"(/api/[^"]+)"', routing)) == expected
+    assert '!PUBLIC_ACCOUNT_ENTRY_PATHS.has(requestUrl.pathname)' in js
+    assert '|| path.startsWith("/api/account/")) return path;' in js
+    # Anonymous entry actions are exempt from session CSRF, not from backend
+    # Origin, body and rate limits. Every other authenticated write still
+    # retrieves the token through accountCsrf().
+    assert "const token = await accountCsrf();" in js
+    assert 'if (!app.accountAudience) throw new Error(' in js
+
+
+def test_mid_bootstrap_revocation_rechecks_session_without_conflating_permission_denial():
+    js = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
+    assert 'async function recheckAccountAfterForbidden(accountAtRequest, audienceAtRequest)' in js
+    assert 'if (app.accountOnly && response.status === 403)' in js
+    assert 'await recheckAccountAfterForbidden(accountAtRequest, audienceAtRequest);' in js
+    assert 'app.account !== accountAtRequest' in js
+    assert 'proof.status === 401 && app.account === accountAtRequest' in js
+    assert 'cache: "no-store"' in js
+    smoke = (ROOT / "scripts" / "check_account_frontend_routing.cjs").read_text(encoding="utf-8")
+    for scenario in ('"permission"', '"revoked"', '"changed-session"', '"offline"'):
+        assert scenario in smoke
+    checker = (ROOT / "scripts" / "check_account_ui.py").read_text(encoding="utf-8")
+    assert 'dialog.wait_for(state="visible", timeout=16000)' in checker

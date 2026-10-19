@@ -98,6 +98,13 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
     installed = registry or create_registry()
     settings = network or NetworkSettings.from_environment()
     account_settings = HTTPAuthSettings.from_environment() if account_http is None else account_http
+    if settings.public_gateway != account_settings.public_https:
+        raise ValueError("Network Public Gateway and authenticated HTTPS Gateway settings must agree")
+    if settings.public_gateway:
+        from backend.auth_http import canonical_origin
+        required_hosts = {canonical_origin(o)[1] for o in account_settings.origins}
+        if set(settings.allowed_hosts) != required_hosts:
+            raise ValueError("Public Gateway allowed hosts must exactly match HTTPS origins")
     # The shared Organizer secret has no authority in account-only mode and is
     # deliberately not even loaded into the application process in that mode.
     admin_code = "" if account_settings.account_only else os.environ.get("ARENA_ADMIN_CODE", "")
@@ -238,7 +245,9 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
             raise RunnerUnavailable("Sandbox controller is unavailable")
         return {"status": "ok", "runner": runner, "toolchains": runner["toolchains"], "protocol": 1,
                 "read_only": settings.read_only, "account_auth": account_settings.enabled,
-                "account_only": account_settings.account_only}
+                "account_only": account_settings.account_only,
+                 "self_registration": account_settings.self_registration,
+                 "email_verification": account_settings.require_email_verification}
 
     def session_payload(request: Request):
         return {"participant": request.state.participant, "read_only": settings.read_only,
@@ -1086,7 +1095,9 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
                         raise HTTPException(403, "Invalid WebSocket cursor")
                 token = strict_cookie(websocket.headers, account_cookie_name(audience))
                 runtime = app.state.account_http
-                runtime.limiter.request(websocket.client.host, audience, token)
+                from backend.auth_http import trusted_client_address
+                runtime.limiter.request(trusted_client_address(
+                    websocket.scope, websocket.headers, account_settings), audience, token)
                 principal = await runtime.run(
                     lambda auth, _: auth.validate_session(token, audience=audience, touch=False))
                 revoked = runtime.register_websocket(principal.session_id)

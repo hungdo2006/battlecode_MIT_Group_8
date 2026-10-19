@@ -97,6 +97,27 @@ def test_official_workspace_is_account_only_and_form_has_deadlines():
     assert 'app.standings = await api(`/api/standings${query}`);' in js
 
 
+
+def test_account_only_does_not_fetch_legacy_standings_during_admin_bootstrap():
+    js = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
+    standings = js.split("async function refreshStandings() {", 1)[1]
+    standings = standings.split("\nasync function refreshTournaments()", 1)[0]
+    # /api/admin/standings does not exist. This must be checked before
+    # the generic API helper scopes /api/standings to the Admin audience.
+    assert standings.index("if (app.accountOnly) {") < standings.index(
+        'app.standings = await api(`/api/standings${query}`);'.replace("\\`", "`").replace("\\$", "$")
+    )
+    assert "app.standings = [];" in standings
+    assert "renderStandings();" in standings
+    assert re.search(r"if \(app\.accountOnly\) \{[^}]*return;", standings, re.S)
+
+    bootstrap = js.split("async function bootstrap() {", 1)[1]
+    bootstrap = bootstrap.split('bootstrap();\n$("#retry-connection")', 1)[0]
+    assert bootstrap.index("await refreshStandings();") < bootstrap.index(
+        "connectCompetitionSocket();"
+    )
+
+
 def test_account_only_background_poll_respects_auth_budget_and_keeps_online_on_429():
     js = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
     # Previous Admin polling made four protected requests every 2 seconds.

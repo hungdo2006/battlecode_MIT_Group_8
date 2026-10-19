@@ -2078,6 +2078,9 @@ async function bootstrap() {
     app.selfRegistration = health.self_registration === true;
     app.emailVerification = health.email_verification === true;
     app.usernameOnlySignup = health.username_only_signup === true;
+    app.adminTotpRequired = health.admin_totp_required === true;
+    $("#account-admin-otp-field").classList.toggle("hidden", !app.adminTotpRequired);
+    $("#account-login-form [name=otp]").required = app.adminTotpRequired;
     if (app.accountOnly && app.emailVerification) {
       const reset = /^#reset-password=([A-Za-z0-9_-]{43})$/.exec(location.hash);
       if (reset) {

@@ -17,7 +17,8 @@ identity verification, enrollment controls, CAPTCHA, or an independent security 
   external trusted process before issuing any recovery token.
 - Admin issues a one-use recovery token from the Admin-only panel under
   **Official Match → Hỗ trợ khôi phục tài khoản Player**. Issuance requires a
-  valid Admin session, CSRF token and (on public gateway) Admin TOTP.
+  valid Admin session and CSRF token. In the password-only classroom demo
+  setting, Admin TOTP is disabled by explicit operator opt-in.
 - Admin privately passes the token to the Player. The Player enters it under
   **Quên mật khẩu Player?** and chooses a fresh password. Admin never reads or
   sets the Player's password. A token expires in 30 minutes; issuing a newer
@@ -35,7 +36,9 @@ Defaults remain **OFF**. On a verified HTTPS public deployment, opt in with:
 ```dotenv
 ARENA_ACCOUNT_AUTH=1
 ARENA_ACCOUNT_ONLY=1
-ARENA_ADMIN_TOTP_REQUIRED=1
+# For the professor's supervised public demo:
+ARENA_ADMIN_TOTP_REQUIRED=0
+ARENA_PUBLIC_ADMIN_PASSWORD_ONLY=1
 ARENA_PUBLIC_GATEWAY=1
 ARENA_PUBLIC_DOMAIN=traitimcodon.duckdns.org
 ARENA_SELF_REGISTRATION=1
@@ -83,3 +86,28 @@ Do not run `docker compose down -v`.
   it after re-review.
 - Preserve `arena_data`, `arena_uploads`, `arena_artifacts` volumes.
 - Never share an Admin TOTP recovery secret or login password with students.
+
+## Password-only Admin operator decision
+
+The classroom/pilot owner chose **Admin username + password without TOTP**.
+This is less secure than the original MFA-protected internet gateway. The
+application preserves MFA as the public default. The HTTPS Compose overlay
+accepts only two mutually exclusive choices:
+
+- Default: `ARENA_ADMIN_TOTP_REQUIRED=1`, `ARENA_PUBLIC_ADMIN_PASSWORD_ONLY=0`.
+- Supervised pilot: `ARENA_ADMIN_TOTP_REQUIRED=0`, `ARENA_PUBLIC_ADMIN_PASSWORD_ONLY=1`.
+
+Do not disable both options or enable both options: public gateway startup
+must reject either ambiguous setting. Existing Admin TOTP enrollment data is
+**not removed**, so switching back to MFA is possible. Admin password-only
+sessions are NOT a defense against phishing or stolen credentials. Use a
+unique long Admin password, limited staff access, account rate limiting,
+private recovery verification and monitoring. Avoid production/public events
+with this configuration unless the risks and access controls are reviewed.
+
+On EC2, the old `.env` has `ARENA_ADMIN_TOTP_REQUIRED=1`; the operator must
+explicitly change it to `0` and add `ARENA_PUBLIC_ADMIN_PASSWORD_ONLY=1`
+before starting a newly pulled image. The same run also needs
+`ARENA_SELF_REGISTRATION=1`, `ARENA_PUBLIC_USERNAME_SIGNUP=1` and
+`ARENA_EMAIL_VERIFICATION=0` for no-email Player signup. Verify all values
+by an appropriately redacted Compose render without disclosing credentials.

@@ -385,19 +385,19 @@ class ResendEmailBody(StrictBody):
 
 class ResetPasswordBody(StrictBody):
     token: SecretStr = Field(min_length=43, max_length=43)
-    password: SecretStr = Field(min_length=15, max_length=1024)
+    password: SecretStr = Field(min_length=8, max_length=1024)
 
 
 class RegisterBody(StrictBody):
     username: str = Field(min_length=3, max_length=32)
     display_name: str | None = Field(default=None, min_length=1, max_length=64)
     email: str | None = Field(default=None, min_length=3, max_length=254)
-    password: SecretStr = Field(min_length=15, max_length=1024)
+    password: SecretStr = Field(min_length=8, max_length=1024)
 
 
 class ActivateBody(StrictBody):
     token: SecretStr = Field(min_length=43, max_length=43)
-    password: SecretStr = Field(min_length=15, max_length=1024)
+    password: SecretStr = Field(min_length=8, max_length=1024)
 
 
 class InviteBody(StrictBody):

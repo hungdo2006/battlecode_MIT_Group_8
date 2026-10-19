@@ -402,9 +402,9 @@ def test_login_rechecks_credentials_after_argon2_without_open_transaction(env, m
 def test_competing_activations_consume_once_on_independent_connections(env, monkeypatch):
     invitation = env.service.issue_invitation(env.admin, "alice")
     barrier, real_hash = threading.Barrier(2), passwords.hash_password
-    def hash_after_rendezvous(password):
+    def hash_after_rendezvous(password, **kwargs):
         barrier.wait(timeout=10)
-        return real_hash(password)
+        return real_hash(password, **kwargs)
     monkeypatch.setattr(passwords, "hash_password", hash_after_rendezvous)
     work = PasswordWorkLimiter(2)  # test two concurrent hashes; production default is one
     def activate():
@@ -426,9 +426,9 @@ def test_competing_activations_consume_once_on_independent_connections(env, monk
 def test_activation_rechecks_token_after_hashing(env, monkeypatch):
     invitation = env.service.issue_invitation(env.admin, "alice")
     real_hash = passwords.hash_password
-    def revoke_during_hash(password):
+    def revoke_during_hash(password, **kwargs):
         assert not env.connection.in_transaction
-        result = real_hash(password)
+        result = real_hash(password, **kwargs)
         env.service.revoke_invitation(env.admin, invitation.invitation_id)
         return result
     monkeypatch.setattr(passwords, "hash_password", revoke_during_hash)
@@ -440,9 +440,9 @@ def test_activation_rechecks_token_after_hashing(env, monkeypatch):
 def test_activation_token_expiring_during_argon2_is_not_consumed(env, monkeypatch):
     invitation = env.service.issue_invitation(env.admin, "alice", ttl_seconds=10)
     real_hash = passwords.hash_password
-    def late_hash(password):
+    def late_hash(password, **kwargs):
         assert not env.connection.in_transaction
-        encoded = real_hash(password)
+        encoded = real_hash(password, **kwargs)
         env.clock.now += 10
         return encoded
     monkeypatch.setattr(passwords, "hash_password", late_hash)
@@ -582,3 +582,32 @@ def test_v1_upgrade_preserves_accounts_and_revokes_only_unbounded_legacy_sql_ses
         assert manual["revoked_at"] is not None and manual["idle_timeout_seconds"] == 1
         assert connection.execute("PRAGMA user_version").fetchone()[0] == account_database.SCHEMA_VERSION
         check_integrity(connection)
+
+
+def test_player_eight_character_policy_does_not_weaken_admin_passwords(env):
+    short, valid = "seven77", "eight888"
+    # Admin CLI uses the default strong policy even when Players can use 8.
+    with pytest.raises(ValueError, match="at least 15"):
+        passwords.hash_password(valid)
+    with pytest.raises(ValueError, match="at least 8"):
+        env.service.register_player("alice", None, None, short)
+    assert env.service.get_account_by_username("alice") is None
+
+    account = env.service.register_player("alice", None, None, valid)
+    assert account.system_role == "PLAYER" and account.status == "ACTIVE"
+    assert env.service.login("alice", valid, audience="PLAYER",
+                             source_key="test-peer").principal.account.id == account.id
+
+    invitation = env.service.issue_invitation(env.admin, "bob")
+    with pytest.raises(ValueError, match="at least 8"):
+        env.service.activate(invitation.token, short)
+    assert env.service.activate(invitation.token, valid).status == "ACTIVE"
+
+    grant = env.service.issue_player_recovery(env.admin, "alice")
+    with pytest.raises(ValueError, match="at least 8"):
+        env.service.reset_player_password(grant["token"], short)
+    assert env.service.reset_player_password(grant["token"], "newpass8").id == account.id
+    with pytest.raises(AuthenticationFailed):
+        env.service.login("alice", valid, audience="PLAYER", source_key="test-peer")
+    assert env.service.login("alice", "newpass8", audience="PLAYER",
+                             source_key="test-peer").principal.account.id == account.id

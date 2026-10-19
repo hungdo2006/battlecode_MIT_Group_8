@@ -7,7 +7,7 @@ identity verification, enrollment controls, CAPTCHA, or an independent security 
 ## Behavior
 
 - One login form remains unchanged. Server derives `ADMIN` vs `PLAYER` from SQLite.
-- Player signup requires **username + password** (minimum 15 characters).
+- Player signup requires **username + password** (minimum 8 characters).
   `display_name` defaults to username, `email` is optional and omitted by
   the new frontend when email verification is disabled.
 - New accounts are `ACTIVE` and always `PLAYER`. Existing accounts, Teams,

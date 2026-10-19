@@ -171,6 +171,7 @@ class HTTPAuthSettings:
     account_only: bool = False
     self_registration: bool = False
     require_email_verification: bool = False
+    allow_public_username_signup: bool = False
     email_sender: object = field(default=None, repr=False)
     require_admin_totp: bool = False
     public_https: bool = False
@@ -194,8 +195,11 @@ class HTTPAuthSettings:
         if self.require_email_verification and (
                 not self.account_only or not callable(getattr(self.email_sender, "send", None))):
             raise ValueError("Email verification requires Account-Only mode and a configured mail sender")
-        if self.public_https and self.self_registration and not self.require_email_verification:
-            raise ValueError("Public registration requires delivered email verification")
+        if self.public_https and self.self_registration and not (
+                self.require_email_verification or self.allow_public_username_signup):
+            raise ValueError("Public registration requires verified email or explicit username-only opt-in")
+        if self.allow_public_username_signup and not (self.public_https and self.account_only):
+            raise ValueError("Username-only signup opt-in requires HTTPS Account-Only Gateway")
         if self.public_https:
             if not (self.enabled and self.account_only and self.require_admin_totp):
                 raise ValueError("Public Gateway requires Account-Only and Admin TOTP")
@@ -227,6 +231,7 @@ class HTTPAuthSettings:
         return cls(enabled=True, account_only=account_only,
                    self_registration=_env_bool("ARENA_SELF_REGISTRATION"),
                    require_email_verification=needs_email,
+                   allow_public_username_signup=_env_bool("ARENA_PUBLIC_USERNAME_SIGNUP"),
                    email_sender=sender,
                    require_admin_totp=_env_bool("ARENA_ADMIN_TOTP_REQUIRED"),
                    public_https=_env_bool("ARENA_PUBLIC_GATEWAY"),
@@ -360,6 +365,10 @@ class VerifyEmailBody(StrictBody):
     token: SecretStr = Field(min_length=43, max_length=43)
 
 
+class AdminPlayerRecoveryBody(StrictBody):
+    username: str = Field(min_length=3, max_length=32)
+
+
 class ResendEmailBody(StrictBody):
     username: str = Field(min_length=3, max_length=32)
     email: str = Field(min_length=3, max_length=254)
@@ -372,8 +381,8 @@ class ResetPasswordBody(StrictBody):
 
 class RegisterBody(StrictBody):
     username: str = Field(min_length=3, max_length=32)
-    display_name: str = Field(min_length=1, max_length=64)
-    email: str = Field(min_length=3, max_length=254)
+    display_name: str | None = Field(default=None, min_length=1, max_length=64)
+    email: str | None = Field(default=None, min_length=3, max_length=254)
     password: SecretStr = Field(min_length=15, max_length=1024)
 
 
@@ -649,7 +658,7 @@ def install_auth_http(app, settings, network):
             return {"registration_pending": True, "email_verified": False,
                     "message": "Check your email to activate your Player account"}
         return {"account": account_json(result), "email_verified": False,
-                "message": "Registration completed; email is not verified"}
+                "message": "Player registration completed"}
 
     @entry.post("/verify-email")
     async def verify_email(body: VerifyEmailBody, request: Request):
@@ -709,7 +718,7 @@ def install_auth_http(app, settings, network):
 
     @entry.post("/reset-password")
     async def reset_password(body: ResetPasswordBody, request: Request):
-        if not settings.require_email_verification:
+        if not (settings.require_email_verification or settings.allow_public_username_signup):
             raise HTTPException(404, "Password recovery is not enabled")
         runtime = runtime_for(request)
         token = body.token.get_secret_value()
@@ -806,6 +815,13 @@ def install_auth_http(app, settings, network):
     async def account_admin_operation(request, operation):
         actor, _ = await authenticate_account(request, "ADMIN", csrf=True)
         return await runtime_for(request).run(lambda auth, connection: operation(auth, connection, actor))
+
+    @admin.post("/player-recovery", status_code=201)
+    async def issue_player_recovery(body: AdminPlayerRecoveryBody, request: Request):
+        # Token is visible exactly once, only to a CSRF-checked Admin session.
+        # Public Admin sessions also require TOTP proof.
+        return await account_admin_operation(
+            request, lambda auth, _, actor: auth.issue_player_recovery(actor, body.username))
 
     @admin.post("/invitations", status_code=201)
     async def account_invite(body: InviteBody, request: Request):

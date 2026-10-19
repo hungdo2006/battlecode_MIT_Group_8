@@ -469,6 +469,78 @@ class AuthService:
             self._audit(now,row["user_id"],"PLAYER_EMAIL_VERIFIED","user",row["user_id"])
             return _account(self._user(row["user_id"]))
 
+    def request_player_password_reset(self, username, email):
+        """Return optional delivery tuple; HTTP response must stay uniform."""
+        self._ready()
+        try:
+            username, email = normalize_username(username), self._registration_email(email)
+        except ValueError:
+            return None
+        with transaction(self._db):
+            now = self._now()
+            user = self._db.execute("""SELECT u.id FROM users u JOIN user_emails e
+                ON e.user_id=u.id WHERE u.username=? AND e.email=? AND
+                u.status='ACTIVE' AND u.system_role='PLAYER'
+                AND e.verified_at IS NOT NULL""", (username,email)).fetchone()
+            if not user:
+                return None
+            self._db.execute("""UPDATE account_tokens SET revoked_at=?
+                WHERE purpose='PASSWORD_RESET' AND user_id=?
+                AND consumed_at IS NULL AND revoked_at IS NULL""", (now,user["id"]))
+            token = secrets.token_urlsafe(32)
+            self._db.execute("""INSERT INTO account_tokens
+                (id,token_hash,purpose,user_id,created_at,expires_at)
+                VALUES (?,?,'PASSWORD_RESET',?,?,?)""",
+                (uuid.uuid4().hex,_token_hash(token),user["id"],now,now+30*60))
+            self._audit(now,user["id"],"PLAYER_PASSWORD_RESET_REQUESTED","user",user["id"])
+            return email, token
+
+    def reset_player_password(self, token, password):
+        """Consume a 30-minute token once, update Argon2 hash and fence sessions."""
+        self._ready()
+        digest = _token_hash(token)
+        if digest is None:
+            raise InvalidInvitation()
+        def original():
+            return self._db.execute("""SELECT a.id,a.user_id,a.expires_at,a.created_at,
+                a.consumed_at,a.revoked_at,u.status,u.system_role,e.verified_at
+                FROM account_tokens a JOIN users u ON a.user_id=u.id
+                JOIN user_emails e ON e.user_id=u.id
+                WHERE a.token_hash=? AND a.purpose='PASSWORD_RESET'""",
+                (digest,)).fetchone()
+        row = original()
+        now = self._now()
+        if (not row or row["consumed_at"] is not None or row["revoked_at"] is not None
+                or not row["created_at"] <= now < row["expires_at"]
+                or row["status"] != "ACTIVE" or row["system_role"] != "PLAYER"
+                or row["verified_at"] is None):
+            raise InvalidInvitation()
+        with self._work.slot():
+            encoded = passwords.hash_password(password)
+        self._ready()
+        with transaction(self._db):
+            current = original()
+            now = self._now()
+            if (not current or current["id"] != row["id"]
+                    or current["consumed_at"] is not None or current["revoked_at"] is not None
+                    or not current["created_at"] <= now < current["expires_at"]
+                    or current["status"] != "ACTIVE" or current["system_role"] != "PLAYER"
+                    or current["verified_at"] is None):
+                raise InvalidInvitation()
+            self._db.execute("UPDATE account_tokens SET consumed_at=? WHERE id=?",
+                             (now,current["id"]))
+            self._db.execute("""UPDATE account_tokens SET revoked_at=?
+                WHERE user_id=? AND purpose='PASSWORD_RESET'
+                AND consumed_at IS NULL AND revoked_at IS NULL""",
+                (now,current["user_id"]))
+            self._db.execute("""UPDATE users SET password_hash=?,auth_version=auth_version+1,
+                updated_at=?,password_changed_at=? WHERE id=?""",
+                (encoded,now,now,current["user_id"]))
+            self._db.execute("""UPDATE auth_sessions SET revoked_at=max(created_at,?)
+                WHERE user_id=? AND revoked_at IS NULL""", (now,current["user_id"]))
+            self._audit(now,current["user_id"],"PLAYER_PASSWORD_RESET","user",current["user_id"])
+            return _account(self._user(current["user_id"]))
+
     def login_unified(self, username, password, *, source_key, otp=None):
         """Verify one password, derive audience from the persisted user role."""
         self._ready()

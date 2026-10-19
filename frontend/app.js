@@ -611,6 +611,8 @@ function showAccountDialog(message = "Đăng nhập để tiếp tục vào work
 }
 
 function acceptAccount(data, audience) {
+  $("#admin-player-recovery-token").value = "";
+  $("#admin-player-recovery-result").classList.add("hidden");
   app.logoutError = false;
   app.account = data.account;
   app.pollPauseUntil = 0;
@@ -812,6 +814,8 @@ async function accountLogout() {
   // A successfully revoked account must cancel any pending startup retry.
   clearTimeout(app.bootstrapTimer); app.bootstrapTimer = null;
   app.pollPauseUntil = 0;
+  $("#admin-player-recovery-token").value = "";
+  $("#admin-player-recovery-result").classList.add("hidden");
   app.account = null; app.participant = null; app.accountAudience = null; app.csrf = null;
   app.role = "player"; app.organizerAvailable = false; app.initialized = false;
   app.competitionSocket?.close(); app.socket?.close();

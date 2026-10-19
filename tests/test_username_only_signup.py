@@ -157,3 +157,63 @@ def test_recovery_token_expiry_and_latest_only(tmp_path):
         clock.now += 1800
         assert client.post("/api/account/auth/reset-password",
                            json={"token": latest, "password": NEW_PASSWORD}).status_code == 400
+
+
+def test_password_only_admin_public_gateway_is_explicit_and_preserves_rbac(tmp_path):
+    clock = Clock()
+    # Public HTTP gateway must not drop Admin MFA merely because an env flag
+    # is absent. The explicit password-only opt-in and its conflict are checked.
+    common = dict(enabled=True, account_only=True, public_https=True,
+                  gateway_secret=SECRET, origins=(ORIGIN,), clock=clock)
+    with pytest.raises(ValueError, match="Admin TOTP or explicit"):
+        HTTPAuthSettings(**common)
+    with pytest.raises(ValueError, match="cannot both"):
+        HTTPAuthSettings(**common, require_admin_totp=True,
+                         public_admin_password_only=True)
+    with pytest.raises(ValueError, match="HTTPS Account-Only"):
+        HTTPAuthSettings(enabled=True, account_only=True,
+                         public_admin_password_only=True, origins=("https://testserver",))
+    options = HTTPAuthSettings(**common, public_admin_password_only=True,
+                               allow_public_username_signup=True,
+                               self_registration=True)
+    data_dir = tmp_path / "data"
+    bootstrap_admin(data_dir, "teacher.admin", PASSWORD)
+    network = NetworkSettings(allowed_hosts=(DOMAIN,), public_gateway=True)
+    with TestClient(create_app(tmp_path, network=network, account_http=options),
+                    base_url="http://" + DOMAIN,
+                    client=("127.0.0.1", 54333)) as client:
+        public_health = client.get("/api/health", headers={"Host": DOMAIN})
+        assert public_health.status_code == 200
+        assert public_health.json()["admin_totp_required"] is False
+        client.headers.update(headers())
+        invalid = client.post("/api/account/auth/login", json={
+            "username": "teacher.admin", "password": NEW_PASSWORD})
+        assert invalid.status_code == 401
+        login = client.post("/api/account/auth/login", json={
+            "username": "teacher.admin", "password": PASSWORD})
+        assert login.status_code == 200, login.text
+        assert login.json()["account"]["system_role"] == "ADMIN"
+        assert login.json()["audience"] == "admin"
+        cookie = {"Cookie": "arena_account_admin_v2=" + login.cookies["arena_account_admin_v2"]}
+        csrf_response = client.get("/api/admin/auth/csrf", headers=cookie)
+        assert csrf_response.status_code == 200, csrf_response.text
+        assert client.post("/api/admin/auth/player-recovery", headers=cookie,
+                           json={"username": "student02"}).status_code == 403
+        registered = client.post("/api/account/auth/register",
+                                 json={"username": "student02", "password": PASSWORD})
+        assert registered.status_code == 201, registered.text
+        assert registered.json()["account"]["system_role"] == "PLAYER"
+        grant = client.post("/api/admin/auth/player-recovery",
+                            headers={**cookie, "X-CSRF-Token": csrf_response.json()["csrf_token"]},
+                            json={"username": "student02"})
+        assert grant.status_code == 201, grant.text
+        # Player self-register cannot access the administrative area.
+        player = client.post("/api/account/auth/login", json={
+            "username": "student02", "password": PASSWORD})
+        assert player.status_code == 200, player.text
+        assert player.json()["audience"] == "player"
+        assert "arena_account_admin_v2" not in player.headers["set-cookie"]
+        assert client.post("/api/admin/auth/player-recovery",
+                           headers={"Cookie": "arena_account_player_v2=" +
+                                    player.cookies["arena_account_player_v2"]},
+                           json={"username": "student02"}).status_code in (401, 403)

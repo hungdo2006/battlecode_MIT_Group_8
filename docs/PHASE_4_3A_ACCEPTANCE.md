@@ -21,7 +21,7 @@ Internet deployment or an approval to migrate an existing AWS/production DB.
 | A01 | Existing Admin via unified login | no audience selector; account role from server; Admin cookie scoped to `/api/admin` |
 | A02 | Existing Player via unified login | Player cookie scoped to `/api/player`, Admin cookie cleared on switch |
 | A03 | Invalid password/role injection | uniform 401 / 422; cannot obtain elevated session |
-| A04 | Open registration | username/display name/email/strong password → 201 ACTIVE Player only; login after registration |
+| A04 | Open registration | local QA may create ACTIVE Player with unverified email, but verified-email mode must hold Player INVITED until one-use SMTP token succeeds; then login permitted |
 | A05 | Registration disabled | HTTP 404 and hidden Register choice, no new DB user |
 | A06 | Duplicate username/email casefold | 409 without account creation; retries cannot overwrite |
 | A07 | Registration abuse | 429 with Retry-After; malformed body, cross-origin/proxy/Host denial; bounded JSON |
@@ -29,7 +29,7 @@ Internet deployment or an approval to migrate an existing AWS/production DB.
 | A09 | Database correctness | v5→v6 append-only, idempotent, integrity/FK, existing Admin and Teams survive |
 | A10 | Browser integration | actual Chrome signup → shared login Player → logout → shared login Admin; no JS errors |
 | A11 | Compatibility | full Windows/Linux pytest, prior invitation activation, Team, Official Match and replay |
-| A12 | Security inventory | email unverified; no reset or MFA; public Host/Origin gateway unsupported; no AWS go-live claim |
+| A12 | Security inventory | Admin TOTP MFA and replay fence, SMTP verified-email registration with resend, public gateway proof/Host/Origin/rate limits, account reset and deployment dependencies reviewed; no AWS go-live claim |
 
 ## Commands
 

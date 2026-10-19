@@ -549,6 +549,7 @@ function showAccountDialog(message = "Đăng nhập để tiếp tục vào work
   $("#account-feedback").classList.remove("hidden", "error");
   if (!dialog.open) dialog.showModal();
   $("#account-register-choice").classList.toggle("hidden", !app.selfRegistration);
+  $("#account-email-tools").classList.toggle("hidden", !app.emailVerification);
   accountEntryTab("login");
 }
 
@@ -629,7 +630,7 @@ $("#account-register-form").addEventListener("submit", async event => {
   busyButton(button, true);
   try {
     if (!app.selfRegistration) throw new Error("Đăng ký hiện chưa được mở.");
-    await api("/api/account/auth/register", jsonOptions("POST", {
+    const registered = await api("/api/account/auth/register", jsonOptions("POST", {
       username: form.elements.username.value,
       display_name: form.elements.display_name.value,
       email: form.elements.email.value,
@@ -639,10 +640,39 @@ $("#account-register-form").addEventListener("submit", async event => {
     form.reset();
     accountEntryTab("login");
     $("#account-username").value = username;
-    feedback("#account-feedback", "Tạo tài khoản Player thành công. Email chưa được xác minh; hãy đăng nhập để tiếp tục.");
+    feedback("#account-feedback", registered.registration_pending
+      ? "Đã nhận yêu cầu. Kiểm tra email, mở liên kết xác minh rồi mới đăng nhập."
+      : "Tạo tài khoản Player thành công. Email chưa được xác minh; hãy đăng nhập để tiếp tục.");
   } catch (error) {
     feedback("#account-feedback", error.message, true);
   } finally { busyButton(button, false); button.disabled = false; }
+});
+
+$("#account-email-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const form = event.currentTarget, button = form.querySelector("[type=submit]");
+  busyButton(button, true);
+  try {
+    await api("/api/account/auth/verify-email", jsonOptions("POST", {
+      token: form.elements.token.value
+    }));
+    form.reset();
+    feedback("#account-feedback", "Xác minh email thành công. Bạn có thể đăng nhập.");
+  } catch (error) { feedback("#account-feedback", error.message, true); }
+  finally { busyButton(button, false); button.disabled = false; }
+});
+
+$("#account-resend-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const form = event.currentTarget, button = form.querySelector("[type=submit]");
+  busyButton(button, true);
+  try {
+    await api("/api/account/auth/resend-verification", jsonOptions("POST", {
+      username: form.elements.username.value, email: form.elements.email.value
+    }));
+    feedback("#account-feedback", "Nếu tài khoản cần xác minh, email mới sẽ được gửi.");
+  } catch (error) { feedback("#account-feedback", error.message, true); }
+  finally { busyButton(button, false); button.disabled = false; }
 });
 
 $("#account-activation-form").addEventListener("submit", async event => {
@@ -1943,10 +1973,28 @@ async function bootstrap() {
     app.accountAuth = health.account_auth === true;
     app.accountOnly = health.account_only === true;
     app.selfRegistration = health.self_registration === true;
+    app.emailVerification = health.email_verification === true;
+    if (app.accountOnly && app.emailVerification) {
+      const verification = /^#verify-email=([A-Za-z0-9_-]{43})$/.exec(location.hash);
+      if (verification) {
+        history.replaceState(null, "", location.pathname + location.search);
+        try {
+          await api("/api/account/auth/verify-email", jsonOptions("POST", {
+            token: verification[1]
+          }));
+          app.emailVerificationNotice = "Xác minh email thành công. Bạn có thể đăng nhập.";
+        } catch (error) {
+          app.emailVerificationNotice = "Không thể xác minh email: " + error.message;
+        }
+      }
+    }
     if (app.accountOnly) {
       $("#account-mode-note").classList.remove("hidden");
       if (!app.account && !await restoreAccount()) {
-        setConnection(true); renderSession(); showAccountDialog(); return;
+        setConnection(true); renderSession();
+        showAccountDialog(app.emailVerificationNotice || undefined);
+        app.emailVerificationNotice = null;
+        return;
       }
     } else {
       // Establish the legacy cookie first; parallel startup requests then share one identity.

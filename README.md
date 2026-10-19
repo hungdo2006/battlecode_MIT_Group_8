@@ -43,11 +43,14 @@ owner-authorized migration window and tested rollback. Enable for isolated QA:
 `ARENA_SELF_REGISTRATION=1`, set explicit local/LAN `ARENA_AUTH_ORIGINS`,
 and `ARENA_AUTH_ALLOW_HTTP=1` **only for local QA**.
 
-**Not Internet-ready:** Current Host/Origin, peer and proxy policy explicitly
-supports only local/LAN, and the email-verification, anti-abuse/CAPTCHA, MFA,
-gateway TLS/WSS and deployment review are not implemented. Phase 4.3A needs
-independent Chrome, Docker, storage-migration and security QA on the exact
-branch HEAD. **No AWS deployment or merge without approval.**
+**Not deployed and not yet accepted for the Internet:** Optional verified-email
+registration now supports SMTP STARTTLS delivery and one-time token confirmation
+(plus uniform resend), Admin TOTP MFA, and an opt-in authenticated HTTPS edge.
+These all remain disabled or gated until configured and tested on a disposable
+environment. Automated bot-abuse protections, SMTP provider DNS/deliverability,
+real TLS, gateway/WSS, MFA recovery and the independent Docker/Chrome security
+assessment are STILL required before a public deployment. Do not merge or
+deploy without approval.
 
 ## Tiến độ — Phase 4.2E Final System QA (đã merge)
 

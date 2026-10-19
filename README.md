@@ -25,8 +25,10 @@ guards remain for compatibility.
   Players must still be able to activate and recover accounts.
 - Admin TOTP is enrolled/rotated offline:
   `python -m backend.admin_cli --data-dir <offline-data-dir> enroll-admin-totp --username <admin>`.
-  Require `ARENA_ADMIN_TOTP_REQUIRED=1` for any public gateway. This
-  six-digit factor is replay-fenced, session-scoped, and not phishing-resistant.
+  Public gateway uses `ARENA_ADMIN_TOTP_REQUIRED=1` by default. A supervised
+  pilot may explicitly choose `ARENA_ADMIN_TOTP_REQUIRED=0` and
+  `ARENA_PUBLIC_ADMIN_PASSWORD_ONLY=1`, accepting weaker Admin protection;
+  details and rollback are in [the pilot runbook](docs/USERNAME_ONLY_SIGNUP.md).
 - SQLite migrations **v6–v9** are append-only. Existing databases must be
   migrated **offline after a verified backup and disposal-clone rehearsal**:
 

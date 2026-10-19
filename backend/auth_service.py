@@ -385,10 +385,13 @@ class AuthService:
         """
         self._ready()
         username = normalize_username(username)
-        name = display_name(name)
-        canonical_email = self._registration_email(email)
+        name = display_name(name if name is not None else username)
+        if verify_email and not email:
+            raise ValueError("Email required for verified registration")
+        canonical_email = self._registration_email(email) if email is not None else None
         if (self._db.execute("SELECT 1 FROM users WHERE username=?", (username,)).fetchone()
-            or self._db.execute("SELECT 1 FROM user_emails WHERE email=?", (canonical_email,)).fetchone()):
+            or (canonical_email is not None and self._db.execute(
+                "SELECT 1 FROM user_emails WHERE email=?", (canonical_email,)).fetchone())):
             raise AccountConflict("Registration unavailable")
         with self._work.slot():
             encoded = passwords.hash_password(password)
@@ -396,7 +399,8 @@ class AuthService:
         with transaction(self._db):
             now = self._now()
             if (self._db.execute("SELECT 1 FROM users WHERE username=?", (username,)).fetchone()
-                or self._db.execute("SELECT 1 FROM user_emails WHERE email=?", (canonical_email,)).fetchone()):
+                or (canonical_email is not None and self._db.execute(
+                    "SELECT 1 FROM user_emails WHERE email=?", (canonical_email,)).fetchone())):
                 raise AccountConflict("Registration unavailable")
             user_id = uuid.uuid4().hex
             status = "INVITED" if verify_email else "ACTIVE"
@@ -405,8 +409,9 @@ class AuthService:
                 created_at,updated_at,password_changed_at)
                 VALUES (?,?,?,'PLAYER',?,?,?,?,?)""",
                 (user_id,username,name,status,encoded,now,now,now))
-            self._db.execute("""INSERT INTO user_emails (user_id,email,verified_at)
-                VALUES (?,?,NULL)""", (user_id,canonical_email))
+            if canonical_email is not None:
+                self._db.execute("""INSERT INTO user_emails (user_id,email,verified_at)
+                    VALUES (?,?,NULL)""", (user_id,canonical_email))
             token = self._issue_email_verification(user_id, now) if verify_email else None
             self._audit(now,user_id,"PLAYER_SELF_REGISTERED","user",user_id,
                         email_verification_required=verify_email)
@@ -495,17 +500,43 @@ class AuthService:
             self._audit(now,user["id"],"PLAYER_PASSWORD_RESET_REQUESTED","user",user["id"])
             return email, token
 
+    def issue_player_recovery(self, actor, username):
+        """An MFA-authenticated Admin can issue a one-use recovery token to a Player.
+
+        Give the token to the Player through a trusted private channel. Admins
+        never learn or set a Player password.
+        """
+        self._ready()
+        username = normalize_username(username)
+        with transaction(self._db):
+            now = self._now()
+            admin = self._require_actor(actor, now, admin=True)
+            user = self._db.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
+            if not user or user["system_role"] != "PLAYER" or user["status"] != "ACTIVE":
+                raise AccountConflict("Player account unavailable")
+            self._db.execute("""UPDATE account_tokens SET revoked_at=max(created_at,?)
+                WHERE user_id=? AND purpose='PASSWORD_RESET'
+                AND consumed_at IS NULL AND revoked_at IS NULL""", (now,user["id"]))
+            token, token_id = secrets.token_urlsafe(32), uuid.uuid4().hex
+            self._db.execute("""INSERT INTO account_tokens
+                (id,token_hash,purpose,user_id,created_by,created_at,expires_at)
+                VALUES (?,?,'PASSWORD_RESET',?,?,?,?)""",
+                (token_id,_token_hash(token),user["id"],admin["id"],now,now+1800))
+            self._audit(now,admin["id"],"ADMIN_PLAYER_RECOVERY_ISSUED","user",user["id"],
+                        reset_token_id=token_id)
+            return {"username": username, "token": token, "expires_at": now+1800}
+
     def reset_player_password(self, token, password):
-        """Consume a 30-minute token once, update Argon2 hash and fence sessions."""
+        """Consume a one-use admin-issued or verified-email recovery token."""
         self._ready()
         digest = _token_hash(token)
         if digest is None:
             raise InvalidInvitation()
         def original():
             return self._db.execute("""SELECT a.id,a.user_id,a.expires_at,a.created_at,
-                a.consumed_at,a.revoked_at,u.status,u.system_role,e.verified_at
+                a.consumed_at,a.revoked_at,a.created_by,u.status,u.system_role,e.verified_at
                 FROM account_tokens a JOIN users u ON a.user_id=u.id
-                JOIN user_emails e ON e.user_id=u.id
+                LEFT JOIN user_emails e ON e.user_id=u.id
                 WHERE a.token_hash=? AND a.purpose='PASSWORD_RESET'""",
                 (digest,)).fetchone()
         row = original()
@@ -513,7 +544,7 @@ class AuthService:
         if (not row or row["consumed_at"] is not None or row["revoked_at"] is not None
                 or not row["created_at"] <= now < row["expires_at"]
                 or row["status"] != "ACTIVE" or row["system_role"] != "PLAYER"
-                or row["verified_at"] is None):
+                or (row["verified_at"] is None and row["created_by"] is None)):
             raise InvalidInvitation()
         with self._work.slot():
             encoded = passwords.hash_password(password)
@@ -525,7 +556,7 @@ class AuthService:
                     or current["consumed_at"] is not None or current["revoked_at"] is not None
                     or not current["created_at"] <= now < current["expires_at"]
                     or current["status"] != "ACTIVE" or current["system_role"] != "PLAYER"
-                    or current["verified_at"] is None):
+                    or (current["verified_at"] is None and current["created_by"] is None)):
                 raise InvalidInvitation()
             self._db.execute("UPDATE account_tokens SET consumed_at=? WHERE id=?",
                              (now,current["id"]))

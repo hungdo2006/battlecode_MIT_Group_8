@@ -10,6 +10,7 @@ const app = {
   participant: null, readOnly: false, refreshing: false,
   role: "player", organizerAvailable: false,
   accountOnly: false, accountAuth: false, account: null, accountAudience: null, csrf: null,
+  usernameOnlySignup: false,
   team: null, activeTeamBot: null, officialMatches: [], officialTeams: [],
   officialRefreshing: false, pollPauseUntil: 0, bootstrapTimer: null,
   logoutBusy: false, logoutError: false,
@@ -381,6 +382,10 @@ $("#resume-match").onclick = () => { if (app.lobby?.me?.current_match_id) loadMa
 
 function renderSession() {
   if (app.accountOnly) {
+    if (!app.account) {
+      $("#admin-player-recovery-token").value = "";
+      $("#admin-player-recovery-result").classList.add("hidden");
+    }
     $("#participant-name").textContent = app.account?.display_name || "Chưa đăng nhập";
     $("#participant-id").textContent = app.account
       ? `ACCOUNT / ${app.account.username} · ${app.account.system_role}`
@@ -589,7 +594,18 @@ function showAccountDialog(message = "Đăng nhập để tiếp tục vào work
   if (!dialog.open) dialog.showModal();
   $("#account-register-choice").classList.toggle("hidden", !app.selfRegistration);
   $("#account-email-tools").classList.toggle("hidden", !app.emailVerification);
-  $("#account-password-tools").classList.toggle("hidden", !app.emailVerification);
+  $("#account-password-tools").classList.toggle("hidden", !(app.emailVerification || app.usernameOnlySignup));
+  $("#account-request-reset-form").classList.toggle("hidden", !app.emailVerification);
+  $("#account-register-name-field").classList.toggle("hidden", !app.emailVerification);
+  $("#account-register-email-field").classList.toggle("hidden", !app.emailVerification);
+  $("#account-register-form [name=display_name]").required = app.emailVerification;
+  $("#account-register-form [name=email]").required = app.emailVerification;
+  $("#account-register-note").textContent = app.emailVerification
+    ? "Đăng ký chỉ tạo tài khoản Player. Phải xác minh email trước khi đăng nhập."
+    : "Đăng ký chỉ tạo tài khoản Player. Nếu quên mật khẩu, liên hệ Admin để nhận mã khôi phục.";
+  $("#account-recovery-note").textContent = app.emailVerification
+    ? "Có thể nhận email khôi phục, hoặc nhờ Admin cấp mã một lần."
+    : "Liên hệ Admin để nhận mã khôi phục dùng một lần, có hạn 30 phút.";
   accountEntryTab("login");
   if (app.resetTokenLoaded) {
     $("#account-password-tools").open = true;
@@ -599,6 +615,8 @@ function showAccountDialog(message = "Đăng nhập để tiếp tục vào work
 }
 
 function acceptAccount(data, audience) {
+  $("#admin-player-recovery-token").value = "";
+  $("#admin-player-recovery-result").classList.add("hidden");
   app.logoutError = false;
   app.account = data.account;
   app.pollPauseUntil = 0;
@@ -619,6 +637,8 @@ $("#account-register-choice").addEventListener("click", () => accountEntryTab("r
 
 function accountExpired() {
   if (!app.accountOnly || !app.account) return;
+  $("#admin-player-recovery-token").value = "";
+  $("#admin-player-recovery-result").classList.add("hidden");
   app.account = null; app.participant = null; app.accountAudience = null; app.csrf = null;
   app.pollPauseUntil = 0;
   clearTimeout(app.bootstrapTimer); app.bootstrapTimer = null;
@@ -672,13 +692,19 @@ $("#account-register-form").addEventListener("submit", async event => {
   event.preventDefault();
   const form = event.currentTarget;
   const button = form.querySelector("[type=submit]");
+  if (form.elements.password.value !== form.elements.confirm_password.value) {
+    feedback("#account-feedback", "Hai mật khẩu chưa trùng nhau.", true);
+    return;
+  }
   busyButton(button, true);
   try {
     if (!app.selfRegistration) throw new Error("Đăng ký hiện chưa được mở.");
     const registered = await api("/api/account/auth/register", jsonOptions("POST", {
       username: form.elements.username.value,
-      display_name: form.elements.display_name.value,
-      email: form.elements.email.value,
+      ...(app.emailVerification ? {
+        display_name: form.elements.display_name.value,
+        email: form.elements.email.value
+      } : {}),
       password: form.elements.password.value
     }));
     const username = form.elements.username.value;
@@ -687,7 +713,7 @@ $("#account-register-form").addEventListener("submit", async event => {
     $("#account-username").value = username;
     feedback("#account-feedback", registered.registration_pending
       ? "Đã nhận yêu cầu. Kiểm tra email, mở liên kết xác minh rồi mới đăng nhập."
-      : "Tạo tài khoản Player thành công. Email chưa được xác minh; hãy đăng nhập để tiếp tục.");
+      : "Tạo tài khoản Player thành công. Hãy đăng nhập để tiếp tục.");
   } catch (error) {
     feedback("#account-feedback", error.message, true);
   } finally { busyButton(button, false); button.disabled = false; }
@@ -2051,6 +2077,9 @@ async function bootstrap() {
     app.accountOnly = health.account_only === true;
     app.selfRegistration = health.self_registration === true;
     app.emailVerification = health.email_verification === true;
+    app.usernameOnlySignup = health.username_only_signup === true;
+    app.adminTotpRequired = health.admin_totp_required === true;
+    $("#account-admin-otp-field").classList.toggle("hidden", !app.adminTotpRequired);
     if (app.accountOnly && app.emailVerification) {
       const reset = /^#reset-password=([A-Za-z0-9_-]{43})$/.exec(location.hash);
       if (reset) {
@@ -2346,6 +2375,7 @@ async function refreshOfficialMatches({includeTeams = true} = {}) {
     $("#official-schedule-form [type=submit]").disabled = app.officialTeams.length < 2 || !app.games.length;
   }
   $("#official-admin-panel").classList.toggle("hidden", !isAdmin);
+  $("#admin-player-recovery-panel").classList.toggle("hidden", !isAdmin);
   $("#official-list-heading").textContent = isAdmin ? "Tất cả Official Matches" : "Trận đấu của Team tôi";
   renderOfficialMatches();
 }
@@ -2394,6 +2424,42 @@ function renderOfficialMatches() {
 }
 $("#official-refresh").addEventListener("click", () =>
   refreshOfficialMatches().catch(error => toast(error.message, true)));
+
+$("#admin-player-recovery-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector("[type=submit]");
+  $("#admin-player-recovery-token").value = "";
+  $("#admin-player-recovery-result").classList.add("hidden");
+  busyButton(button, true);
+  try {
+    if (!app.accountOnly || app.account?.system_role !== "ADMIN") {
+      throw new Error("Chỉ Admin được cấp mã khôi phục.");
+    }
+    const issued = await api("/api/admin/auth/player-recovery", jsonOptions("POST", {
+      username: form.elements.username.value
+    }));
+    form.reset();
+    $("#admin-player-recovery-token").value = issued.token;
+    $("#admin-player-recovery-result").classList.remove("hidden");
+    feedback("#admin-player-recovery-feedback", "Mã chỉ có hiệu lực 30 phút. Hãy chuyển riêng cho Player.");
+  } catch (error) {
+    feedback("#admin-player-recovery-feedback", error.message, true);
+  } finally {
+    busyButton(button, false); button.disabled = false;
+  }
+});
+$("#admin-player-recovery-copy").addEventListener("click", async () => {
+  const token = $("#admin-player-recovery-token").value;
+  if (!token) return;
+  try {
+    await navigator.clipboard.writeText(token);
+    feedback("#admin-player-recovery-feedback", "Đã sao chép mã. Chỉ chia sẻ riêng cho đúng Player.");
+  } catch {
+    $("#admin-player-recovery-token").select();
+    feedback("#admin-player-recovery-feedback", "Chọn và sao chép mã trong ô phía trên.");
+  }
+});
 $("#official-schedule-form").addEventListener("submit", async event => {
   event.preventDefault();
   const form = event.currentTarget, button = form.querySelector("[type=submit]");

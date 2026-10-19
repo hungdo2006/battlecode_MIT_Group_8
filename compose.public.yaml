@@ -14,11 +14,17 @@ services:
       ARENA_AUTH_ORIGINS: "https://${ARENA_PUBLIC_DOMAIN:?Set an approved FQDN}"
       ARENA_ALLOWED_HOSTS: "${ARENA_PUBLIC_DOMAIN:?Set an approved FQDN}"
       ARENA_PROXY_SECRET: "${ARENA_PROXY_SECRET:?Set a private random 48+ character token}"
-      ARENA_ADMIN_TOTP_REQUIRED: "1"
-      # Do not allow Internet self-registration without delivered email
-      # verification, abuse review and completed end-to-end acceptance.
+      # Default remains MFA-protected. For a password-only Admin classroom demo,
+      # operator MUST set both ARENA_ADMIN_TOTP_REQUIRED=0 and
+      # ARENA_PUBLIC_ADMIN_PASSWORD_ONLY=1 in the private EC2 .env.
+      ARENA_ADMIN_TOTP_REQUIRED: "${ARENA_ADMIN_TOTP_REQUIRED:-1}"
+      ARENA_PUBLIC_ADMIN_PASSWORD_ONLY: "${ARENA_PUBLIC_ADMIN_PASSWORD_ONLY:-0}"
+      # Public signup requires verified email OR explicit username-only opt-in.
+      # For the latter, assess impersonation and abuse risks in
+      # docs/USERNAME_ONLY_SIGNUP.md before independent end-to-end acceptance.
       ARENA_SELF_REGISTRATION: "${ARENA_SELF_REGISTRATION:-0}"
       ARENA_EMAIL_VERIFICATION: "${ARENA_EMAIL_VERIFICATION:-0}"
+      ARENA_PUBLIC_USERNAME_SIGNUP: "${ARENA_PUBLIC_USERNAME_SIGNUP:-0}"
 
   gateway:
     image: caddy:2.9.1-alpine

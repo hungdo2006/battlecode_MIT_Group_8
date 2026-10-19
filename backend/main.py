@@ -247,7 +247,9 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
                 "read_only": settings.read_only, "account_auth": account_settings.enabled,
                 "account_only": account_settings.account_only,
                  "self_registration": account_settings.self_registration,
-                 "email_verification": account_settings.require_email_verification}
+                 "email_verification": account_settings.require_email_verification,
+                 "username_only_signup": account_settings.allow_public_username_signup,
+                 "admin_totp_required": account_settings.require_admin_totp}
 
     def session_payload(request: Request):
         return {"participant": request.state.participant, "read_only": settings.read_only,

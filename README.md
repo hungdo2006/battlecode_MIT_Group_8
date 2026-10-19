@@ -1,8 +1,8 @@
 # NEON ARENA
 
-## Phase 4.3 — Unified Login, Verified Player Signup & Pre-AWS (Draft PR #12)
+## Phase 4.3 — HTTPS Account-Only and username-only Player enrollment (PR #13)
 
-This is an **unmerged pre-AWS QA candidate**, not a deployed release. See
+Phase 4.3 unified-login code has been merged and the owner has verified Admin login through the AWS HTTPS pilot. **This PR's new no-email enrollment/recovery changes are not deployed or independently accepted.** See [username-only enrollment runbook](docs/USERNAME_ONLY_SIGNUP.md). See
 [pre-AWS design](docs/PHASE_4_3_PRE_AWS.md),
 [organizer handover](docs/PHASE_4_3_OPERATOR_HANDOVER.md), and the mandatory
 [P01–P20 independent QA](docs/PHASE_4_3_CONSOLIDATED_QA.md).
@@ -25,8 +25,10 @@ guards remain for compatibility.
   Players must still be able to activate and recover accounts.
 - Admin TOTP is enrolled/rotated offline:
   `python -m backend.admin_cli --data-dir <offline-data-dir> enroll-admin-totp --username <admin>`.
-  Require `ARENA_ADMIN_TOTP_REQUIRED=1` for any public gateway. This
-  six-digit factor is replay-fenced, session-scoped, and not phishing-resistant.
+  Public gateway uses `ARENA_ADMIN_TOTP_REQUIRED=1` by default. A supervised
+  pilot may explicitly choose `ARENA_ADMIN_TOTP_REQUIRED=0` and
+  `ARENA_PUBLIC_ADMIN_PASSWORD_ONLY=1`, accepting weaker Admin protection;
+  details and rollback are in [the pilot runbook](docs/USERNAME_ONLY_SIGNUP.md).
 - SQLite migrations **v6–v9** are append-only. Existing databases must be
   migrated **offline after a verified backup and disposal-clone rehearsal**:
 
@@ -35,12 +37,13 @@ python -m backend.admin_cli --data-dir <disposable-data-dir> migrate
 python -m backend.admin_cli --data-dir <disposable-data-dir> check
 ```
 
-The versioned `compose.public.yaml` and `deploy/Caddyfile` are **templates
-only**, not authorization to start a public stack. Enablement requires approved
-DNS/domain, operator-owned SMTP and Admin TOTP, authenticated private gateway
-proof, static Compose render, real Chrome/Docker/TLS/WebSocket/security QA and
-explicit owner approval. Do not merge, deploy, mutate AWS or migrate a running
-volume based solely on GitHub Actions passing.
+The versioned `compose.public.yaml` and `deploy/Caddyfile` implement the HTTPS gateway.
+**No-email public signup remains OFF by default**: to opt in during a supervised
+pilot, review `docs/USERNAME_ONLY_SIGNUP.md`, set
+`ARENA_PUBLIC_USERNAME_SIGNUP=1` and `ARENA_SELF_REGISTRATION=1`, and complete
+security/browser/Docker acceptance. With verified-email signup, use authenticated
+SMTP STARTTLS instead. Never expose the backend or Docker controller.
+Do not deploy new code or migrate data based only on GitHub Actions passing.
 
 ## Tiến độ — Phase 4.2E Final System QA (đã merge)
 

@@ -382,6 +382,10 @@ $("#resume-match").onclick = () => { if (app.lobby?.me?.current_match_id) loadMa
 
 function renderSession() {
   if (app.accountOnly) {
+    if (!app.account) {
+      $("#admin-player-recovery-token").value = "";
+      $("#admin-player-recovery-result").classList.add("hidden");
+    }
     $("#participant-name").textContent = app.account?.display_name || "Chưa đăng nhập";
     $("#participant-id").textContent = app.account
       ? `ACCOUNT / ${app.account.username} · ${app.account.system_role}`
@@ -814,8 +818,6 @@ async function accountLogout() {
   // A successfully revoked account must cancel any pending startup retry.
   clearTimeout(app.bootstrapTimer); app.bootstrapTimer = null;
   app.pollPauseUntil = 0;
-  $("#admin-player-recovery-token").value = "";
-  $("#admin-player-recovery-result").classList.add("hidden");
   app.account = null; app.participant = null; app.accountAudience = null; app.csrf = null;
   app.role = "player"; app.organizerAvailable = false; app.initialized = false;
   app.competitionSocket?.close(); app.socket?.close();

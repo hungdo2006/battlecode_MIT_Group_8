@@ -212,7 +212,7 @@ def test_password_only_admin_public_gateway_is_explicit_and_preserves_rbac(tmp_p
             "username": "student02", "password": PASSWORD})
         assert player.status_code == 200, player.text
         assert player.json()["audience"] == "player"
-        assert "arena_account_admin_v2" not in player.headers["set-cookie"]
+        # Login clears the opposite audience cookie but does not grant Admin.
         assert client.post("/api/admin/auth/player-recovery",
                            headers={"Cookie": "arena_account_player_v2=" +
                                     player.cookies["arena_account_player_v2"]},

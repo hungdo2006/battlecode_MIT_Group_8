@@ -99,6 +99,28 @@ def canonical_origin(value):
         raise ValueError("Exact HTTP(S) origins without paths are required") from None
 
 
+def trusted_client_address(scope, headers, settings):
+    """Only authenticated private HTTPS edge may claim a client IP."""
+    if not settings.public_https:
+        return scope["client"][0]
+    supplied, remote = headers.getlist("x-arena-proxy-secret"), headers.getlist("x-arena-client-ip")
+    if (len(supplied) != 1 or not hmac.compare_digest(supplied[0], settings.gateway_secret)
+            or len(remote) != 1):
+        raise HTTPException(403, "Authenticated gateway required")
+    try:
+        address = ip_address(remote[0])
+        if str(address) != remote[0]:
+            raise ValueError()
+    except ValueError:
+        raise HTTPException(403, "Invalid gateway client IP") from None
+    return str(address)
+
+
+def secure_account_cookie(request, settings):
+    # Never trust unsigned Forwarded / X-Forwarded-* for Secure cookie issuance.
+    return settings.public_https or request.scope["scheme"] == "https"
+
+
 def guard_account_scope(scope, headers, settings, network, *, websocket=False):
     hosts, origins = headers.getlist("host"), headers.getlist("origin")
     if len(hosts) != 1 or not network.allows_host(hosts[0]):
@@ -106,8 +128,16 @@ def guard_account_scope(scope, headers, settings, network, *, websocket=False):
     if any(key.lower().startswith("x-forwarded-") or key.lower() in {"forwarded", "x-real-ip"}
            for key in headers):
         raise HTTPException(403, "Proxy headers are not supported for account auth")
+    if not settings.public_https and any(key.lower().startswith("x-arena-") for key in headers):
+        raise HTTPException(403, "Gateway headers are not supported in LAN mode")
     try:
-        scheme = {"ws": "http", "wss": "https"}.get(scope["scheme"], scope["scheme"])
+        if settings.public_https:
+            if headers.getlist("x-arena-https") != ["1"] or scope["scheme"] not in {"http", "ws"}:
+                raise ValueError()
+            trusted_client_address(scope, headers, settings)
+            scheme = "https"
+        else:
+            scheme = {"ws": "http", "wss": "https"}.get(scope["scheme"], scope["scheme"])
         target = canonical_origin(scheme + "://" + hosts[0])
         peer = ip_address(scope["client"][0])
         peer_host = f"[{peer}]" if peer.version == 6 else str(peer)
@@ -137,6 +167,8 @@ class HTTPAuthSettings:
     account_only: bool = False
     self_registration: bool = False
     require_admin_totp: bool = False
+    public_https: bool = False
+    gateway_secret: str = field(default="", repr=False)
     origins: tuple[str, ...] = ()
     allow_http: bool = False  # Explicit local/LAN QA exception, never HTTPS override.
     policy: AuthPolicy = field(default_factory=AuthPolicy)
@@ -151,13 +183,22 @@ class HTTPAuthSettings:
             raise ValueError("Self-registration requires Account-Only mode")
         if self.require_admin_totp and not self.account_only:
             raise ValueError("Admin TOTP requires Account-Only mode")
+        if self.public_https:
+            if not (self.enabled and self.account_only and self.require_admin_totp):
+                raise ValueError("Public Gateway requires Account-Only and Admin TOTP")
+            if not isinstance(self.gateway_secret, str) or len(self.gateway_secret) < 48:
+                raise ValueError("Public Gateway requires a >=48 character random secret")
+            if self.allow_http:
+                raise ValueError("Public Gateway forbids HTTP QA mode")
         if self.enabled:
             if not self.origins:
                 raise ValueError("ARENA_AUTH_ORIGINS is required when account HTTP auth is enabled")
             for value in self.origins:
                 scheme, host, _ = canonical_origin(value)
-                if not demo_host(f"[{host}]" if ":" in host else host) or (scheme == "http" and not self.allow_http):
-                    raise ValueError("Account auth supports local/LAN origins; HTTP requires explicit QA opt-in")
+                if ((not self.public_https and not demo_host(f"[{host}]" if ":" in host else host))
+                        or (scheme == "http" and (self.public_https or not self.allow_http))
+                        or (self.public_https and scheme != "https")):
+                    raise ValueError("Account origins must be local/LAN or explicit HTTPS Public Gateway")
 
     @classmethod
     def from_environment(cls):
@@ -167,6 +208,8 @@ class HTTPAuthSettings:
         return cls(enabled=True, account_only=account_only,
                    self_registration=_env_bool("ARENA_SELF_REGISTRATION"),
                    require_admin_totp=_env_bool("ARENA_ADMIN_TOTP_REQUIRED"),
+                   public_https=_env_bool("ARENA_PUBLIC_GATEWAY"),
+                   gateway_secret=os.environ.get("ARENA_PROXY_SECRET", ""),
                    origins=tuple(value.strip() for value in os.environ.get("ARENA_AUTH_ORIGINS", "").split(",") if value.strip()),
                    allow_http=_env_bool("ARENA_AUTH_ALLOW_HTTP"))
 
@@ -383,7 +426,7 @@ class AccountAuthBoundary:
             token = request.cookies.get(token_name) if token_name else None
             if token and len(token) > 128:
                 raise HTTPException(400, "Invalid authentication request")
-            runtime.limiter.request(scope["client"][0], audience, token)
+            runtime.limiter.request(trusted_client_address(scope, request.headers, self.settings), audience, token)
             if scope["query_string"] and (auth_path(scope["path"]) or "/auth/" in scope["path"]):
                 raise HTTPException(400, "Authentication query parameters are not supported")
             mutation = request.method not in {"GET", "HEAD", "OPTIONS"}
@@ -465,7 +508,7 @@ def install_auth_http(app, settings, network):
         runtime = runtime_for(request)
         token = body.token.get_secret_value()
         try:
-            runtime.limiter.activation(request.client.host, token)
+            runtime.limiter.activation(trusted_client_address(request.scope, request.headers, settings), token)
         except AuthRateLimited as exc:
             raise HTTPException(429, "Too many authentication requests", headers={"Retry-After": str(exc.retry_after)}) from None
         account = await runtime.run(lambda auth, _: auth.activate(token, body.password.get_secret_value()))
@@ -479,12 +522,12 @@ def install_auth_http(app, settings, network):
         async def login(body: LoginBody, request: Request):
             runtime = runtime_for(request)
             grant = await runtime.run(lambda auth, _: auth.login(body.username, body.password.get_secret_value(),
-                audience=audience, source_key=request.client.host,
+                audience=audience, source_key=trusted_client_address(request.scope, request.headers, settings),
                 otp=body.otp.get_secret_value() if body.otp else None))
             response = JSONResponse(account_response(grant.principal.account, expires_at=grant.expires_at))
             response.set_cookie(cookie_name(audience), grant.token,
                 max_age=max(0, grant.expires_at - int(settings.clock())), httponly=True,
-                secure=request.scope["scheme"] == "https", samesite="strict", path=cookie_path(audience))
+                secure=secure_account_cookie(request, settings), samesite="strict", path=cookie_path(audience))
             return response
 
         @router.get(base + "/me")
@@ -509,7 +552,7 @@ def install_auth_http(app, settings, network):
             await runtime.run(operation)
             response = JSONResponse({"logged_out": True})
             response.delete_cookie(cookie_name(audience), path=cookie_path(audience), httponly=True,
-                                   secure=request.scope["scheme"] == "https", samesite="strict")
+                                   secure=secure_account_cookie(request, settings), samesite="strict")
             return response
 
     audience_routes("PLAYER")
@@ -553,7 +596,7 @@ def install_auth_http(app, settings, network):
             raise HTTPException(404, "Registration is not enabled")
         runtime = runtime_for(request)
         try:
-            runtime.limiter.registration(request.client.host)
+            runtime.limiter.registration(trusted_client_address(request.scope, request.headers, settings))
         except AuthRateLimited as exc:
             raise HTTPException(429, "Too many registration requests",
                                 headers={"Retry-After": str(exc.retry_after)}) from None
@@ -566,22 +609,22 @@ def install_auth_http(app, settings, network):
     async def unified_login(body: LoginBody, request: Request):
         runtime = runtime_for(request)
         grant = await runtime.run(lambda auth, _: auth.login_unified(
-            body.username, body.password.get_secret_value(), source_key=request.client.host,
+            body.username, body.password.get_secret_value(), source_key=trusted_client_address(request.scope, request.headers, settings),
             otp=body.otp.get_secret_value() if body.otp else None))
         audience = grant.principal.audience
         response = JSONResponse(account_response(grant.principal.account,
             expires_at=grant.expires_at, account_only=True, audience=audience.lower()))
         response.set_cookie(account_cookie_name(audience), grant.token,
             max_age=max(0, grant.expires_at - int(settings.clock())), httponly=True,
-            secure=request.scope["scheme"] == "https", samesite="strict",
+            secure=secure_account_cookie(request, settings), samesite="strict",
             path=account_cookie_path(audience))
         response.delete_cookie(cookie_name(audience), path=cookie_path(audience),
-                               httponly=True, secure=request.scope["scheme"] == "https", samesite="strict")
+                               httponly=True, secure=secure_account_cookie(request, settings), samesite="strict")
         # A single login UI must not leave both audience cookies in this
         # browser. This clears the other cookie path without granting authority.
         other = "PLAYER" if audience == "ADMIN" else "ADMIN"
         response.delete_cookie(account_cookie_name(other), path=account_cookie_path(other),
-                               httponly=True, secure=request.scope["scheme"] == "https", samesite="strict")
+                               httponly=True, secure=secure_account_cookie(request, settings), samesite="strict")
         return response
 
     player = APIRouter(prefix=account_prefix("PLAYER") + "/auth", tags=["Player Account Auth"])
@@ -592,7 +635,7 @@ def install_auth_http(app, settings, network):
         runtime = runtime_for(request)
         token = body.token.get_secret_value()
         try:
-            runtime.limiter.activation(request.client.host, token)
+            runtime.limiter.activation(trusted_client_address(request.scope, request.headers, settings), token)
         except AuthRateLimited as exc:
             raise HTTPException(429, "Too many authentication requests", headers={"Retry-After": str(exc.retry_after)}) from None
         account = await runtime.run(lambda auth, _: auth.activate(token, body.password.get_secret_value()))
@@ -604,17 +647,17 @@ def install_auth_http(app, settings, network):
             runtime = runtime_for(request)
             grant = await runtime.run(lambda auth, _: auth.login(
                 body.username, body.password.get_secret_value(), audience=audience,
-                source_key=request.client.host,
+                source_key=trusted_client_address(request.scope, request.headers, settings),
                 otp=body.otp.get_secret_value() if body.otp else None))
             response = JSONResponse(account_response(
                 grant.principal.account, expires_at=grant.expires_at, account_only=settings.account_only))
             response.set_cookie(account_cookie_name(audience), grant.token,
                 max_age=max(0, grant.expires_at - int(settings.clock())), httponly=True,
-                secure=request.scope["scheme"] == "https", samesite="strict",
+                secure=secure_account_cookie(request, settings), samesite="strict",
                 path=account_cookie_path(audience))
             # A namespace change never promotes or transports an old B.3.1 cookie.
             response.delete_cookie(cookie_name(audience), path=cookie_path(audience), httponly=True,
-                                   secure=request.scope["scheme"] == "https", samesite="strict")
+                                   secure=secure_account_cookie(request, settings), samesite="strict")
             return response
 
         @target.get("/me")
@@ -636,7 +679,7 @@ def install_auth_http(app, settings, network):
             runtime.notify_revoked(principal.session_id)
             response = JSONResponse({"logged_out": True})
             response.delete_cookie(account_cookie_name(audience), path=account_cookie_path(audience),
-                                   httponly=True, secure=request.scope["scheme"] == "https", samesite="strict")
+                                   httponly=True, secure=secure_account_cookie(request, settings), samesite="strict")
             return response
 
     account_audience_routes("PLAYER", player)

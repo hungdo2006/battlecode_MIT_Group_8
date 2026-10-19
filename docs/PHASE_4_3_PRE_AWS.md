@@ -47,11 +47,14 @@ an explicit deployment authorization.
 ## Mandatory blockers before any public go-live
 
 1. Obtain and verify an organization-owned domain and TLS reachability.
-2. Complete a real email delivery and verified-email registration policy.
-   v6 currently records `verified_at=NULL`; browser signup on local/LAN is
-   functional but **NOT** identity-verified. The public overlay disables
-   self-registration until a verified path is accepted. Never claim it is
-   an Internet-ready signup solely because POST /register returns 201.
+2. Confirm SMTP credentials/delivery and verified-email registration workflow.
+   v8 issues one-time 24-hour hashed verification tokens and keeps Players
+   INVITED until their email is verified. A registration email link uses URL
+   fragments to avoid leaking the token via the initial HTTP request. The
+   public overlay defaults self-registration OFF; enabling it REQUIRES
+   ARENA_EMAIL_VERIFICATION=1, a working authenticated STARTTLS sender, real
+   abuse/security review and Chrome/Docker acceptance. Never claim production
+   signup ready from the HTTP tests alone.
 3. Enable and enroll Admin TOTP offline on organization-owned devices. Test
    phishing resistance procedures, shared-password avoidance and recovery.
 4. Independent Chrome+Docker+TLS/WebSocket adversarial QA, including source

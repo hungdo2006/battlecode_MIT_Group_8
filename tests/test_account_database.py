@@ -55,7 +55,7 @@ def test_schema_migration_is_idempotent_and_persists(database):
                           "team_memberships", "team_invitations", "submission_ownership", "team_game_bots",
                           "audit_events", "submission_journal",
                           "official_match_requests", "official_match_slots",
-                          "official_source_attestations", "user_emails", "admin_totp"}
+                          "official_source_attestations", "user_emails", "admin_totp", "email_verification_tokens"}
         check_integrity(connection)
         with pytest.raises(sqlite3.OperationalError, match="readonly"):
             connection.execute("DELETE FROM users")

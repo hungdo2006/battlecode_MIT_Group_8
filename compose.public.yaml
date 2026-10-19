@@ -17,7 +17,8 @@ services:
       ARENA_ADMIN_TOTP_REQUIRED: "1"
       # Do not allow Internet self-registration without delivered email
       # verification, abuse review and completed end-to-end acceptance.
-      ARENA_SELF_REGISTRATION: "0"
+      ARENA_SELF_REGISTRATION: "${ARENA_SELF_REGISTRATION:-0}"
+      ARENA_EMAIL_VERIFICATION: "${ARENA_EMAIL_VERIFICATION:-0}"
 
   gateway:
     image: caddy:2.9.1-alpine

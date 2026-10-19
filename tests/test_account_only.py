@@ -559,3 +559,90 @@ def test_totp_secret_not_present_in_audit_and_offline_rotation_fences_sessions(t
         audit = "".join(row[0] for row in conn.execute("SELECT details_json FROM audit_events"))
         assert first not in audit and replacement not in audit
         assert conn.execute("SELECT count(*) FROM admin_totp").fetchone()[0] == 1
+
+
+def test_verified_email_registration_requires_real_token_before_login(tmp_path):
+    from types import SimpleNamespace
+    clock = Clock()
+    seed_accounts(tmp_path, clock)
+    sent = []
+    sender = SimpleNamespace(send=lambda address, token: sent.append((address, token)))
+    settings = HTTPAuthSettings(enabled=True, account_only=True,
+        self_registration=True, require_email_verification=True, email_sender=sender,
+        origins=(ORIGIN,), clock=clock, rate_clock=clock)
+    payload = {"username": "verifiedplayer", "display_name": "Verified Player",
+               "email": "Verified@example.org", "password": PASSWORD}
+    with TestClient(create_app(tmp_path, account_http=settings), base_url=ORIGIN,
+                    client=("127.0.0.1", 51119)) as client:
+        client.headers["Origin"] = ORIGIN
+        result = client.post("/api/account/auth/register", json=payload)
+        assert result.status_code == 201, result.text
+        assert result.json()["registration_pending"] is True
+        assert len(sent) == 1 and sent[0][0] == "verified@example.org"
+        assert "token" not in result.text.lower()
+        token = sent[0][1]
+        assert len(token) == 43
+        unverified = client.post("/api/account/auth/login", json={
+            "username": payload["username"], "password": PASSWORD})
+        assert unverified.status_code == 401
+        with AccountDatabase(tmp_path / "data").read() as conn:
+            assert conn.execute("SELECT status FROM users WHERE username='verifiedplayer'").fetchone()[0] == "INVITED"
+            assert conn.execute("SELECT verified_at FROM user_emails WHERE email='verified@example.org'").fetchone()[0] is None
+            assert conn.execute("SELECT token_hash FROM email_verification_tokens").fetchone()[0] != token
+        again = client.post("/api/account/auth/resend-verification", json={
+            "username": payload["username"], "email": payload["email"]})
+        assert again.status_code == 202
+        assert len(sent) == 2
+        assert client.post("/api/account/auth/verify-email", json={"token": token}).status_code == 400
+        new_token = sent[1][1]
+        activated = client.post("/api/account/auth/verify-email", json={"token": new_token})
+        assert activated.status_code == 200, activated.text
+        assert activated.json()["account"]["status"] == "ACTIVE"
+        assert client.post("/api/account/auth/verify-email", json={"token": new_token}).status_code == 400
+        signin = client.post("/api/account/auth/login", json={
+            "username": payload["username"], "password": PASSWORD})
+        assert signin.status_code == 200 and signin.json()["audience"] == "player"
+        with AccountDatabase(tmp_path / "data").read() as conn:
+            assert conn.execute("SELECT verified_at FROM user_emails WHERE email='verified@example.org'").fetchone()[0] == clock.now
+        unknown = client.post("/api/account/auth/resend-verification", json={
+            "username": "unknown", "email": "unknown@example.org"})
+        assert unknown.status_code == 202 and len(sent) == 2
+
+
+def test_verified_email_sender_failure_resends_from_pending_account(tmp_path):
+    from types import SimpleNamespace
+    clock = Clock()
+    seed_accounts(tmp_path, clock)
+    sent, broken = [], {"yes": True}
+    def deliver(address, token):
+        if broken["yes"]:
+            raise OSError("SMTP not available")
+        sent.append((address, token))
+    settings = HTTPAuthSettings(enabled=True, account_only=True,
+        self_registration=True, require_email_verification=True,
+        email_sender=SimpleNamespace(send=deliver), origins=(ORIGIN,),
+        clock=clock, rate_clock=clock)
+    payload = {"username": "mailretry", "display_name": "Mail Retry",
+               "email": "mailretry@example.org", "password": PASSWORD}
+    with TestClient(create_app(tmp_path, account_http=settings), base_url=ORIGIN,
+                    client=("127.0.0.1", 51120)) as client:
+        client.headers["Origin"] = ORIGIN
+        assert client.post("/api/account/auth/register", json=payload).status_code == 503
+        assert client.post("/api/account/auth/login", json={
+            "username": "mailretry", "password": PASSWORD}).status_code == 401
+        broken["yes"] = False
+        resent = client.post("/api/account/auth/resend-verification", json={
+            "username": "mailretry", "email": "mailretry@example.org"})
+        assert resent.status_code == 202 and len(sent) == 1
+        assert client.post("/api/account/auth/verify-email", json={"token": sent[0][1]}).status_code == 200
+
+
+def test_public_registration_requires_email_verification_sender():
+    from types import SimpleNamespace
+    with pytest.raises(ValueError, match="Public registration requires delivered"):
+        HTTPAuthSettings(enabled=True, account_only=True, self_registration=True,
+            require_admin_totp=True, public_https=True,
+            gateway_secret="a"*64, origins=("https://arena.example.org",))
+    with pytest.raises(ValueError, match="Email verification requires"):
+        HTTPAuthSettings(enabled=True, account_only=True, self_registration=True,
+            require_email_verification=True, origins=(ORIGIN,))

@@ -550,7 +550,13 @@ function showAccountDialog(message = "Đăng nhập để tiếp tục vào work
   if (!dialog.open) dialog.showModal();
   $("#account-register-choice").classList.toggle("hidden", !app.selfRegistration);
   $("#account-email-tools").classList.toggle("hidden", !app.emailVerification);
+  $("#account-password-tools").classList.toggle("hidden", !app.emailVerification);
   accountEntryTab("login");
+  if (app.resetTokenLoaded) {
+    $("#account-password-tools").open = true;
+    $("#account-reset-password-form [name=password]").focus();
+    app.resetTokenLoaded = false;
+  }
 }
 
 function acceptAccount(data, audience) {
@@ -646,6 +652,38 @@ $("#account-register-form").addEventListener("submit", async event => {
   } catch (error) {
     feedback("#account-feedback", error.message, true);
   } finally { busyButton(button, false); button.disabled = false; }
+});
+
+$("#account-request-reset-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const form = event.currentTarget, button = form.querySelector("[type=submit]");
+  busyButton(button, true);
+  try {
+    await api("/api/account/auth/request-reset", jsonOptions("POST", {
+      username: form.elements.username.value, email: form.elements.email.value
+    }));
+    feedback("#account-feedback", "Nếu tài khoản đủ điều kiện, email khôi phục đã được gửi.");
+  } catch (error) { feedback("#account-feedback", error.message, true); }
+  finally { busyButton(button, false); button.disabled = false; }
+});
+
+$("#account-reset-password-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const form = event.currentTarget, button = form.querySelector("[type=submit]");
+  if (form.elements.password.value !== form.elements.confirm_password.value) {
+    feedback("#account-feedback", "Hai mật khẩu chưa trùng nhau.", true);
+    return;
+  }
+  busyButton(button, true);
+  try {
+    await api("/api/account/auth/reset-password", jsonOptions("POST", {
+      token: form.elements.token.value, password: form.elements.password.value
+    }));
+    form.reset();
+    $("#account-password-tools").open = false;
+    feedback("#account-feedback", "Đã đổi mật khẩu và thu hồi phiên cũ. Hãy đăng nhập lại.");
+  } catch (error) { feedback("#account-feedback", error.message, true); }
+  finally { busyButton(button, false); button.disabled = false; }
 });
 
 $("#account-email-form").addEventListener("submit", async event => {
@@ -1975,6 +2013,12 @@ async function bootstrap() {
     app.selfRegistration = health.self_registration === true;
     app.emailVerification = health.email_verification === true;
     if (app.accountOnly && app.emailVerification) {
+      const reset = /^#reset-password=([A-Za-z0-9_-]{43})$/.exec(location.hash);
+      if (reset) {
+        history.replaceState(null, "", location.pathname + location.search);
+        $("#account-reset-password-form [name=token]").value = reset[1];
+        app.resetTokenLoaded = true;
+      }
       const verification = /^#verify-email=([A-Za-z0-9_-]{43})$/.exec(location.hash);
       if (verification) {
         history.replaceState(null, "", location.pathname + location.search);

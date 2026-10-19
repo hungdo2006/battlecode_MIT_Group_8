@@ -385,4 +385,7 @@ MIGRATIONS = (
             FOREIGN KEY (tournament_id,team_id) REFERENCES team_tournament_entries(tournament_id,team_id) ON DELETE RESTRICT
         ) STRICT""",
     )),
+    (15, "team_tournament_large_fields", (
+        "ALTER TABLE team_tournaments ADD COLUMN qualifier_target INTEGER CHECK (qualifier_target IS NULL OR qualifier_target IN (16,64))",
+    )),
 )

@@ -1,4 +1,4 @@
-"""Append-only Team, Official Match, email, TOTP and session MFA proof through v9."""
+"""Append-only account, team, official match and tournament migrations."""
 import sqlite3
 import pytest
 
@@ -7,7 +7,7 @@ from backend.account_database import AccountDatabase, SCHEMA_VERSION, SchemaErro
 from backend.account_schema import MIGRATIONS
 
 
-def test_new_database_creates_v9_with_team_official_email_and_totp(tmp_path):
+def test_new_database_creates_current_schema_with_team_official_email_and_totp(tmp_path):
     db = AccountDatabase(tmp_path)
     db.migrate()
     with db.read() as connection:
@@ -23,6 +23,12 @@ def test_new_database_creates_v9_with_team_official_email_and_totp(tmp_path):
             (7, "admin_totp_mfa"),
             (8, "player_email_verification"),
             (9, "admin_mfa_session_proof"),
+            (10, "team_tournaments"),
+            (11, "team_tournament_brackets_and_attempts"),
+            (12, "team_tournament_group_stage"),
+            (13, "team_tournament_double_elimination"),
+            (14, "team_tournament_swiss_stage"),
+            (15, "team_tournament_large_fields"),
         ]
         indexes = {row[0] for row in connection.execute("SELECT name FROM sqlite_schema WHERE type='index'")}
         assert "membership_active_user_global" in indexes
@@ -59,7 +65,7 @@ def test_v2_to_current_upgrade_preserves_existing_data(tmp_path, monkeypatch):
             connection.execute("""INSERT INTO auth_sessions (id, token_hash, user_id, audience, auth_version, created_at, expires_at, idle_timeout_seconds)
                 VALUES ('s1', ?, 'u1', 'PLAYER', 1, 100, 200, 60)""", ("a" * 64,))
 
-    # 2. Upgrade from v2 through v3/v4/v5 to current v6
+    # 2. Upgrade from v2 through all currently registered migrations.
     db.migrate()
     with db.read() as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
@@ -188,8 +194,8 @@ def test_v4_to_v5_and_v6_upgrade_is_append_only_and_idempotent(tmp_path,monkeypa
     db.migrate()
     db.migrate()
     with db.read() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0]==9
-        assert connection.execute("SELECT count(*) FROM schema_migrations").fetchone()[0]==9
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+        assert connection.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == SCHEMA_VERSION
         assert connection.execute("SELECT count(*) FROM user_emails").fetchone()[0]==0
         check_integrity(connection)
 

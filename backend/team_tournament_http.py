@@ -12,8 +12,9 @@ from .team_tournament_service import (
 class CreateTournamentBody(StrictBody):
     name: str = Field(min_length=1, max_length=64)
     game_id: str = Field(min_length=1, max_length=64)
-    team_ids: list[str] = Field(min_length=2, max_length=16)
+    team_ids: list[str] = Field(min_length=2)
     format: str = Field(default="round_robin", pattern="^(round_robin|single_elimination|group_knockout|double_elimination|swiss_single_elimination)$")
+    qualifier_target: int | None = Field(default=None, ge=16, le=64)
 
 
 class ScheduleFixtureBody(StrictBody):
@@ -56,7 +57,8 @@ def install_team_tournament_http(app):
     async def create(body: CreateTournamentBody, request: Request):
         return {"tournament": await execute(request, "ADMIN", lambda service, auth, connection, actor, runtime:
             service.create(actor, name=body.name, game_id=body.game_id,
-                           team_ids=body.team_ids, format=body.format), mutation=True)}
+                           team_ids=body.team_ids, format=body.format,
+                           qualifier_target=body.qualifier_target), mutation=True)}
 
     @router.post("/api/admin/team-tournaments/{tournament_id}/start")
     async def start(tournament_id: str, request: Request):

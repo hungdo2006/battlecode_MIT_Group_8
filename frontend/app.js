@@ -1526,6 +1526,22 @@ async function refreshTournaments() {
   app.tournaments = await api("/api/tournaments");
   renderTournaments();
 }
+function updateTeamTournamentPolicy() {
+  const form = $("#team-tournament-create");
+  if (!form) return;
+  const count = form.querySelectorAll('input[name="team_id"]:checked').length;
+  const format = form.elements.format;
+  const largeField = count > 64;
+  if (count > 16) format.value = "group_knockout";
+  format.disabled = count > 16;
+  $("#team-tournament-qualifier-target-row").classList.toggle("hidden", !largeField);
+  const policy = $("#team-tournament-selection-policy");
+  policy.textContent = largeField
+    ? "Trên 64 đội: đấu loại trực tiếp để rút gọn về số đội được chọn, sau đó vào vòng bảng + loại trực tiếp."
+    : count > 16
+    ? "17–64 đội: tự động áp dụng vòng bảng + loại trực tiếp."
+    : "Từ 2–16 đội: Organizer được chọn thể thức.";
+}
 function renderTeamTournaments() {
   const legacyVisible = !app.accountOnly;
   $("#view-tournaments > .page-intro").classList.toggle("hidden", !legacyVisible);
@@ -1552,6 +1568,7 @@ function renderTeamTournaments() {
       teamOptions.append(label);
     }
     if (!app.officialTeams.length) teamOptions.append(el("div", "empty-state", "Chưa có Team ACTIVE."));
+    updateTeamTournamentPolicy();
   }
   const target = $("#team-tournaments-list"); target.replaceChildren();
   if (!app.teamTournaments.length) {
@@ -1569,6 +1586,7 @@ function renderTeamTournaments() {
     meta.append(el("span", "tournament-meta-item", tournament.game_id),
       el("span", "tournament-meta-item", `${tournament.teams.length} đội`),
       el("span", "tournament-meta-item", ({round_robin:"Vòng tròn tính điểm", single_elimination:"Loại trực tiếp", double_elimination:"Double Elimination", group_knockout:"Vòng bảng + loại trực tiếp", swiss_single_elimination:"Vòng Thụy Sĩ + Loại trực tiếp"})[tournament.format] || tournament.format));
+    if (tournament.qualifier_target) meta.append(el("span", "tournament-meta-item", `Vòng loại → ${tournament.qualifier_target} đội`));
     const chips = el("div", "tournament-player-chips");
     tournament.teams.forEach(team => chips.append(el("span", "tournament-player-chip", team.team_name_snapshot)));
     const actions = el("div", "tournament-actions");
@@ -1582,6 +1600,17 @@ function renderTeamTournaments() {
       actions.append(start);
     }
     card.append(heading, meta, chips);
+    if (tournament.qualifier_target) {
+      const qualifierRounds = [...new Set(tournament.bracket.filter(slot => slot.bracket === "WINNERS").map(slot => slot.round_number))].sort((a, b) => a - b);
+      const done = (roundNumber) => tournament.bracket.filter(slot => slot.bracket === "WINNERS" && slot.round_number === roundNumber).every(slot => ["COMPLETED", "BYE"].includes(slot.status));
+      const activeRound = qualifierRounds.find(roundNumber => !done(roundNumber));
+      const qualifierMessage = tournament.status === "REGISTRATION"
+        ? `Khi bắt đầu, vòng loại trực tiếp sẽ rút gọn còn ${tournament.qualifier_target} đội.`
+        : tournament.groups.length
+        ? `Vòng loại hoàn tất · ${tournament.qualifier_target} đội vào vòng bảng.`
+        : `Vòng loại để còn ${tournament.qualifier_target} đội${activeRound ? ` · Đang ở vòng ${qualifierRounds.indexOf(activeRound) + 1}/${qualifierRounds.length}` : ""}.`;
+      card.append(el("p", "tournament-feedback", qualifierMessage));
+    }
     if (["round_robin", "group_knockout", "swiss_single_elimination"].includes(tournament.format) && tournament.standings.length) {
       const isSwiss = tournament.format === "swiss_single_elimination";
       if (isSwiss) {
@@ -1622,25 +1651,31 @@ function renderTeamTournaments() {
       }
     }
     if (actions.childElementCount) card.append(actions);
-    if (["single_elimination", "double_elimination", "group_knockout"].includes(tournament.format) && tournament.bracket.length) {
+    if (["single_elimination", "double_elimination", "group_knockout", "swiss_single_elimination"].includes(tournament.format) && tournament.bracket.length) {
       const bracket = el("div", "tournament-bracket");
       const bracketRounds = [...new Set(tournament.bracket.map(slot => slot.round_number))].sort((a, b) => a - b);
+      const isLargeQualifier = tournament.format === "group_knockout" && Boolean(tournament.qualifier_target);
+      const qualifierRounds = isLargeQualifier ? bracketRounds.filter(round => tournament.bracket.some(slot => slot.round_number === round && slot.bracket === "WINNERS")) : [];
+      const playoffRounds = bracketRounds.filter(round => !qualifierRounds.includes(round));
       const bracketStatus = { PENDING: "CHỜ VÒNG TRƯỚC", READY: "CHỜ XẾP LỊCH", COMPLETED: "ĐÃ CÓ ĐỘI ĐI TIẾP", BYE: "MIỄN ĐẤU", TIE: "CẦN PHÂN ĐỊNH" };
       for (let roundIndex = 0; roundIndex < bracketRounds.length; roundIndex++) {
         const round = bracketRounds[roundIndex];
         const roundSlots = tournament.bracket.filter(slot => slot.round_number === round);
         const column = el("section", "tournament-bracket-round");
-        const qualified = tournament.bracket.filter(slot => slot.round_number === bracketRounds[0]).length;
-        const knockoutRounds = qualified === 2 ? ["BÁN KẾT", "CHUNG KẾT"] : qualified === 4 ? ["TỨ KẾT", "BÁN KẾT", "CHUNG KẾT"] : [];
-        const roundName = ["group_knockout", "swiss_single_elimination"].includes(tournament.format) ? knockoutRounds[roundIndex] : null;
-        column.append(el("h4", "", roundName || (roundIndex === bracketRounds.length - 1 ? "CHUNG KẾT" : `VÒNG ${roundIndex + 1}`)));
+        const isQualifierRound = isLargeQualifier && qualifierRounds.includes(round);
+        const playoffIndex = playoffRounds.indexOf(round);
+        const qualified = playoffRounds.length ? tournament.bracket.filter(slot => slot.round_number === playoffRounds[0]).length : 0;
+        const knockoutRounds = qualified === 2 ? ["BÁN KẾT", "CHUNG KẾT"] : qualified === 4 ? ["TỨ KẾT", "BÁN KẾT", "CHUNG KẾT"] : qualified === 8 ? ["VÒNG 1/8", "TỨ KẾT", "BÁN KẾT", "CHUNG KẾT"] : [];
+        const roundName = isQualifierRound ? `VÒNG LOẠI ${qualifierRounds.indexOf(round) + 1}`
+          : ["group_knockout", "swiss_single_elimination"].includes(tournament.format) ? knockoutRounds[playoffIndex] : null;
+        column.append(el("h4", "", roundName || (playoffIndex === playoffRounds.length - 1 ? "CHUNG KẾT" : `VÒNG ${roundIndex + 1}`)));
         for (const slot of roundSlots) {
           const matchCard = el("div", `tournament-bracket-match ${slot.status.toLowerCase()}`);
           const teamName = id => tournament.teams.find(team => team.team_id === id)?.team_name_snapshot || "Chờ đội đi tiếp";
           matchCard.append(el("span", "tournament-bracket-player", teamName(slot.team_a_id)),
             el("span", "tournament-bracket-player", teamName(slot.team_b_id)),
             el("small", "", slot.conditional_status === "SKIPPED" ? "CHUNG KẾT RESET KHÔNG CẦN THI ĐẤU" : bracketStatus[slot.status] || slot.status),
-            el("small", "", ({WINNERS:"NHÁNH THẮNG",LOSERS:"NHÁNH THUA",FINAL:"CHUNG KẾT TỔNG",RESET:"CHUNG KẾT RESET"})[slot.bracket] || "NHÁNH CHÍNH"));
+            el("small", "", isLargeQualifier && slot.bracket === "WINNERS" ? "VÒNG LOẠI" : ({WINNERS:"NHÁNH THẮNG",LOSERS:"NHÁNH THUA",FINAL:"CHUNG KẾT TỔNG",RESET:"CHUNG KẾT RESET"})[slot.bracket] || "NHÁNH CHÍNH"));
           if (slot.winner_team_id) matchCard.append(el("small", "tournament-match-winner", `ĐI TIẾP · ${teamName(slot.winner_team_id)}`));
           if (slot.status === "TIE" && app.accountAudience === "admin" && slot.fixture_id) {
             for (const teamId of [slot.team_a_id, slot.team_b_id]) {
@@ -1669,7 +1704,12 @@ function renderTeamTournaments() {
       const teamA = tournament.teams.find(team => team.team_id === fixture.team_a_id)?.team_name_snapshot || "Team A";
       const teamB = tournament.teams.find(team => team.team_id === fixture.team_b_id)?.team_name_snapshot || "Team B";
       const groupName = tournament.groups?.find(group => group.id === fixture.group_id)?.name;
-      const stageName = fixture.stage === "GROUP" ? (tournament.format === "swiss_single_elimination" ? `Swiss · Vòng ${fixture.round_number}` : `${groupName || "Vòng bảng"} · Vòng ${fixture.round_number}`) : ["group_knockout", "swiss_single_elimination"].includes(tournament.format) ? `Loại trực tiếp · Vòng ${fixture.round_number}` : `Vòng ${fixture.round_number}`;
+      const bracketSlot = tournament.bracket.find(slot => slot.fixture_id === fixture.id);
+      const qualifierSlot = bracketSlot?.bracket === "WINNERS" ? bracketSlot : null;
+      const playoffRounds = [...new Set(tournament.bracket.filter(slot => !(tournament.qualifier_target && slot.bracket === "WINNERS")).map(slot => slot.round_number))].sort((a, b) => a - b);
+      const playoffRound = bracketSlot ? playoffRounds.indexOf(bracketSlot.round_number) + 1 : fixture.round_number;
+      const groupRound = fixture.round_number - (tournament.qualifier_rounds_total || 0);
+      const stageName = qualifierSlot && tournament.qualifier_target ? `Vòng loại · Vòng ${qualifierSlot.round_number}` : fixture.stage === "GROUP" ? (tournament.format === "swiss_single_elimination" ? `Swiss · Vòng ${fixture.round_number}` : `${groupName || "Vòng bảng"} · Vòng ${groupRound}`) : ["group_knockout", "swiss_single_elimination"].includes(tournament.format) ? `Loại trực tiếp · Vòng ${playoffRound}` : `Vòng ${fixture.round_number}`;
       fixtureCard.append(el("span", "", `${stageName} · ${teamA} VS ${teamB}`));
       fixtureCard.append(el("small", `tournament-match-state ${(fixture.match_status || "pending").toLowerCase()}`, fixture.match_status || "CHƯA XẾP LỊCH"));
       if (app.accountAudience === "admin" && tournament.status === "ACTIVE" && !fixture.official_request_id) {
@@ -1741,20 +1781,24 @@ $("#refresh-bots").addEventListener("click", () => refreshBots().catch(e => toas
 $("#refresh-matches").addEventListener("click", () => refreshMatches().catch(e => toast(e.message, true)));
 $("#refresh-tournaments").addEventListener("click", () => refreshTournaments().catch(e => toast(e.message, true)));
 $("#refresh-team-tournaments").addEventListener("click", () => refreshTeamTournaments().catch(e => toast(e.message, true)));
+$("#team-tournament-team-options").addEventListener("change", updateTeamTournamentPolicy);
+$("#team-tournament-create").elements.format.addEventListener("change", updateTeamTournamentPolicy);
 $("#team-tournament-create").addEventListener("submit", async event => {
   event.preventDefault();
   const form = event.currentTarget, button = form.querySelector("[type=submit]");
   const team_ids = [...form.querySelectorAll('input[name="team_id"]:checked')].map(input => input.value);
-  if (team_ids.length < 2 || team_ids.length > 16) {
-    feedback("#team-tournament-feedback", "Chọn từ 2 đến 16 đội.", true); return;
+  if (team_ids.length < 2) {
+    feedback("#team-tournament-feedback", "Chọn ít nhất 2 đội.", true); return;
   }
   button.disabled = true;
   try {
     await api("/api/admin/team-tournaments", jsonOptions("POST", {
       name: form.elements.name.value, game_id: form.elements.game_id.value, team_ids,
-      format: form.elements.format.value
+      format: form.elements.format.value,
+      qualifier_target: team_ids.length > 64 ? Number(form.elements.qualifier_target.value) : null
     }));
     form.reset();
+    updateTeamTournamentPolicy();
     feedback("#team-tournament-feedback", "Đã tạo giải. Bắt đầu giải để tạo lịch hoặc nhánh đấu.");
     await refreshTeamTournaments();
   } catch (error) { feedback("#team-tournament-feedback", error.message, true); }

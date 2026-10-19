@@ -168,6 +168,105 @@ def _create_swiss_playoffs(connection, tournament_id, group_id, team_count, now)
         round_number += 1
 
 
+def _create_qualifier_bracket(connection, tournament_id, teams, qualifier_target):
+    team_ids = [team["id"] if isinstance(team, dict) else team for team in teams]
+    remaining = len(team_ids)
+    previous = []
+    round_number = 1
+    while remaining > qualifier_target:
+        next_count = max(qualifier_target, ceil(remaining / 2))
+        bye_count = 2 * next_count - remaining
+        current = []
+        for index in range(next_count):
+            slot_id = uuid4().hex
+            team_a_id = team_b_id = source_a = source_b = None
+            if not previous:
+                if index < bye_count:
+                    team_a_id = team_ids[index]
+                else:
+                    first = bye_count + 2 * (index - bye_count)
+                    team_a_id, team_b_id = team_ids[first:first + 2]
+            elif index < bye_count:
+                source_a = previous[index]
+            else:
+                first = bye_count + 2 * (index - bye_count)
+                source_a, source_b = previous[first:first + 2]
+            connection.execute("""INSERT INTO team_tournament_bracket_slots
+                (id,tournament_id,round_number,match_number,team_a_id,team_b_id,
+                 source_a_slot_id,source_b_slot_id,bracket,status)
+                VALUES (?,?,?,?,?,?,?,?, 'WINNERS','PENDING')""",
+                (slot_id,tournament_id,round_number,index+1,team_a_id,team_b_id,source_a,source_b))
+            current.append(slot_id)
+        previous = current
+        remaining = next_count
+        round_number += 1
+    return round_number - 1
+
+
+def _create_group_knockout_stage(connection, tournament_id, teams, now, qualifier_rounds=0):
+    team_count = len(teams)
+    group_count = 2 if team_count <= 8 else (4 if team_count <= 32 else 8)
+    groups = []
+    for index in range(group_count):
+        group_id = uuid4().hex
+        group_name = f"Bảng {chr(65 + index)}"
+        connection.execute("""INSERT INTO team_tournament_groups
+            (id,tournament_id,group_number,name) VALUES (?,?,?,?)""",
+            (group_id,tournament_id,index+1,group_name))
+        groups.append({"id":group_id,"name":group_name,"teams":[]})
+    for index, team in enumerate(teams):
+        team = team if isinstance(team, dict) else {"id":team}
+        group = groups[index % group_count]
+        group["teams"].append(team)
+        connection.execute("""INSERT INTO team_tournament_group_entries
+            (tournament_id,group_id,team_id) VALUES (?,?,?)""",
+            (tournament_id,group["id"],team["id"]))
+    for group in groups:
+        rotation = group["teams"] + ([None] if len(group["teams"]) % 2 else [])
+        for local_round in range(1,len(rotation)):
+            for index in range(len(rotation)//2):
+                a,b = rotation[index],rotation[-1-index]
+                if a is None or b is None:
+                    continue
+                connection.execute("""INSERT INTO team_tournament_fixtures
+                    (id,tournament_id,round_number,team_a_id,team_b_id,created_at,stage,group_id)
+                    VALUES (?,?,?,?,?,?,'GROUP',?)""",
+                    (uuid4().hex,tournament_id,qualifier_rounds+local_round,a["id"],b["id"],now,group["id"]))
+            rotation = [rotation[0],rotation[-1],*rotation[1:-1]]
+    first_round = []
+    for index in range(0,group_count,2):
+        first_round.extend(((groups[index]["id"],1),(groups[index+1]["id"],2),
+                            (groups[index+1]["id"],1),(groups[index]["id"],2)))
+    slots_by_round = []
+    match_count = len(first_round)//2
+    group_rounds = max(len(group["teams"]) - 1 for group in groups)
+    round_number = qualifier_rounds + group_rounds + 1
+    while match_count:
+        current = []
+        for index in range(match_count):
+            slot_id = uuid4().hex
+            source_a_group_id = source_a_group_rank = None
+            source_b_group_id = source_b_group_rank = None
+            source_a_slot = source_b_slot = None
+            if not slots_by_round:
+                source_a_group_id,source_a_group_rank = first_round[index*2]
+                source_b_group_id,source_b_group_rank = first_round[index*2+1]
+            else:
+                previous = slots_by_round[-1]
+                source_a_slot,source_b_slot = previous[index*2:index*2+2]
+            connection.execute("""INSERT INTO team_tournament_bracket_slots
+                (id,tournament_id,round_number,match_number,source_a_slot_id,source_b_slot_id,
+                 source_a_group_id,source_a_group_rank,source_b_group_id,source_b_group_rank,status)
+                VALUES (?,?,?,?,?,?,?,?,?,?, 'PENDING')""",
+                (slot_id,tournament_id,round_number,index+1,source_a_slot,source_b_slot,
+                 source_a_group_id,source_a_group_rank,source_b_group_id,source_b_group_rank))
+            current.append(slot_id)
+        slots_by_round.append(current)
+        match_count //= 2
+        round_number += 1
+    return groups
+
+
 def advance_swiss_stage(connection, tournament_id, now, actor_user_id=None):
     row = connection.execute("""SELECT count(*) AS team_count FROM team_tournament_entries
         WHERE tournament_id=?""", (tournament_id,)).fetchone()
@@ -337,6 +436,22 @@ def advance_single_elimination(connection, tournament_id, now, actor_user_id=Non
                         VALUES (?,?,?,'BRACKET_FIXTURE_READY',?)""",
                         (tournament_id, fixture_id, actor_user_id, now))
                 changed = True
+    settings = connection.execute("""SELECT coalesce(f.format,t.format) AS format,t.qualifier_target
+        FROM team_tournaments t LEFT JOIN team_tournament_format_overrides f
+        ON f.tournament_id=t.id WHERE t.id=?""", (tournament_id,)).fetchone()
+    if settings and settings["format"] == "group_knockout" and settings["qualifier_target"]:
+        existing_groups = connection.execute("SELECT count(*) FROM team_tournament_groups WHERE tournament_id=?",
+                                             (tournament_id,)).fetchone()[0]
+        qualifier_slots = connection.execute("SELECT id,round_number,status,winner_team_id FROM team_tournament_bracket_slots WHERE tournament_id=? AND bracket='WINNERS' ORDER BY round_number,match_number",
+                                             (tournament_id,)).fetchall()
+        if not existing_groups and qualifier_slots and all(slot["status"] in ("COMPLETED", "BYE") for slot in qualifier_slots):
+            final_round = max(slot["round_number"] for slot in qualifier_slots)
+            survivors = [slot["winner_team_id"] for slot in qualifier_slots
+                         if slot["round_number"] == final_round and slot["winner_team_id"]]
+            if len(survivors) == settings["qualifier_target"]:
+                _create_group_knockout_stage(connection,tournament_id,survivors,now,final_round)
+                advance_single_elimination(connection,tournament_id,now,actor_user_id)
+                return
     final = connection.execute("""SELECT status FROM team_tournament_bracket_slots
         WHERE tournament_id=? ORDER BY round_number DESC,match_number LIMIT 1""",
         (tournament_id,)).fetchone()
@@ -356,7 +471,7 @@ class TeamTournamentService:
         return self.auth.require_actor(actor, self.auth._now(), admin=admin,
                                        player_only=not admin, touch=False)
 
-    def create(self, actor, *, name, game_id, team_ids, format="round_robin"):
+    def create(self, actor, *, name, game_id, team_ids, format="round_robin", qualifier_target=None):
         self._ready()
         with transaction(self.db):
             now = self.auth._now()
@@ -365,26 +480,39 @@ class TeamTournamentService:
             team_ids = list(team_ids) if isinstance(team_ids, list) else []
             if not 1 <= len(name) <= 64:
                 raise ValueError("Tournament name must be 1–64 characters")
-            if not 2 <= len(team_ids) <= 16 or len(set(team_ids)) != len(team_ids):
-                raise ValueError("A tournament requires 2–16 distinct Teams")
+            if len(team_ids) < 2 or len(set(team_ids)) != len(team_ids):
+                raise ValueError("A tournament requires at least two distinct Teams")
+            if len(team_ids) > 64:
+                format = "group_knockout"
+                qualifier_target = 64 if qualifier_target is None else qualifier_target
+                if qualifier_target not in (16, 64):
+                    raise ValueError("Large-field qualifiers must target 16 or 64 Teams")
+            elif len(team_ids) > 16:
+                format = "group_knockout"
+                qualifier_target = None
+            else:
+                qualifier_target = None
             if format not in ("round_robin", "single_elimination", "group_knockout", "double_elimination", "swiss_single_elimination"):
                 raise ValueError("Unsupported Team tournament format")
             if format in ("group_knockout", "swiss_single_elimination") and len(team_ids) < 4:
                 raise ValueError("This tournament format requires at least four Teams")
             if game_id not in self.registry.ids():
                 raise ValueError("Unknown game")
-            rows = self.db.execute(
-                "SELECT id,display_name,status FROM teams WHERE id IN (%s)" %
-                ",".join("?" for _ in team_ids), team_ids).fetchall()
+            rows = []
+            for offset in range(0, len(team_ids), 500):
+                chunk = team_ids[offset:offset + 500]
+                rows.extend(self.db.execute(
+                    "SELECT id,display_name,status FROM teams WHERE id IN (%s)" %
+                    ",".join("?" for _ in chunk), chunk).fetchall())
             if len(rows) != len(team_ids):
                 raise TournamentNotFound("Team not found")
             if any(row["status"] != "ACTIVE" for row in rows):
                 raise TournamentConflict("All participating Teams must be ACTIVE")
             tournament_id = uuid4().hex
             self.db.execute("""INSERT INTO team_tournaments
-                (id,name,game_id,format,status,created_by,created_at)
-                VALUES (?,?,?,'round_robin','REGISTRATION',?,?)""",
-                (tournament_id, name, game_id, admin["id"], now))
+                (id,name,game_id,format,status,created_by,created_at,qualifier_target)
+                VALUES (?,?,?,'round_robin','REGISTRATION',?,?,?)""",
+                (tournament_id, name, game_id, admin["id"], now, qualifier_target))
             if format in ("single_elimination", "group_knockout", "double_elimination", "swiss_single_elimination"):
                 self.db.execute("INSERT INTO team_tournament_format_overrides VALUES (?,?)",
                                 (tournament_id, format))
@@ -414,7 +542,9 @@ class TeamTournamentService:
                 WHERE tournament_id=? ORDER BY rowid""", (tournament_id,))]
             if len(teams) < 2:
                 raise TournamentConflict("Tournament needs at least two Teams")
-            if row["effective_format"] == "round_robin":
+            if row["qualifier_target"] and len(teams) > row["qualifier_target"]:
+                _create_qualifier_bracket(self.db,tournament_id,teams,row["qualifier_target"])
+            elif row["effective_format"] == "round_robin":
                 rotation = teams + ([None] if len(teams) % 2 else [])
                 for round_number in range(1, len(rotation)):
                     for index in range(len(rotation) // 2):
@@ -566,7 +696,7 @@ class TeamTournamentService:
                     [(tournament_id,group_id,team["id"]) for team in teams])
                 _swiss_pair_round(self.db,tournament_id,group_id,1,now,seeded=True)
             else:
-                group_count = 2 if len(teams) <= 8 else 4
+                group_count = 2 if len(teams) <= 8 else (4 if len(teams) <= 32 else 8)
                 groups = []
                 for index in range(group_count):
                     group_id = uuid4().hex
@@ -733,6 +863,9 @@ class TeamTournamentService:
                     "group_number": group["group_number"], "standings": group_rows})
         result = {key: row[key] for key in ("id", "name", "game_id", "status", "created_at", "started_at")}
         result["format"] = row["effective_format"]
+        result["qualifier_target"] = row["qualifier_target"]
+        result["qualifier_rounds_total"] = self.db.execute("SELECT coalesce(max(round_number),0) FROM team_tournament_bracket_slots WHERE tournament_id=? AND bracket='WINNERS'",
+                                                         (tournament_id,)).fetchone()[0] if row["qualifier_target"] else 0
         if result["status"] == "ACTIVE" and result["format"] == "round_robin" and fixtures and all(f["match_status"] == "COMPLETED" for f in fixtures):
             result["status"] = "COMPLETED"
         result.update(teams=entries, fixtures=fixtures,

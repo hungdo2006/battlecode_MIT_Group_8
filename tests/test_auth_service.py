@@ -582,3 +582,32 @@ def test_v1_upgrade_preserves_accounts_and_revokes_only_unbounded_legacy_sql_ses
         assert manual["revoked_at"] is not None and manual["idle_timeout_seconds"] == 1
         assert connection.execute("PRAGMA user_version").fetchone()[0] == account_database.SCHEMA_VERSION
         check_integrity(connection)
+
+
+def test_player_eight_character_policy_does_not_weaken_admin_passwords(env):
+    short, valid = "seven77", "eight888"
+    # Admin CLI uses the default strong policy even when Players can use 8.
+    with pytest.raises(ValueError, match="at least 15"):
+        passwords.hash_password(valid)
+    with pytest.raises(ValueError, match="at least 8"):
+        env.service.register_player("alice", None, None, short)
+    assert env.service.get_account_by_username("alice") is None
+
+    account = env.service.register_player("alice", None, None, valid)
+    assert account.system_role == "PLAYER" and account.status == "ACTIVE"
+    assert env.service.login("alice", valid, audience="PLAYER",
+                             source_key="test-peer").principal.account.id == account.id
+
+    invitation = env.service.issue_invitation(env.admin, "bob")
+    with pytest.raises(ValueError, match="at least 8"):
+        env.service.activate(invitation.token, short)
+    assert env.service.activate(invitation.token, valid).status == "ACTIVE"
+
+    grant = env.service.issue_player_recovery(env.admin, "alice")
+    with pytest.raises(ValueError, match="at least 8"):
+        env.service.reset_player_password(grant["token"], short)
+    assert env.service.reset_player_password(grant["token"], "newpass8").id == account.id
+    with pytest.raises(AuthenticationFailed):
+        env.service.login("alice", valid, audience="PLAYER", source_key="test-peer")
+    assert env.service.login("alice", "newpass8", audience="PLAYER",
+                             source_key="test-peer").principal.account.id == account.id

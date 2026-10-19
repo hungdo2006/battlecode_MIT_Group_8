@@ -66,8 +66,12 @@ class AuthRateLimiter:
                        (("activation-token", digest), self.limits.activation_token)])
 
     def check(self, attempt):
+        # Shared budgets prevent splitting attempts across the unified and
+        # legacy audience-specific login routes to triple brute-force capacity.
         self._consume([(("login-source", attempt.audience, attempt.source_key), self.limits.login_source),
-                       (("login-account", attempt.audience, attempt.username_key), self.limits.login_account)])
+                       (("login-account", attempt.audience, attempt.username_key), self.limits.login_account),
+                       (("login-source-all", attempt.source_key), self.limits.login_source),
+                       (("login-account-all", attempt.username_key), self.limits.login_account)])
 
     def record(self, attempt, *, succeeded):
         # Every attempt was charged by check(), including successes. Do not reset

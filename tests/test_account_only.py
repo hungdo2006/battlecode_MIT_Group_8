@@ -668,3 +668,71 @@ def test_turning_on_admin_mfa_revokes_privilege_of_old_password_only_session(tmp
             enforce.validate_session(prior.token, audience="ADMIN")
         assert conn.execute("SELECT mfa_verified FROM auth_sessions WHERE token_hash=?",
             (__import__("hashlib").sha256(prior.token.encode()).hexdigest(),)).fetchone()[0] == 0
+
+
+def test_verified_player_password_reset_single_use_expiry_and_session_fence(tmp_path):
+    from types import SimpleNamespace
+    clock = Clock()
+    seed_accounts(tmp_path, clock)
+    sent, recovered = [], []
+    sender = SimpleNamespace(
+        send=lambda email,token: sent.append((email,token)),
+        send_password_reset=lambda email,token: recovered.append((email,token)),
+    )
+    settings = HTTPAuthSettings(enabled=True, account_only=True, self_registration=True,
+        require_email_verification=True, email_sender=sender, origins=(ORIGIN,),
+        clock=clock, rate_clock=clock)
+    registered = {"username": "recoverytest", "display_name": "Recovery",
+                  "email": "recovery@example.org", "password": PASSWORD}
+    with TestClient(create_app(tmp_path, account_http=settings), base_url=ORIGIN,
+                    client=("127.0.0.1", 51132)) as client:
+        client.headers["Origin"] = ORIGIN
+        assert client.post("/api/account/auth/register", json=registered).status_code == 201
+        assert client.post("/api/account/auth/verify-email", json={"token": sent[0][1]}).status_code == 200
+        assert client.post("/api/account/auth/login", json={
+            "username": "recoverytest", "password": PASSWORD}).status_code == 200
+        assert client.get("/api/player/auth/me").status_code == 200
+        recovery = {"username": "recoverytest", "email": "recovery@example.org"}
+        assert client.post("/api/account/auth/request-reset", json=recovery).status_code == 202
+        assert len(recovered) == 1 and recovered[0][0] == recovery["email"]
+        first = recovered[0][1]
+        assert "token" not in client.post("/api/account/auth/request-reset", json={
+            "username": "no-such-player", "email": "unknown@example.org"}).text.lower()
+        # A second reset request invalidates an older token.
+        assert client.post("/api/account/auth/request-reset", json=recovery).status_code == 202
+        second = recovered[1][1]
+        assert client.post("/api/account/auth/reset-password", json={
+            "token": first, "password": PASSWORD+" new"}).status_code == 400
+        updated = client.post("/api/account/auth/reset-password", json={
+            "token": second, "password": PASSWORD+" new"})
+        assert updated.status_code == 200, updated.text
+        assert updated.json()["reset"] is True
+        assert client.get("/api/player/auth/me").status_code == 401
+        assert client.post("/api/account/auth/reset-password", json={
+            "token": second, "password": PASSWORD+" new again"}).status_code == 400
+        assert client.post("/api/account/auth/login", json={
+            "username": "recoverytest", "password": PASSWORD}).status_code == 401
+        assert client.post("/api/account/auth/login", json={
+            "username": "recoverytest", "password": PASSWORD+" new"}).status_code == 200
+        # An expired token fails and cannot reset the password.
+        assert client.post("/api/account/auth/request-reset", json=recovery).status_code == 202
+        clock.now += 1801
+        expired = client.post("/api/account/auth/reset-password", json={
+            "token": recovered[-1][1], "password": PASSWORD+" expired"})
+        assert expired.status_code == 400
+        with AccountDatabase(tmp_path / "data").read() as conn:
+            assert conn.execute("SELECT count(*) FROM account_tokens WHERE purpose='PASSWORD_RESET'").fetchone()[0] >= 3
+
+
+def test_password_recovery_disabled_without_email_verification(tmp_path):
+    clock = Clock()
+    seed_accounts(tmp_path, clock)
+    settings = HTTPAuthSettings(enabled=True, account_only=True, origins=(ORIGIN,),
+                                clock=clock, rate_clock=clock)
+    with TestClient(create_app(tmp_path, account_http=settings), base_url=ORIGIN,
+                    client=("127.0.0.1", 51133)) as client:
+        client.headers["Origin"] = ORIGIN
+        assert client.post("/api/account/auth/request-reset", json={
+            "username": "alice", "email": "alice@example.org"}).status_code == 404
+        assert client.post("/api/account/auth/reset-password", json={
+            "token": "a"*43, "password": PASSWORD}).status_code == 404

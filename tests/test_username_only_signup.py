@@ -45,7 +45,7 @@ def create_client(tmp_path, clock):
 
 def test_public_username_signup_is_opt_in_and_does_not_require_smtp():
     clock = Clock()
-    with pytest.raises(ValueError, match="verified email or explicit"):
+    with pytest.raises(ValueError, match="delivered email verification or explicit"):
         HTTPAuthSettings(enabled=True, account_only=True, self_registration=True,
                          require_admin_totp=True, public_https=True,
                          gateway_secret=SECRET, origins=(ORIGIN,), clock=clock)

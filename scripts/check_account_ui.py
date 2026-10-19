@@ -5,6 +5,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+from urllib.parse import urlsplit
 from urllib.request import ProxyHandler, build_opener
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -73,6 +74,12 @@ def run():
                 browser = playwright.chromium.launch(channel="chrome", headless=True)
                 page = browser.new_page(viewport={"width": 1440, "height": 900})
                 page.on("pageerror", lambda error: errors.append(str(error)))
+                auth_posts = []
+                def record_auth_post(request):
+                    path = urlsplit(request.url).path
+                    if request.method == "POST" and "/auth/" in path:
+                        auth_posts.append((path, "x-csrf-token" in request.headers))
+                page.on("request", record_auth_post)
                 page.goto(origin, wait_until="domcontentloaded")
                 dialog = page.locator("#account-dialog")
                 dialog.wait_for(state="visible")
@@ -87,9 +94,13 @@ def run():
                 page.click("#account-register-form [type=submit]")
                 page.locator("#account-login-form").wait_for(state="visible")
                 assert page.locator("#account-username").input_value() == "qa_new"
+                assert ("/api/account/auth/register", False) in auth_posts, auth_posts
                 page.fill("#account-login-form [name=password]", PASSWORD)
                 page.click("#account-login-form [type=submit]")
                 page.wait_for_function("document.querySelector('#participant-role').textContent === 'PLAYER'")
+                assert ("/api/account/auth/login", False) in auth_posts, auth_posts
+                assert not any("/account/auth/" in path and path != "/api/account/auth/register"
+                               and path != "/api/account/auth/login" for path, _ in auth_posts), auth_posts
                 assert not dialog.is_visible()
                 page.click("#organizer-toggle")
                 dialog.wait_for(state="visible")

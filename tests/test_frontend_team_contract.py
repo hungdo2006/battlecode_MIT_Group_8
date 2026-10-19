@@ -174,3 +174,23 @@ def test_phase43a_auth_choice_has_no_browser_selected_role():
     assert 'api("/api/account/auth/register"' in js
     assert 'acceptAccount(data, data.audience);' in js
 
+
+
+def test_anonymous_account_entry_paths_are_exact_and_authenticated_writes_keep_csrf():
+    js = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
+    routing = js.split("const PUBLIC_ACCOUNT_ENTRY_PATHS = new Set([", 1)[1]
+    routing = routing.split("]);", 1)[0]
+    expected = {
+        "/api/account/auth/login", "/api/account/auth/register",
+        "/api/account/auth/verify-email", "/api/account/auth/resend-verification",
+        "/api/account/auth/request-reset", "/api/account/auth/reset-password",
+        "/api/player/auth/login", "/api/admin/auth/login", "/api/player/auth/activate",
+    }
+    assert set(re.findall(r'"(/api/[^"]+)"', routing)) == expected
+    assert '!PUBLIC_ACCOUNT_ENTRY_PATHS.has(requestUrl.pathname)' in js
+    assert '|| path.startsWith("/api/account/")) return path;' in js
+    # Anonymous entry actions are exempt from session CSRF, not from backend
+    # Origin, body and rate limits. Every other authenticated write still
+    # retrieves the token through accountCsrf().
+    assert "const token = await accountCsrf();" in js
+    assert 'if (!app.accountAudience) throw new Error(' in js

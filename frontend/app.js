@@ -84,6 +84,21 @@ function toast(message, error = false) {
   toastTimer = setTimeout(() => node.classList.add("hidden"), error ? 8500 : 4000);
 }
 
+// Anonymous account-entry mutations require a trusted Origin, strict JSON/body
+// limits and source rate limits on the server; they do not have a session CSRF
+// token yet. Keep this list exact: other Account-Only writes still require CSRF.
+const PUBLIC_ACCOUNT_ENTRY_PATHS = new Set([
+  "/api/account/auth/login",
+  "/api/account/auth/register",
+  "/api/account/auth/verify-email",
+  "/api/account/auth/resend-verification",
+  "/api/account/auth/request-reset",
+  "/api/account/auth/reset-password",
+  "/api/player/auth/login",
+  "/api/admin/auth/login",
+  "/api/player/auth/activate",
+]);
+
 async function api(path, options = {}) {
   if (typeof path !== "string" || !path.startsWith("/") || path.startsWith("//") || /^[a-zA-Z][a-zA-Z\d+.-]*:/.test(path)) {
     throw new Error("Đường dẫn API không hợp lệ.");
@@ -94,8 +109,8 @@ async function api(path, options = {}) {
     throw new Error("Đường dẫn API không hợp lệ.");
   }
   const method = (options.method || "GET").toUpperCase();
-  if (app.accountOnly && !["GET", "HEAD", "OPTIONS"].includes(method) && !path.includes("/auth/login")
-      && !path.includes("/auth/activate")) {
+  if (app.accountOnly && !["GET", "HEAD", "OPTIONS"].includes(method)
+      && !PUBLIC_ACCOUNT_ENTRY_PATHS.has(requestUrl.pathname)) {
     const token = await accountCsrf();
     options = { ...options, headers: { ...(options.headers || {}), "X-CSRF-Token": token } };
     if (options.body === undefined) {
@@ -138,7 +153,8 @@ async function api(path, options = {}) {
 
 function scopedApiPath(path) {
   if (!app.accountOnly || !path.startsWith("/api/") || path === "/api/health"
-      || path.startsWith("/api/player/") || path.startsWith("/api/admin/")) return path;
+      || path.startsWith("/api/player/") || path.startsWith("/api/admin/")
+      || path.startsWith("/api/account/")) return path;
   return `/api/${app.accountAudience || "player"}${path.slice(4)}`;
 }
 

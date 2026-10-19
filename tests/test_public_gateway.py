@@ -6,7 +6,30 @@ from backend.auth_http import HTTPAuthSettings
 from backend.main import create_app
 from backend.network import NetworkSettings
 
-from tests.test_account_only import Clock, PASSWORD, seed_accounts
+from backend.account_database import AccountDatabase
+from backend.admin_cli import bootstrap_admin
+from backend.auth_limits import AuthRateLimiter
+from backend.auth_service import AuthService
+from backend.writer_lock import WriterLock
+
+PASSWORD = "public-gateway disposable test passphrase 84"
+
+
+class Clock:
+    def __init__(self):
+        self.now = 2_000_000_000
+    def __call__(self):
+        return self.now
+
+
+def seed_accounts(base, clock):
+    data = base / "data"
+    bootstrap_admin(data, "admin", PASSWORD)
+    with WriterLock(data) as writer, AccountDatabase(data).writer_connection(writer) as conn:
+        service = AuthService(conn, writer, clock=clock, login_limiter=AuthRateLimiter())
+        actor = service.login("admin", PASSWORD, audience="ADMIN", source_key="seed").principal
+        invitation = service.issue_invitation(actor, "alice")
+        service.activate(invitation.token, PASSWORD)
 
 DOMAIN = "arena.example.org"
 ORIGIN = "https://" + DOMAIN

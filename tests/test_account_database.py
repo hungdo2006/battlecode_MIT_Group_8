@@ -192,15 +192,15 @@ def test_token_and_session_constraints(database):
     with database.maintenance() as connection:
         add_user(connection)
         valid = ("session1", "a" * 64, "alice", "PLAYER", 1, 100, 200, None, None, 60)
-        connection.execute("INSERT INTO auth_sessions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", valid)
+        connection.execute("INSERT INTO auth_sessions (id, token_hash, user_id, audience, auth_version, created_at, expires_at, last_seen_at, revoked_at, idle_timeout_seconds) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", valid)
         for index, replacement in [(0, None), (1, "raw-token"), (2, "missing"), (3, "ROOT"), (6, 99)]:
             values = list(valid)
             values[0], values[1] = "session2", "b" * 64
             values[index] = replacement
             with pytest.raises(sqlite3.IntegrityError):
-                connection.execute("INSERT INTO auth_sessions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", values)
+                connection.execute("INSERT INTO auth_sessions (id, token_hash, user_id, audience, auth_version, created_at, expires_at, last_seen_at, revoked_at, idle_timeout_seconds) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", values)
         with pytest.raises(sqlite3.IntegrityError):
-            connection.execute("INSERT INTO auth_sessions VALUES ('duplicate', ?, 'alice', 'PLAYER', 1, 100, 200, NULL, NULL, 60)", ("a" * 64,))
+            connection.execute("INSERT INTO auth_sessions (id, token_hash, user_id, audience, auth_version, created_at, expires_at, last_seen_at, revoked_at, idle_timeout_seconds) VALUES ('duplicate', ?, 'alice', 'PLAYER', 1, 100, 200, NULL, NULL, 60)", ("a" * 64,))
         connection.execute("INSERT INTO account_tokens VALUES ('t1', ?, 'ACCOUNT_INVITE', NULL, 'alice', 100, 200, NULL, NULL)", ("c" * 64,))
         with pytest.raises(sqlite3.IntegrityError):
             connection.execute("INSERT INTO account_tokens VALUES ('t2', ?, 'PASSWORD_RESET', NULL, 'alice', 100, 200, NULL, NULL)", ("d" * 64,))

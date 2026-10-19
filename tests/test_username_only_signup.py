@@ -217,3 +217,32 @@ def test_password_only_admin_public_gateway_is_explicit_and_preserves_rbac(tmp_p
                            headers={"Cookie": "arena_account_player_v2=" +
                                     player.cookies["arena_account_player_v2"]},
                            json={"username": "student02"}).status_code in (401, 403)
+
+
+def test_http_signup_password_length_eight(tmp_path):
+    from backend.auth_http import ActivateBody, RegisterBody, ResetPasswordBody
+    from pydantic import ValidationError
+
+    for body, payload in (
+        (RegisterBody, {"username": "student8", "password": "short77"}),
+        (ActivateBody, {"token": "z" * 43, "password": "short77"}),
+        (ResetPasswordBody, {"token": "z" * 43, "password": "short77"}),
+    ):
+        with pytest.raises(ValidationError):
+            body.model_validate(payload)
+        body.model_validate({**payload, "password": "eighth88"})
+
+    clock = Clock()
+    bootstrap_admin(tmp_path / "data", "admin", PASSWORD)
+    with create_client(tmp_path, clock) as client:
+        client.headers.update(headers())
+        denied = client.post("/api/account/auth/register",
+                             json={"username": "student8", "password": "short77"})
+        assert denied.status_code == 422
+        accepted = client.post("/api/account/auth/register",
+                               json={"username": "student8", "password": "eighth88"})
+        assert accepted.status_code == 201, accepted.text
+        assert accepted.json()["account"]["system_role"] == "PLAYER"
+        login = client.post("/api/account/auth/login",
+                            json={"username": "student8", "password": "eighth88"})
+        assert login.status_code == 200, login.text

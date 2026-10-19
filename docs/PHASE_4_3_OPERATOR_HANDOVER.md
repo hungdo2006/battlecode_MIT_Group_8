@@ -32,7 +32,9 @@ has been executed.
    Compose v2 version. Backend and controller must have no published ports;
    only Caddy 80/443 may be Internet-facing.
 7. Configure SMTP sender and verify STARTTLS, delivery, token invalidation
-   and failure recovery before enabling registration.
+   and failure recovery before enabling registration. When registrations close,
+   leave email verification and the sender ON for pending account activation and
+   password recovery; turn OFF only ARENA_SELF_REGISTRATION.
 8. Run and archive complete P01–P20 QA evidence on exactly the deployed
    image/source SHA. Test a full Player/Team/Official match on a staging copy.
 9. Agree rollback triggers, artifact retention and emergency account revocation;

@@ -1,56 +1,46 @@
 # NEON ARENA
 
-## Phase 4.3A — Unified Login & Player Self-Registration (QA candidate)
+## Phase 4.3 — Unified Login, Verified Player Signup & Pre-AWS (Draft PR #12)
 
-Phase 4.3A adds one Account-Only entry point for Admin and Player. Users cannot
-choose a role in the browser or request: the backend verifies credentials, reads
-the persisted `users.system_role`, and issues the correctly scoped HttpOnly,
-SameSite=Strict Admin or Player cookie. Existing `/api/{admin|player}/auth/*`
-routes remain audience-scoped for compatibility; authorization is still enforced
-by backend and CSRF middleware.
+This is an **unmerged pre-AWS QA candidate**, not a deployed release. See
+[pre-AWS design](docs/PHASE_4_3_PRE_AWS.md),
+[organizer handover](docs/PHASE_4_3_OPERATOR_HANDOVER.md), and the mandatory
+[P01–P20 independent QA](docs/PHASE_4_3_CONSOLIDATED_QA.md).
 
-New Account-Only endpoints:
-- Admin TOTP MFA (optional local QA; to be required for public use):
-  `python -m backend.admin_cli --data-dir <offline-data-dir> enroll-admin-totp --username <admin>`
-  on a private interactive terminal while the backend is stopped. Store the
-  Base32 secret securely in an Authenticator app; no secret is returned by HTTP.
-  Set `ARENA_ADMIN_TOTP_REQUIRED=1`; login includes optional six-digit `otp`
-  for Admin and rejects replay of an already-used 30-second counter. This is
-  MFA with a non-phishing-resistant TOTP factor; plan additional safeguards
-  against credential phishing. Rotating TOTP revokes existing sessions.
-- `POST /api/account/auth/login`: `{"username":"...","password":"..."}`; returns
-  `account`, `audience`, and a scoped session cookie. Wrong password always 401.
-- `POST /api/account/auth/register`: `{"username":"...","display_name":"...","email":"...","password":"..."}`.
-  When enabled, creates only an ACTIVE Player (201); rejects duplicates (409),
-  invalid inputs (422) and excessive attempts (429 Retry-After). No Admin signup.
-  Email is **stored but unverified**. There is currently **no email delivery,
-  email verification, password reset or MFA**. Do not rely on submitted email for
-  identity, recovery, or elevated privileges.
+Account-Only uses a **single** `POST /api/account/auth/login` for both Player and
+Admin. The server verifies a password once, derives role from the persisted
+`users.system_role`, and issues a path-scoped HttpOnly/SameSite=Strict cookie.
+The browser cannot choose its role. Existing audience-scoped auth and RBAC/CSRF
+guards remain for compatibility.
 
-Append-only **SQLite migration v6** creates `user_emails` (unique canonical email,
-nullable `verified_at`). It does not rewrite previous migrations or auto-run on
-server startup. Existing databases require an **offline** migration with WriterLock
-on a backed-up **disposable clone** first:
+- `POST /api/account/auth/register` is **OFF by default**. When enabled it
+  creates **PLAYER only**, never Admin. With `ARENA_EMAIL_VERIFICATION=1`,
+  registration remains pending until a one-use, 24-hour email token is verified;
+  email delivery uses authenticated SMTP with mandatory STARTTLS.
+- `POST /api/account/auth/resend-verification`, `/verify-email`,
+  `/request-reset`, and `/reset-password` support pending-account
+  activation and verified-Player password recovery (one-use 30-minute token).
+  When the enrollment window closes, set `ARENA_SELF_REGISTRATION=0`
+  **without disabling** `ARENA_EMAIL_VERIFICATION` or the sender; existing
+  Players must still be able to activate and recover accounts.
+- Admin TOTP is enrolled/rotated offline:
+  `python -m backend.admin_cli --data-dir <offline-data-dir> enroll-admin-totp --username <admin>`.
+  Require `ARENA_ADMIN_TOTP_REQUIRED=1` for any public gateway. This
+  six-digit factor is replay-fenced, session-scoped, and not phishing-resistant.
+- SQLite migrations **v6–v9** are append-only. Existing databases must be
+  migrated **offline after a verified backup and disposal-clone rehearsal**:
 
 ```powershell
 python -m backend.admin_cli --data-dir <disposable-data-dir> migrate
 python -m backend.admin_cli --data-dir <disposable-data-dir> check
 ```
 
-Do not run these against AWS or an existing live volume without a reviewed,
-owner-authorized migration window and tested rollback. Enable for isolated QA:
-`ARENA_ACCOUNT_AUTH=1`, `ARENA_ACCOUNT_ONLY=1`,
-`ARENA_SELF_REGISTRATION=1`, set explicit local/LAN `ARENA_AUTH_ORIGINS`,
-and `ARENA_AUTH_ALLOW_HTTP=1` **only for local QA**.
-
-**Not deployed and not yet accepted for the Internet:** Optional verified-email
-registration now supports SMTP STARTTLS delivery and one-time token confirmation
-(plus uniform resend), Admin TOTP MFA, and an opt-in authenticated HTTPS edge.
-These all remain disabled or gated until configured and tested on a disposable
-environment. Automated bot-abuse protections, SMTP provider DNS/deliverability,
-real TLS, gateway/WSS, MFA recovery and the independent Docker/Chrome security
-assessment are STILL required before a public deployment. Do not merge or
-deploy without approval.
+The versioned `compose.public.yaml` and `deploy/Caddyfile` are **templates
+only**, not authorization to start a public stack. Enablement requires approved
+DNS/domain, operator-owned SMTP and Admin TOTP, authenticated private gateway
+proof, static Compose render, real Chrome/Docker/TLS/WebSocket/security QA and
+explicit owner approval. Do not merge, deploy, mutate AWS or migrate a running
+volume based solely on GitHub Actions passing.
 
 ## Tiến độ — Phase 4.2E Final System QA (đã merge)
 

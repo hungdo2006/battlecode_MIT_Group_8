@@ -189,9 +189,11 @@ class HTTPAuthSettings:
             raise ValueError("Self-registration requires Account-Only mode")
         if self.require_admin_totp and not self.account_only:
             raise ValueError("Admin TOTP requires Account-Only mode")
+        # Closing new signups must NOT disable email verification for pending
+        # Players or password recovery for previously verified Players.
         if self.require_email_verification and (
-                not self.self_registration or not callable(getattr(self.email_sender, "send", None))):
-            raise ValueError("Email verification requires open registration and a configured mail sender")
+                not self.account_only or not callable(getattr(self.email_sender, "send", None))):
+            raise ValueError("Email verification requires Account-Only mode and a configured mail sender")
         if self.public_https and self.self_registration and not self.require_email_verification:
             raise ValueError("Public registration requires delivered email verification")
         if self.public_https:

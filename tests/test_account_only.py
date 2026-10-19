@@ -736,3 +736,57 @@ def test_password_recovery_disabled_without_email_verification(tmp_path):
             "username": "alice", "email": "alice@example.org"}).status_code == 404
         assert client.post("/api/account/auth/reset-password", json={
             "token": "a"*43, "password": PASSWORD}).status_code == 404
+
+
+def test_registration_closed_preserves_pending_verification_and_verified_recovery(tmp_path):
+    """Signup is independent from servicing existing verified/pending Players."""
+    clock = Clock()
+    seed_accounts(tmp_path, clock)
+    sent, recovered = [], []
+    sender = SimpleNamespace(
+        send=lambda email, token: sent.append((email, token)),
+        send_password_reset=lambda email, token: recovered.append((email, token)),
+    )
+    options = dict(enabled=True, account_only=True, require_email_verification=True,
+                   email_sender=sender, origins=(ORIGIN,), clock=clock, rate_clock=clock)
+    active = {"username": "closedactive", "display_name": "Existing Player",
+              "email": "closedactive@example.org", "password": PASSWORD}
+    pending = {"username": "closedpending", "display_name": "Pending Player",
+               "email": "closedpending@example.org", "password": PASSWORD}
+    with TestClient(create_app(tmp_path, account_http=HTTPAuthSettings(
+            self_registration=True, **options)), base_url=ORIGIN,
+            client=("127.0.0.1", 51134)) as client:
+        client.headers["Origin"] = ORIGIN
+        assert client.post("/api/account/auth/register", json=active).status_code == 201
+        assert client.post("/api/account/auth/verify-email", json={
+            "token": sent[-1][1]}).status_code == 200
+        assert client.post("/api/account/auth/register", json=pending).status_code == 201
+        pending_token = sent[-1][1]
+
+    # A subsequent scheduled registration closure must preserve both flows.
+    closed = HTTPAuthSettings(self_registration=False, **options)
+    with TestClient(create_app(tmp_path, account_http=closed), base_url=ORIGIN,
+                    client=("127.0.0.1", 51135)) as client:
+        client.headers["Origin"] = ORIGIN
+        assert client.post("/api/account/auth/register", json={
+            **active, "username": "newblocked", "email": "newblocked@example.org"
+        }).status_code == 404
+        assert client.post("/api/account/auth/resend-verification", json={
+            "username": pending["username"], "email": pending["email"]
+        }).status_code == 202
+        assert len(sent) == 3 and sent[-1][1] != pending_token
+        assert client.post("/api/account/auth/verify-email", json={
+            "token": pending_token}).status_code == 400
+        assert client.post("/api/account/auth/verify-email", json={
+            "token": sent[-1][1]}).status_code == 200
+        assert client.post("/api/account/auth/login", json={
+            "username": pending["username"], "password": PASSWORD}).status_code == 200
+        recovery = {"username": active["username"], "email": active["email"]}
+        assert client.post("/api/account/auth/request-reset", json=recovery).status_code == 202
+        assert len(recovered) == 1
+        assert client.post("/api/account/auth/reset-password", json={
+            "token": recovered[0][1], "password": PASSWORD + " rotated"
+        }).status_code == 200
+        assert client.post("/api/account/auth/login", json={
+            "username": active["username"], "password": PASSWORD + " rotated"
+        }).status_code == 200

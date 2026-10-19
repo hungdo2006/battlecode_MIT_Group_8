@@ -53,8 +53,11 @@ an explicit deployment authorization.
    fragments to avoid leaking the token via the initial HTTP request. The
    public overlay defaults self-registration OFF; enabling it REQUIRES
    ARENA_EMAIL_VERIFICATION=1, a working authenticated STARTTLS sender, real
-   abuse/security review and Chrome/Docker acceptance. Never claim production
-   signup ready from the HTTP tests alone.
+   abuse/security review and Chrome/Docker acceptance. When the registration
+   window closes, keep ARENA_EMAIL_VERIFICATION=1 and the SMTP sender configured
+   so pending Players can verify and existing verified Players can reset their
+   passwords; ARENA_SELF_REGISTRATION=0 alone blocks new signup. Never claim
+   production signup ready from the HTTP tests alone.
 3. Enable and enroll Admin TOTP offline on organization-owned devices. Test
    phishing resistance procedures, shared-password avoidance and recovery.
 4. Independent Chrome+Docker+TLS/WebSocket adversarial QA, including source
@@ -62,7 +65,7 @@ an explicit deployment authorization.
    bot sandbox side effects, queued/running crash recovery and replay privacy.
 5. Prove one exact Compose render contains **no public Arena port**, no
    Controller/Docker socket Internet exposure, no backup/credentials in images.
-6. Migration rehearsal with supported v5→v6→v7 on a **disposable snapshot**
+6. Migration rehearsal with supported v5→v6→v7→v8→v9 on a **disposable snapshot**
    of the existing account DB; validate integrity and rollback.
 7. Production backup (data, uploads, artifacts, replay), restore runbook,
    credential rotation, disk budget/alarms, least-privilege access,

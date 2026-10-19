@@ -253,4 +253,43 @@ MIGRATIONS = (
         """ALTER TABLE auth_sessions ADD COLUMN mfa_verified INTEGER NOT NULL
             DEFAULT 0 CHECK (mfa_verified IN (0,1))""",
     )),
+    (10, "team_tournaments", (
+        """CREATE TABLE team_tournaments (
+            id TEXT PRIMARY KEY NOT NULL,
+            name TEXT NOT NULL CHECK (length(trim(name)) BETWEEN 1 AND 64),
+            game_id TEXT NOT NULL CHECK (length(game_id) BETWEEN 1 AND 64),
+            format TEXT NOT NULL CHECK (format = 'round_robin'),
+            status TEXT NOT NULL CHECK (status IN ('REGISTRATION','ACTIVE','COMPLETED','CANCELLED')),
+            created_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+            created_at INTEGER NOT NULL CHECK (created_at >= 0),
+            started_at INTEGER CHECK (started_at IS NULL OR started_at >= created_at)
+        ) STRICT""",
+        "CREATE INDEX team_tournaments_status ON team_tournaments(status, created_at DESC)",
+        """CREATE TABLE team_tournament_entries (
+            tournament_id TEXT NOT NULL REFERENCES team_tournaments(id) ON DELETE RESTRICT,
+            team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE RESTRICT,
+            team_name_snapshot TEXT NOT NULL CHECK (length(trim(team_name_snapshot)) BETWEEN 1 AND 64),
+            PRIMARY KEY (tournament_id, team_id)
+        ) STRICT""",
+        """CREATE TABLE team_tournament_fixtures (
+            id TEXT PRIMARY KEY NOT NULL,
+            tournament_id TEXT NOT NULL REFERENCES team_tournaments(id) ON DELETE RESTRICT,
+            round_number INTEGER NOT NULL CHECK (round_number > 0),
+            team_a_id TEXT NOT NULL REFERENCES teams(id) ON DELETE RESTRICT,
+            team_b_id TEXT NOT NULL REFERENCES teams(id) ON DELETE RESTRICT,
+            official_request_id TEXT UNIQUE REFERENCES official_match_requests(id) ON DELETE RESTRICT,
+            created_at INTEGER NOT NULL CHECK (created_at >= 0),
+            CHECK (team_a_id <> team_b_id),
+            UNIQUE (tournament_id, round_number, team_a_id, team_b_id)
+        ) STRICT""",
+        "CREATE INDEX team_tournament_fixtures_tournament ON team_tournament_fixtures(tournament_id, round_number, id)",
+        """CREATE TABLE team_tournament_audit (
+            id INTEGER PRIMARY KEY,
+            tournament_id TEXT NOT NULL REFERENCES team_tournaments(id) ON DELETE RESTRICT,
+            fixture_id TEXT REFERENCES team_tournament_fixtures(id) ON DELETE RESTRICT,
+            actor_user_id TEXT REFERENCES users(id) ON DELETE RESTRICT,
+            action TEXT NOT NULL CHECK (length(action) BETWEEN 1 AND 64),
+            occurred_at INTEGER NOT NULL CHECK (occurred_at >= 0)
+        ) STRICT""",
+    )),
 )

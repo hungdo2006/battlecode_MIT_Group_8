@@ -1,5 +1,9 @@
 # NEON ARENA
 
+## Account-Only Team tournaments
+
+The first Team tournament workflow is implemented as a round-robin format: Admin selects 2–16 ACTIVE Teams, starts the draw, then schedules each fixture through the existing Official Match pipeline. Current members of the participating Teams can view fixtures and standings. The feature uses append-only SQLite migration v10; see the [Team tournament guide](docs/TEAM_TOURNAMENTS.md) for API and migration details. Run the existing independent QA/release gates before deploying it.
+
 ## Phase 4.3 — HTTPS Account-Only and username-only Player enrollment (PR #13)
 
 Phase 4.3 unified-login code has been merged and the owner has verified Admin login through the AWS HTTPS pilot. **This PR's new no-email enrollment/recovery changes are not deployed or independently accepted.** See [username-only enrollment runbook](docs/USERNAME_ONLY_SIGNUP.md). See

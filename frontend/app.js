@@ -11,7 +11,7 @@ const app = {
   role: "player", organizerAvailable: false,
   accountOnly: false, accountAuth: false, account: null, accountAudience: null, csrf: null,
   usernameOnlySignup: false,
-  team: null, activeTeamBot: null, officialMatches: [], officialTeams: [],
+  team: null, activeTeamBot: null, officialMatches: [], officialTeams: [], teamTournaments: [],
   officialRefreshing: false, pollPauseUntil: 0, bootstrapTimer: null,
   logoutBusy: false, logoutError: false,
   competition: null, competitionSocket: null, competitionTimer: null, competitionRetryMs: 5000,
@@ -1528,6 +1528,119 @@ async function refreshTournaments() {
   app.tournaments = await api("/api/tournaments");
   renderTournaments();
 }
+function renderTeamTournaments() {
+  const legacyVisible = !app.accountOnly;
+  $("#view-tournaments > .page-intro").classList.toggle("hidden", !legacyVisible);
+  $("#view-tournaments > .tournament-create-panel").classList.toggle("hidden", !legacyVisible);
+  $("#view-tournaments > .tournament-list-panel").classList.toggle("hidden", !legacyVisible);
+  const root = $("#account-team-tournaments");
+  root.classList.toggle("hidden", legacyVisible);
+  if (legacyVisible) return;
+  $("#team-tournament-admin-panel").classList.toggle("hidden", app.accountAudience !== "admin");
+  const gameSelect = $("#team-tournament-game"), previousGame = gameSelect.value;
+  gameSelect.replaceChildren(...app.games.map(game => {
+    const option = el("option", "", game.name); option.value = game.game_id; return option;
+  }));
+  gameSelect.value = app.games.some(game => game.game_id === previousGame)
+    ? previousGame : (app.competition?.selected_game_id || app.games[0]?.game_id || "");
+  const teamOptions = $("#team-tournament-team-options");
+  if (app.accountAudience === "admin") {
+    teamOptions.replaceChildren();
+    for (const team of app.officialTeams) {
+      const label = el("label", "tournament-player-option");
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox"; checkbox.name = "team_id"; checkbox.value = team.id;
+      label.append(checkbox, el("span", "", `${team.display_name} · ${team.member_count} thành viên`));
+      teamOptions.append(label);
+    }
+    if (!app.officialTeams.length) teamOptions.append(el("div", "empty-state", "Chưa có Team ACTIVE."));
+  }
+  const target = $("#team-tournaments-list"); target.replaceChildren();
+  if (!app.teamTournaments.length) {
+    target.append(el("div", "empty-state", "Chưa có giải đấu Team nào.")); return;
+  }
+  const statusNames = { REGISTRATION: "ĐANG ĐĂNG KÝ", ACTIVE: "ĐANG DIỄN RA", COMPLETED: "ĐÃ KẾT THÚC", CANCELLED: "ĐÃ HỦY" };
+  for (const tournament of app.teamTournaments) {
+    const card = el("article", "tournament-card");
+    const heading = el("div", "tournament-card-heading");
+    const title = el("div", "tournament-card-title");
+    title.append(el("span", "tournament-id", `TEAM TOURNAMENT / ${tournament.id.slice(0, 8).toUpperCase()}`),
+      el("h3", "", tournament.name));
+    heading.append(title, el("span", `tournament-status ${tournament.status.toLowerCase()}`, statusNames[tournament.status] || tournament.status));
+    const meta = el("div", "tournament-meta");
+    meta.append(el("span", "tournament-meta-item", tournament.game_id),
+      el("span", "tournament-meta-item", `${tournament.teams.length} đội`),
+      el("span", "tournament-meta-item", "Vòng tròn"));
+    const chips = el("div", "tournament-player-chips");
+    tournament.teams.forEach(team => chips.append(el("span", "tournament-player-chip", team.team_name_snapshot)));
+    const actions = el("div", "tournament-actions");
+    if (app.accountAudience === "admin" && tournament.status === "REGISTRATION") {
+      const start = el("button", "button primary small", "BẮT ĐẦU & TẠO LỊCH"); start.type = "button";
+      start.onclick = async () => {
+        start.disabled = true;
+        try { await api(`/api/admin/team-tournaments/${encodeURIComponent(tournament.id)}/start`, jsonOptions("POST", {})); await refreshTeamTournaments(); }
+        catch (error) { start.disabled = false; toast(error.message, true); }
+      };
+      actions.append(start);
+    }
+    card.append(heading, meta, chips);
+    if (tournament.standings.length) {
+      const table = el("div", "tournament-standings"); table.setAttribute("role", "table");
+      const columns = [["rank", "HẠNG"], ["team_name", "ĐỘI"], ["played", "ĐẤU"], ["wins", "THẮNG"], ["draws", "HÒA"], ["losses", "THUA"], ["points", "ĐIỂM"]];
+      const headerRow = el("div", "tournament-standing-row heading");
+      columns.forEach(([key, label]) => { const cell = el("span", `tournament-standing-cell ${key}`, label); cell.setAttribute("role", "columnheader"); headerRow.append(cell); });
+      table.append(headerRow);
+      tournament.standings.forEach(item => {
+        const row = el("div", "tournament-standing-row"); row.setAttribute("role", "row");
+        columns.forEach(([key]) => { const cell = el("span", `tournament-standing-cell ${key}`, item[key]); cell.setAttribute("role", "cell"); row.append(cell); });
+        table.append(row);
+      });
+      card.append(table);
+    }
+    if (actions.childElementCount) card.append(actions);
+    const fixtureList = el("div", "tournament-schedule");
+    tournament.fixtures.forEach(fixture => {
+      const fixtureCard = el("section", "tournament-schedule-match");
+      const teamA = tournament.teams.find(team => team.team_id === fixture.team_a_id)?.team_name_snapshot || "Team A";
+      const teamB = tournament.teams.find(team => team.team_id === fixture.team_b_id)?.team_name_snapshot || "Team B";
+      fixtureCard.append(el("span", "", `Vòng ${fixture.round_number} · ${teamA} VS ${teamB}`));
+      fixtureCard.append(el("small", `tournament-match-state ${(fixture.match_status || "pending").toLowerCase()}`, fixture.match_status || "CHƯA XẾP LỊCH"));
+      if (app.accountAudience === "admin" && tournament.status === "ACTIVE" && !fixture.official_request_id) {
+        const controls = el("div", "form-buttons");
+        const lockInput = document.createElement("input"); lockInput.type = "datetime-local"; lockInput.setAttribute("aria-label", "Thời điểm khóa bot"); lockInput.value = officialLocalInput(Date.now() + 120000);
+        const scheduledInput = document.createElement("input"); scheduledInput.type = "datetime-local"; scheduledInput.setAttribute("aria-label", "Thời điểm thi đấu"); scheduledInput.value = officialLocalInput(Date.now() + 300000);
+        const schedule = el("button", "button ghost small", "XẾP LỊCH"); schedule.type = "button";
+        schedule.onclick = async () => {
+          schedule.disabled = true;
+          try {
+            const bot_lock_at = Math.floor(new Date(lockInput.value).getTime() / 1000);
+            const scheduled_at = Math.floor(new Date(scheduledInput.value).getTime() / 1000);
+            if (!Number.isFinite(bot_lock_at) || !Number.isFinite(scheduled_at)) throw new Error("Chọn thời gian hợp lệ.");
+            await api(`/api/admin/team-tournaments/${encodeURIComponent(tournament.id)}/fixtures/${encodeURIComponent(fixture.id)}/schedule`, jsonOptions("POST", { bot_lock_at, scheduled_at }));
+            await refreshTeamTournaments(); await refreshOfficialMatches({includeTeams:false});
+          } catch (error) { schedule.disabled = false; toast(error.message, true); }
+        };
+        controls.append(lockInput, scheduledInput, schedule); fixtureCard.append(controls);
+      }
+      if (fixture.official_request_id && fixture.match_id) {
+        const replay = el("button", "button ghost small", "XEM LIVE / REPLAY"); replay.type = "button";
+        replay.onclick = () => loadMatch(fixture.official_request_id, true).catch(error => toast(error.message, true));
+        fixtureCard.append(replay);
+      }
+      fixtureList.append(fixtureCard);
+    });
+    if (tournament.fixtures.length) card.append(fixtureList);
+    target.append(card);
+  }
+}
+
+async function refreshTeamTournaments() {
+  if (!app.accountOnly || !app.account) return;
+  const response = await api(`/api/${app.accountAudience}/team-tournaments`);
+  if (!Array.isArray(response.tournaments)) throw new Error("Dữ liệu giải đấu Team không hợp lệ.");
+  app.teamTournaments = response.tournaments;
+  renderTeamTournaments();
+}
 async function refreshBots() {
   if (app.accountOnly) {
     if (app.accountAudience !== "player") return;
@@ -1559,6 +1672,25 @@ async function refreshMatches() {
 $("#refresh-bots").addEventListener("click", () => refreshBots().catch(e => toast(e.message, true)));
 $("#refresh-matches").addEventListener("click", () => refreshMatches().catch(e => toast(e.message, true)));
 $("#refresh-tournaments").addEventListener("click", () => refreshTournaments().catch(e => toast(e.message, true)));
+$("#refresh-team-tournaments").addEventListener("click", () => refreshTeamTournaments().catch(e => toast(e.message, true)));
+$("#team-tournament-create").addEventListener("submit", async event => {
+  event.preventDefault();
+  const form = event.currentTarget, button = form.querySelector("[type=submit]");
+  const team_ids = [...form.querySelectorAll('input[name="team_id"]:checked')].map(input => input.value);
+  if (team_ids.length < 2 || team_ids.length > 16) {
+    feedback("#team-tournament-feedback", "Chọn từ 2 đến 16 đội.", true); return;
+  }
+  button.disabled = true;
+  try {
+    await api("/api/admin/team-tournaments", jsonOptions("POST", {
+      name: form.elements.name.value, game_id: form.elements.game_id.value, team_ids
+    }));
+    form.reset();
+    feedback("#team-tournament-feedback", "Đã tạo giải. Bắt đầu giải để sinh lịch vòng tròn.");
+    await refreshTeamTournaments();
+  } catch (error) { feedback("#team-tournament-feedback", error.message, true); }
+  finally { button.disabled = false; }
+});
 $("#standings-game-select").addEventListener("change", event => {
   app.standingsGameId = event.currentTarget.value || null;
   refreshStandings().catch(error => toast(error.message, true));
@@ -2123,12 +2255,15 @@ async function bootstrap() {
     app.bots = bots; app.games = registry.games; app.matches = matches; app.tournaments = tournaments;
     await acceptCompetition(competition);
     if (app.accountOnly && app.accountAudience === "player") await refreshAccountTeam();
-    if (app.accountOnly) await refreshOfficialMatches();
+    if (app.accountOnly) {
+      await refreshOfficialMatches();
+      await refreshTeamTournaments();
+    }
     populateStandingsGameSelector();
     if (canInspectPrivate) await refreshStandings();
     else app.standings = [];
     setConnection(health.status === "ok");
-    renderBots(); renderRules(true); renderMatches(); renderStandings(); renderTournaments();
+    renderBots(); renderRules(true); renderMatches(); renderStandings(); renderTournaments(); renderTeamTournaments();
     applyPermissions();
     app.initialized = true;
     connectCompetitionSocket();
@@ -2325,6 +2460,9 @@ setInterval(async () => {
   app.officialRefreshing = true;
   try {
     await refreshOfficialMatches({includeTeams: false});
+    if (location.hash === "#tournaments" && !$("#account-team-tournaments").contains(document.activeElement)) {
+      await refreshTeamTournaments();
+    }
     if (app.accountOnly && app.account && app.initialized) setConnection(true);
   } catch (error) {
     // HTTP 429/403/validation errors do not mean that the network is down.

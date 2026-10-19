@@ -184,7 +184,8 @@ class OfficialSchedule:
     def _ready(self):
         require_writer(self.writer,self.writer.path.parent)
 
-    def create(self,actor,*,team_a_id,team_b_id,game_id,bot_lock_at,scheduled_at):
+    def create(self,actor,*,team_a_id,team_b_id,game_id,bot_lock_at,scheduled_at,
+               team_tournament_fixture_id=None):
         self._ready()
         with transaction(self.db):
             now=self._now()
@@ -203,6 +204,17 @@ class OfficialSchedule:
                 raise OfficialNotFound("Team not found")
             if any(t["status"]!="ACTIVE" for t in teams):
                 raise OfficialConflict("Both Teams must be ACTIVE")
+            fixture = None
+            if team_tournament_fixture_id is not None:
+                fixture = self.db.execute("""SELECT f.*,t.game_id,t.status AS tournament_status
+                    FROM team_tournament_fixtures f JOIN team_tournaments t ON t.id=f.tournament_id
+                    WHERE f.id=?""", (team_tournament_fixture_id,)).fetchone()
+                if not fixture:
+                    raise OfficialNotFound("Tournament fixture not found")
+                if (fixture["tournament_status"] != "ACTIVE" or fixture["official_request_id"]
+                    or fixture["game_id"] != game_id
+                    or {fixture["team_a_id"], fixture["team_b_id"]} != {team_a_id, team_b_id}):
+                    raise OfficialConflict("Tournament fixture is unavailable or does not match this schedule")
             rules=self.registry.get(game_id).validate_rules(self.store.get_rules(game_id))
             request_id=uuid4().hex
             self.db.execute("""INSERT INTO official_match_requests
@@ -216,6 +228,13 @@ class OfficialSchedule:
                 (occurred_at,actor_user_id,action,target_type,target_id,details_json)
                 VALUES (?,?,'OFFICIAL_MATCH_SCHEDULED','official_match',?,'{}')""",
                 (now,admin["id"],request_id))
+            if fixture is not None:
+                self.db.execute("UPDATE team_tournament_fixtures SET official_request_id=? WHERE id=?",
+                                 (request_id, team_tournament_fixture_id))
+                self.db.execute("""INSERT INTO team_tournament_audit
+                    (tournament_id,fixture_id,actor_user_id,action,occurred_at)
+                    VALUES (?,?,?,'FIXTURE_SCHEDULED',?)""",
+                    (fixture["tournament_id"], team_tournament_fixture_id, admin["id"], now))
             lock_due_matches(self.db,self.store,now)
             return official_json(self.db,self._get(request_id))
 
@@ -267,6 +286,17 @@ class OfficialSchedule:
             self.db.execute("""UPDATE official_match_requests
                 SET status='CANCELLED',locked_at=NULL,revision=revision+1
                 WHERE id=?""",(request_id,))
+            fixture = self.db.execute("""SELECT id AS fixture_id,tournament_id FROM
+                team_tournament_fixtures WHERE official_request_id=?""", (request_id,)).fetchone()
+            if fixture:
+                # Keep the cancelled request and audit history, but make its
+                # fixture schedulable again from the Team tournament view.
+                self.db.execute("UPDATE team_tournament_fixtures SET official_request_id=NULL WHERE id=?",
+                                 (fixture["fixture_id"],))
+                self.db.execute("""INSERT INTO team_tournament_audit
+                    (tournament_id,fixture_id,actor_user_id,action,occurred_at)
+                    VALUES (?,?,?,'FIXTURE_UNSCHEDULED',?)""",
+                    (fixture["tournament_id"], fixture["fixture_id"], admin["id"], now))
             self.db.execute("""INSERT INTO audit_events
                 (occurred_at,actor_user_id,action,target_type,target_id,details_json)
                 VALUES (?,?,'OFFICIAL_MATCH_CANCELLED','official_match',?,'{}')""",

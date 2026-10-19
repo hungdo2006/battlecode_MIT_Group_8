@@ -1230,9 +1230,11 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
         from backend.team_http import install_team_http
         from backend.bot_http import install_bot_http
         from backend.official_http import install_official_http
+        from backend.team_tournament_http import install_team_tournament_http
         install_team_http(app)
         install_bot_http(app)
         install_official_http(app)
+        install_team_tournament_http(app)
     return app
 
 

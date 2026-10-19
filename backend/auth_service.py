@@ -347,7 +347,7 @@ class AuthService:
         original_token, original_user = self._invited_user(digest, self._now())
         # No SQLite transaction while hashing. Consume/re-check after Argon2.
         with self._work.slot():
-            encoded = passwords.hash_password(password)
+            encoded = passwords.hash_password(password, min_length=passwords.MIN_PLAYER_PASSWORD_LENGTH)
         self._ready()
         with transaction(self._db):
             now = self._now()
@@ -394,7 +394,7 @@ class AuthService:
                 "SELECT 1 FROM user_emails WHERE email=?", (canonical_email,)).fetchone())):
             raise AccountConflict("Registration unavailable")
         with self._work.slot():
-            encoded = passwords.hash_password(password)
+            encoded = passwords.hash_password(password, min_length=passwords.MIN_PLAYER_PASSWORD_LENGTH)
         self._ready()
         with transaction(self._db):
             now = self._now()
@@ -547,7 +547,7 @@ class AuthService:
                 or (row["verified_at"] is None and row["created_by"] is None)):
             raise InvalidInvitation()
         with self._work.slot():
-            encoded = passwords.hash_password(password)
+            encoded = passwords.hash_password(password, min_length=passwords.MIN_PLAYER_PASSWORD_LENGTH)
         self._ready()
         with transaction(self._db):
             current = original()

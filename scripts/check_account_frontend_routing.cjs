@@ -105,5 +105,36 @@ const { api, scopedApiPath } = vm.runInContext(sourceHelpers + "\n({api,scopedAp
   await assert.rejects(api("/api/player/team"), error => error.status === 403);
   assert.equal(expiredCalls, 1, "failed probe is not revocation proof");
   assert.equal(app.account.id, "new-session");
-  console.log("PASS: account routing/CSRF, forbidden-session recheck, stale-login guard and legacy");
+
+  // The legacy free-play standings endpoint is not available under
+  // /api/admin or /api/player. Do not block Account-Only bootstrap/WebSocket.
+  const standingsStart = source.indexOf("async function refreshStandings() {");
+  const standingsEnd = source.indexOf("\nasync function refreshTournaments()", standingsStart);
+  assert(standingsStart >= 0 && standingsEnd > standingsStart, "Standings helper missing");
+  const standingsRequests = [];
+  const standingsApp = {
+    accountOnly: true, standingsGameId: "ott_v2", standings: [{ stale: true }],
+  };
+  let standingsRenders = 0;
+  const refreshStandings = vm.runInNewContext(
+    source.slice(standingsStart, standingsEnd) + "\nrefreshStandings",
+    {
+      app: standingsApp,
+      api: async url => { standingsRequests.push(url); return [{ game_id: "ott_v2" }]; },
+      renderStandings: () => { standingsRenders++; },
+      encodeURIComponent,
+    }
+  );
+  await refreshStandings();
+  assert.equal(standingsRequests.length, 0, "Account-Only must not fetch legacy standings");
+  assert.equal(standingsApp.standings.length, 0, "stale legacy standings must be cleared");
+  assert.equal(standingsRenders, 1, "Account-Only should still render the empty standings state");
+
+  standingsApp.accountOnly = false;
+  await refreshStandings();
+  assert.equal(standingsRequests.at(-1), "/api/standings?game_id=ott_v2",
+    "Legacy mode must still load free-play standings");
+  assert.equal(standingsApp.standings.length, 1);
+
+  console.log("PASS: account routing/CSRF, forbidden-session recheck, stale-login guard and standings modes");
 })().catch(error => { console.error(error); process.exitCode = 1; });

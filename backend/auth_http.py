@@ -197,7 +197,7 @@ class HTTPAuthSettings:
             raise ValueError("Email verification requires Account-Only mode and a configured mail sender")
         if self.public_https and self.self_registration and not (
                 self.require_email_verification or self.allow_public_username_signup):
-            raise ValueError("Public registration requires verified email or explicit username-only opt-in")
+            raise ValueError("Public registration requires delivered email verification or explicit username-only opt-in")
         if self.allow_public_username_signup and not (self.public_https and self.account_only):
             raise ValueError("Username-only signup opt-in requires HTTPS Account-Only Gateway")
         if self.public_https:

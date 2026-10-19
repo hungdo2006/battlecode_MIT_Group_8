@@ -62,6 +62,8 @@ def public_account_auth_path(path):
         ENTRY_PREFIX + "/auth/register",
         ENTRY_PREFIX + "/auth/verify-email",
         ENTRY_PREFIX + "/auth/resend-verification",
+        ENTRY_PREFIX + "/auth/request-reset",
+        ENTRY_PREFIX + "/auth/reset-password",
     }
 
 
@@ -359,6 +361,11 @@ class VerifyEmailBody(StrictBody):
 class ResendEmailBody(StrictBody):
     username: str = Field(min_length=3, max_length=32)
     email: str = Field(min_length=3, max_length=254)
+
+
+class ResetPasswordBody(StrictBody):
+    token: SecretStr = Field(min_length=43, max_length=43)
+    password: SecretStr = Field(min_length=15, max_length=1024)
 
 
 class RegisterBody(StrictBody):
@@ -677,6 +684,42 @@ def install_auth_http(app, settings, network):
                 raise HTTPException(503, "Verification delivery unavailable") from None
         # Same status/response for unknown or already activated accounts.
         return {"message": "If eligible, a verification email has been sent"}
+
+    @entry.post("/request-reset", status_code=202)
+    async def request_reset(body: ResendEmailBody, request: Request):
+        if not settings.require_email_verification:
+            raise HTTPException(404, "Password recovery is not enabled")
+        runtime = runtime_for(request)
+        try:
+            runtime.limiter.registration(trusted_client_address(
+                request.scope, request.headers, settings))
+        except AuthRateLimited as exc:
+            raise HTTPException(429, "Too many requests",
+                                headers={"Retry-After": str(exc.retry_after)}) from None
+        delivery = await runtime.run(lambda auth, _: auth.request_player_password_reset(
+            body.username, body.email))
+        if delivery:
+            try:
+                await asyncio.to_thread(settings.email_sender.send_password_reset, delivery[0], delivery[1])
+            except Exception:
+                raise HTTPException(503, "Recovery email unavailable") from None
+        return {"message": "If eligible, a password recovery email has been sent"}
+
+    @entry.post("/reset-password")
+    async def reset_password(body: ResetPasswordBody, request: Request):
+        if not settings.require_email_verification:
+            raise HTTPException(404, "Password recovery is not enabled")
+        runtime = runtime_for(request)
+        token = body.token.get_secret_value()
+        try:
+            runtime.limiter.activation(trusted_client_address(
+                request.scope, request.headers, settings), token)
+        except AuthRateLimited as exc:
+            raise HTTPException(429, "Too many requests",
+                                headers={"Retry-After": str(exc.retry_after)}) from None
+        account = await runtime.run(lambda auth, _: auth.reset_player_password(
+            token, body.password.get_secret_value()))
+        return {"reset": True, "account": account_json(account)}
 
     @entry.post("/login")
     async def unified_login(body: LoginBody, request: Request):

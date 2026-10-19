@@ -60,6 +60,8 @@ def public_account_auth_path(path):
         account_prefix("ADMIN") + "/auth/login",
         ENTRY_PREFIX + "/auth/login",
         ENTRY_PREFIX + "/auth/register",
+        ENTRY_PREFIX + "/auth/verify-email",
+        ENTRY_PREFIX + "/auth/resend-verification",
     }
 
 
@@ -166,6 +168,8 @@ class HTTPAuthSettings:
     enabled: bool = False
     account_only: bool = False
     self_registration: bool = False
+    require_email_verification: bool = False
+    email_sender: object = field(default=None, repr=False)
     require_admin_totp: bool = False
     public_https: bool = False
     gateway_secret: str = field(default="", repr=False)
@@ -183,6 +187,11 @@ class HTTPAuthSettings:
             raise ValueError("Self-registration requires Account-Only mode")
         if self.require_admin_totp and not self.account_only:
             raise ValueError("Admin TOTP requires Account-Only mode")
+        if self.require_email_verification and (
+                not self.self_registration or not callable(getattr(self.email_sender, "send", None))):
+            raise ValueError("Email verification requires open registration and a configured mail sender")
+        if self.public_https and self.self_registration and not self.require_email_verification:
+            raise ValueError("Public registration requires delivered email verification")
         if self.public_https:
             if not (self.enabled and self.account_only and self.require_admin_totp):
                 raise ValueError("Public Gateway requires Account-Only and Admin TOTP")
@@ -205,12 +214,20 @@ class HTTPAuthSettings:
         enabled, account_only = _env_bool("ARENA_ACCOUNT_AUTH"), _env_bool("ARENA_ACCOUNT_ONLY")
         if not enabled:
             return cls(account_only=account_only)  # Validates the impossible ON/OFF combination.
+        origins = tuple(value.strip() for value in os.environ.get("ARENA_AUTH_ORIGINS", "").split(",") if value.strip())
+        needs_email = _env_bool("ARENA_EMAIL_VERIFICATION")
+        sender = None
+        if needs_email:
+            from .email_delivery import SMTPVerificationSender
+            sender = SMTPVerificationSender.from_environment(origin=origins[0] if origins else "")
         return cls(enabled=True, account_only=account_only,
                    self_registration=_env_bool("ARENA_SELF_REGISTRATION"),
+                   require_email_verification=needs_email,
+                   email_sender=sender,
                    require_admin_totp=_env_bool("ARENA_ADMIN_TOTP_REQUIRED"),
                    public_https=_env_bool("ARENA_PUBLIC_GATEWAY"),
                    gateway_secret=os.environ.get("ARENA_PROXY_SECRET", ""),
-                   origins=tuple(value.strip() for value in os.environ.get("ARENA_AUTH_ORIGINS", "").split(",") if value.strip()),
+                   origins=origins,
                    allow_http=_env_bool("ARENA_AUTH_ALLOW_HTTP"))
 
 
@@ -333,6 +350,15 @@ class LoginBody(StrictBody):
     username: str = Field(min_length=1, max_length=64)
     password: SecretStr = Field(min_length=1, max_length=1024)
     otp: SecretStr | None = Field(default=None, min_length=6, max_length=6)
+
+
+class VerifyEmailBody(StrictBody):
+    token: SecretStr = Field(min_length=43, max_length=43)
+
+
+class ResendEmailBody(StrictBody):
+    username: str = Field(min_length=3, max_length=32)
+    email: str = Field(min_length=3, max_length=254)
 
 
 class RegisterBody(StrictBody):
@@ -600,10 +626,57 @@ def install_auth_http(app, settings, network):
         except AuthRateLimited as exc:
             raise HTTPException(429, "Too many registration requests",
                                 headers={"Retry-After": str(exc.retry_after)}) from None
-        account = await runtime.run(lambda auth, _: auth.register_player(
-            body.username, body.display_name, body.email, body.password.get_secret_value()))
-        return {"account": account_json(account), "email_verified": False,
+        result = await runtime.run(lambda auth, _: auth.register_player(
+            body.username, body.display_name, body.email, body.password.get_secret_value(),
+            verify_email=settings.require_email_verification))
+        if settings.require_email_verification:
+            account, token, email = result
+            try:
+                await asyncio.to_thread(settings.email_sender.send, email, token)
+            except Exception:
+                # Account remains INVITED. Resend with the same username/email;
+                # never return a verification token or sender details in JSON.
+                raise HTTPException(503, "Verification delivery unavailable") from None
+            return {"registration_pending": True, "email_verified": False,
+                    "message": "Check your email to activate your Player account"}
+        return {"account": account_json(result), "email_verified": False,
                 "message": "Registration completed; email is not verified"}
+
+    @entry.post("/verify-email")
+    async def verify_email(body: VerifyEmailBody, request: Request):
+        if not settings.require_email_verification:
+            raise HTTPException(404, "Email verification is not enabled")
+        runtime = runtime_for(request)
+        token = body.token.get_secret_value()
+        try:
+            runtime.limiter.activation(trusted_client_address(
+                request.scope, request.headers, settings), token)
+        except AuthRateLimited as exc:
+            raise HTTPException(429, "Too many requests",
+                                headers={"Retry-After": str(exc.retry_after)}) from None
+        account = await runtime.run(lambda auth, _: auth.verify_registration_email(token))
+        return {"verified": True, "account": account_json(account)}
+
+    @entry.post("/resend-verification", status_code=202)
+    async def resend_email(body: ResendEmailBody, request: Request):
+        if not settings.require_email_verification:
+            raise HTTPException(404, "Email verification is not enabled")
+        runtime = runtime_for(request)
+        try:
+            runtime.limiter.registration(trusted_client_address(
+                request.scope, request.headers, settings))
+        except AuthRateLimited as exc:
+            raise HTTPException(429, "Too many requests",
+                                headers={"Retry-After": str(exc.retry_after)}) from None
+        delivery = await runtime.run(lambda auth, _: auth.resend_email_verification(
+            body.username, body.email))
+        if delivery:
+            try:
+                await asyncio.to_thread(settings.email_sender.send, delivery[0], delivery[1])
+            except Exception:
+                raise HTTPException(503, "Verification delivery unavailable") from None
+        # Same status/response for unknown or already activated accounts.
+        return {"message": "If eligible, a verification email has been sent"}
 
     @entry.post("/login")
     async def unified_login(body: LoginBody, request: Request):

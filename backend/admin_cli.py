@@ -4,6 +4,8 @@ There is deliberately no password flag, environment fallback, or startup hook.
 """
 import argparse
 import getpass
+import time as _time
+from .totp import generate_secret
 from pathlib import Path
 import sqlite3
 import sys
@@ -70,6 +72,37 @@ def invalidate_restored_auth(data_dir: Path) -> dict:
         return {"sessions_revoked": sessions, "tokens_revoked": tokens, "users_fenced": users}
 
 
+def enroll_admin_totp(data_dir: Path, username: str) -> str:
+    """Offline provisioning; secret only returned to the authorized terminal.
+
+    A new credential revokes all existing sessions, including previously
+    authenticated Admin sessions. Never include the secret in audit events.
+    """
+    username = normalize_username(username)
+    with AccountDatabase(data_dir).maintenance() as connection:
+        row = connection.execute(
+            "SELECT id,system_role,status FROM users WHERE username=?", (username,)).fetchone()
+        if not row or row["system_role"] != "ADMIN" or row["status"] != "ACTIVE":
+            raise ValueError("An active Admin account is required")
+        secret = generate_secret()
+        now = int(_time.time())
+        with transaction(connection):
+            connection.execute("""INSERT INTO admin_totp
+                (user_id,secret,last_counter,enrolled_at) VALUES (?,?,-1,?)
+                ON CONFLICT(user_id) DO UPDATE SET secret=excluded.secret,
+                last_counter=-1,enrolled_at=excluded.enrolled_at""",
+                (row["id"], secret, now))
+            connection.execute("""UPDATE users SET auth_version=auth_version+1,
+                updated_at=max(updated_at,?) WHERE id=?""", (now,row["id"]))
+            connection.execute("""UPDATE auth_sessions SET revoked_at=max(created_at,?)
+                WHERE user_id=? AND revoked_at IS NULL""", (now,row["id"]))
+            connection.execute("""INSERT INTO audit_events
+                (occurred_at,actor_user_id,action,target_type,target_id)
+                VALUES (?,?, 'ADMIN_TOTP_ENROLLED_OFFLINE','user',?)""",
+                (now,row["id"],row["id"]))
+        return secret
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="NEON ARENA offline account maintenance (stop backend first)")
     parser.add_argument("--data-dir", type=Path, required=True,
@@ -82,6 +115,9 @@ def main(argv=None):
     create = commands.add_parser("create-admin", help="Create an Admin using a hidden terminal prompt")
     create.add_argument("--username", required=True)
     create.add_argument("--display-name")
+    enroll = commands.add_parser("enroll-admin-totp",
+        help="Offline one-time MFA secret provisioning/rotation; revokes Admin sessions")
+    enroll.add_argument("--username", required=True)
     args = parser.parse_args(argv)
     database = AccountDatabase(args.data_dir)
     try:
@@ -97,6 +133,17 @@ def main(argv=None):
             print("Restored authentication invalidated: "
                   f"{result['sessions_revoked']} sessions, {result['tokens_revoked']} tokens, "
                   f"{result['users_fenced']} active users")
+        elif args.command == "enroll-admin-totp":
+            if not sys.stdin.isatty() or not sys.stdout.isatty():
+                raise ValueError("TOTP setup requires a private interactive terminal")
+            name = normalize_username(args.username)
+            confirmation = input(f"Rotate MFA for {name} and revoke sessions? Type ENROLL: ")
+            if confirmation != "ENROLL":
+                raise ValueError("TOTP enrollment not confirmed")
+            secret = enroll_admin_totp(args.data_dir, name)
+            print("PRIVATE: Enter this Base32 secret into your Authenticator app, "
+                  "then erase terminal history and store emergency recovery securely.")
+            print(f"Admin: {name} | TOTP secret: {secret}")
         else:
             username = normalize_username(args.username)
             # Refuse redirected input: getpass can otherwise fall back to echoing.

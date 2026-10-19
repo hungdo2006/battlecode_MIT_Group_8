@@ -495,3 +495,67 @@ def test_registration_validates_email_password_and_rate_limit(tmp_path):
     with pytest.raises(ValueError, match="Self-registration requires"):
         HTTPAuthSettings(enabled=True, self_registration=True, origins=(ORIGIN,))
 
+
+
+def test_admin_totp_required_for_unified_and_legacy_login(tmp_path):
+    from backend.admin_cli import enroll_admin_totp
+    from backend.totp import code_at
+    clock = Clock()
+    seed_accounts(tmp_path, clock)
+    secret = enroll_admin_totp(tmp_path / "data", "admin")
+    settings = HTTPAuthSettings(enabled=True, account_only=True, require_admin_totp=True,
+                                origins=(ORIGIN,), clock=clock, rate_clock=clock)
+    with TestClient(create_app(tmp_path, account_http=settings), base_url=ORIGIN,
+                    client=("127.0.0.1", 51018)) as client:
+        client.headers["Origin"] = ORIGIN
+        for path in ("/api/account/auth/login", "/api/admin/auth/login"):
+            response = client.post(path, json={"username": "admin", "password": PASSWORD})
+            assert response.status_code == 401, response.text
+        response = client.post("/api/account/auth/login", json={
+            "username": "admin", "password": PASSWORD,
+            "otp": code_at(secret, clock.now // 30),
+        })
+        assert response.status_code == 200, response.text
+        assert response.json()["audience"] == "admin"
+        # A replayed six-digit code cannot issue a second privileged session.
+        repeated = client.post("/api/admin/auth/login", json={
+            "username": "admin", "password": PASSWORD,
+            "otp": code_at(secret, clock.now // 30),
+        })
+        assert repeated.status_code == 401
+        # Player login does not require MFA.
+        player = client.post("/api/account/auth/login", json={
+            "username": "alice", "password": PASSWORD,
+        })
+        assert player.status_code == 200 and player.json()["audience"] == "player"
+        assert client.get("/api/admin/auth/me").status_code == 401
+        clock.now += 30
+        next_code = client.post("/api/admin/auth/login", json={
+            "username": "admin", "password": PASSWORD,
+            "otp": code_at(secret, clock.now // 30),
+        })
+        assert next_code.status_code == 200
+
+
+def test_totp_secret_not_present_in_audit_and_offline_rotation_fences_sessions(tmp_path):
+    from backend.admin_cli import enroll_admin_totp
+    from backend.totp import code_at
+    from backend.auth_service import InvalidSession
+    clock = Clock()
+    seed_accounts(tmp_path, clock)
+    first = enroll_admin_totp(tmp_path / "data", "admin")
+    with WriterLock(tmp_path / "data") as writer, AccountDatabase(tmp_path / "data").writer_connection(writer) as conn:
+        service = AuthService(conn, writer, clock=clock, login_limiter=AuthRateLimiter(),
+                              require_admin_totp=True)
+        grant = service.login_unified("admin", PASSWORD, source_key="127.0.0.1",
+                                      otp=code_at(first, clock.now // 30))
+    replacement = enroll_admin_totp(tmp_path / "data", "admin")
+    assert first != replacement
+    with WriterLock(tmp_path / "data") as writer, AccountDatabase(tmp_path / "data").writer_connection(writer) as conn:
+        service = AuthService(conn, writer, clock=clock, login_limiter=AuthRateLimiter(),
+                              require_admin_totp=True)
+        with pytest.raises(InvalidSession):
+            service.validate_session(grant.token, audience="ADMIN")
+        audit = "".join(row[0] for row in conn.execute("SELECT details_json FROM audit_events"))
+        assert first not in audit and replacement not in audit
+        assert conn.execute("SELECT count(*) FROM admin_totp").fetchone()[0] == 1

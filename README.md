@@ -10,6 +10,14 @@ routes remain audience-scoped for compatibility; authorization is still enforced
 by backend and CSRF middleware.
 
 New Account-Only endpoints:
+- Admin TOTP MFA (optional local QA; to be required for public use):
+  `python -m backend.admin_cli --data-dir <offline-data-dir> enroll-admin-totp --username <admin>`
+  on a private interactive terminal while the backend is stopped. Store the
+  Base32 secret securely in an Authenticator app; no secret is returned by HTTP.
+  Set `ARENA_ADMIN_TOTP_REQUIRED=1`; login includes optional six-digit `otp`
+  for Admin and rejects replay of an already-used 30-second counter. This is
+  MFA with a non-phishing-resistant TOTP factor; plan additional safeguards
+  against credential phishing. Rotating TOTP revokes existing sessions.
 - `POST /api/account/auth/login`: `{"username":"...","password":"..."}`; returns
   `account`, `audience`, and a scoped session cookie. Wrong password always 401.
 - `POST /api/account/auth/register`: `{"username":"...","display_name":"...","email":"...","password":"..."}`.

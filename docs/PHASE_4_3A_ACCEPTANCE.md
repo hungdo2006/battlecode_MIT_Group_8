@@ -25,7 +25,7 @@ Internet deployment or an approval to migrate an existing AWS/production DB.
 | A05 | Registration disabled | HTTP 404 and hidden Register choice, no new DB user |
 | A06 | Duplicate username/email casefold | 409 without account creation; retries cannot overwrite |
 | A07 | Registration abuse | 429 with Retry-After; malformed body, cross-origin/proxy/Host denial; bounded JSON |
-| A08 | Session boundaries | CSRF, logout, revocation, WS reconnect, Admin/Player RBAC unchanged |
+| A08 | Session boundaries | CSRF, logout, revocation, WS reconnect, Admin/Player RBAC unchanged; mandatory Admin TOTP when configured, replayed code denied, offline rotation revokes sessions |
 | A09 | Database correctness | v5→v6 append-only, idempotent, integrity/FK, existing Admin and Teams survive |
 | A10 | Browser integration | actual Chrome signup → shared login Player → logout → shared login Admin; no JS errors |
 | A11 | Compatibility | full Windows/Linux pytest, prior invitation activation, Team, Official Match and replay |

@@ -73,6 +73,6 @@ deploy/              Gateway and deployment configuration
 
 ## Deployment and security
 
-The default Compose setup is intended for **trusted local/LAN use**, not direct Internet exposure. Account-Only authentication, registration, and the HTTPS gateway require explicit configuration and acceptance testing; public signup is disabled by default. The sandbox controller has privileged Docker Engine access and must never be publicly exposed.
+NEON ARENA supports both **local/LAN** and **Internet-facing** deployments. The default `compose.yaml` is intended for trusted local networks. For public hosting, including **AWS EC2**, the repository provides an optional **Caddy HTTPS gateway** (`compose.public.yaml`) and **Account-Only** authentication. Public deployment requires additional configuration, security review, and acceptance testing; it is not enabled by default.
 
-Before upgrading an existing installation, back up the data volumes and rehearse any SQLite migrations offline. Follow the deployment and QA guides above before enabling public access.
+Only the HTTPS gateway should be exposed to the Internet—never the backend, sandbox controller, or Docker socket. Player self-registration is opt-in. Before updating an existing deployment, back up persistent data and rehearse database migrations offline. See the [operator handover](docs/PHASE_4_3_OPERATOR_HANDOVER.md) and [release QA guide](docs/PHASE_4_3_CONSOLIDATED_QA.md).

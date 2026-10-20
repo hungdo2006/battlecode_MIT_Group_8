@@ -6,6 +6,36 @@ const ARENA_COLORS = { A: "#171717", B: "#525252" };
 const colors = ARENA_COLORS;
 const PIECE_NAMES = { rock: "Búa", paper: "Bao", scissors: "Kéo" };
 const squareName = position => `${String.fromCharCode(97 + position.col)}${position.row + 1}`;
+
+function drawBattlecode(ctx, canvas, frame) {
+  const w=canvas.width,h=canvas.height,board=frame.board;
+  ctx.clearRect(0,0,w,h);ctx.fillStyle="#fafafa";ctx.fillRect(0,0,w,h);
+  if (!board?.width) {
+    ctx.fillStyle="#666";ctx.font="16px Inter,sans-serif";ctx.textAlign="center";
+    ctx.fillText("Battlecode 2026 · Engine chính thức",w/2,h/2);return;
+  }
+  const cell=Math.min((w-140)/board.width,(h-100)/board.height),gx=(w-cell*board.width)/2,gy=(h-cell*board.height)/2;
+  const position=index=>[gx+(index%board.width)*cell,gy+(board.height-1-Math.floor(index/board.width))*cell];
+  ctx.fillStyle="#fff";ctx.fillRect(gx,gy,cell*board.width,cell*board.height);
+  ctx.strokeStyle="#ededed";ctx.lineWidth=.6;
+  for(let x=0;x<=board.width;x++){ctx.beginPath();ctx.moveTo(gx+x*cell,gy);ctx.lineTo(gx+x*cell,gy+cell*board.height);ctx.stroke();}
+  for(let y=0;y<=board.height;y++){ctx.beginPath();ctx.moveTo(gx,gy+y*cell);ctx.lineTo(gx+cell*board.width,gy+y*cell);ctx.stroke();}
+  for(const [indices,color] of [[board.walls,"#737373"],[frame.terrain?.dirt||board.initial_dirt,"#d4d4d4"]]) {
+    ctx.fillStyle=color;for(const index of indices||[]){const[x,y]=position(index);ctx.fillRect(x+.5,y+.5,cell-1,cell-1);}
+  }
+  ctx.fillStyle="#8a6b20";
+  for(const index of frame.terrain?.cheese||board.initial_cheese||[]){const[x,y]=position(index);ctx.fillRect(x+cell*.35,y+cell*.35,cell*.3,cell*.3);}
+  for(const[index]of frame.terrain?.traps||[]){const[x,y]=position(index);ctx.strokeStyle="#b42332";ctx.strokeRect(x+cell*.2,y+cell*.2,cell*.6,cell*.6);}
+  for(const unit of frame.units||[]){
+    const x=gx+(unit.x+.5)*cell,y=gy+(board.height-unit.y-.5)*cell,king=unit.robotType===2,cat=unit.robotType===3;
+    const radius=cell*(king?.65:cat?.55:.34);
+    ctx.beginPath();ctx.arc(x,y,radius,0,Math.PI*2);ctx.fillStyle=unit.team===1?"#171717":unit.team===2?"#fff":"#a3a3a3";ctx.fill();
+    ctx.strokeStyle="#171717";ctx.lineWidth=king?2:1;ctx.stroke();
+    if(cell>=10){ctx.fillStyle=unit.team===1?"#fff":"#171717";ctx.font=`600 ${Math.max(7,cell*.5)}px Inter,sans-serif`;ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText(king?"K":cat?"C":"R",x,y);}
+  }
+  ctx.textBaseline="alphabetic";ctx.textAlign="center";ctx.font="11px Inter,sans-serif";ctx.fillStyle="#666";
+  ctx.fillText("K · Rat King    R · Rat    C · Cat    A · đen    B · trắng",w/2,h-18);
+}
 function polygon(ctx, points, fill, stroke = null, width = 1) {
   ctx.beginPath();
   points.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
@@ -243,6 +273,17 @@ NeonRenderers.register("robot_battle", {
     return null;
   },
   result(result) { return result.reason === "knockout" ? "Robot hết HP." : result.reason === "turn_limit" ? "Đạt số lượt tối đa. Kết quả xét theo HP." : result.reason; },
+});
+
+NeonRenderers.register("battlecode26", {
+  draw:drawBattlecode,
+  hud(frame) {
+    const scores=frame.scores||{};
+    return {grid:`BATTLECODE 2026 / ${frame.board?.name||frame.rules?.map||""}`,phase:frame.pending_engine?"ENGINE ĐANG CHẠY · REPLAY SẼ XUẤT HIỆN KHI HOÀN TẤT":"REPLAY TỪ ENGINE CHÍNH THỨC",turnMax:frame.max_rounds||"—",
+      players:Object.fromEntries(["A","B"].map((side,i)=>{const score=scores[side]||{},units=(frame.units||[]).filter(u=>u.team===i+1),kings=score.kings??units.filter(u=>u.robotType===2).length,rats=score.rats??units.filter(u=>u.robotType===1).length;return[side,{value:kings,max:5,text:`${kings} King · ${rats} Rat · ${score.cheese??"—"} cheese`}];}))};
+  },
+  log(event) {return event.type==="fault"?event.message:`#${event.actor??event.id??"—"} · ${event.type}`;},
+  result(result) {return {RESIGNATION:"Đối thủ đầu hàng.",RATKING_DESTROYED:"Rat King của đối thủ đã bị hạ.",MORE_POINTS:"Chiến thắng theo điểm engine chính thức.",MORE_ROBOTS:"Chiến thắng theo số đơn vị.",MORE_CHEESE:"Chiến thắng theo lượng cheese.",TIE:"Kết quả hòa.",COIN_FLIP:"Engine phân định theo luật tie-break."}[result.reason]||result.reason;}
 });
 
 NeonRenderers.register("ott_v2", {

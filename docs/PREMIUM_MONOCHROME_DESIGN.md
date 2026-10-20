@@ -1,15 +1,15 @@
 # NEON ARENA — Premium Monochrome
 
-The current frontend design follows only [Resend](https://resend.com/) and
-[shadcn/ui](https://ui.shadcn.com/examples/dashboard). This direction supersedes
-the historical Liquid Glass briefs. Vercel Geist and Linear are not design
-references for this implementation.
+The active visual references are [Resend](https://resend.com/) and
+[shadcn/ui](https://ui.shadcn.com/examples/dashboard). Historical Liquid Glass
+briefs are superseded. Vercel Geist and Linear are excluded as references.
 
 ## Foundations
 
-The public landing and application share the same neutral palette, controls,
-spacing and surface rules. The landing uses editorial typography and more
-whitespace; application screens prioritize tasks and real data.
+The landing and workspace share neutral colors, typography, spacing and controls.
+The landing uses a two-column composition: a Vietnamese headline and clear entry
+actions beside an explicitly labelled bot-code example. The example demonstrates
+Robot Battle's JSON protocol; Battlecode has its own API and upload instructions.
 
 | Token | Value |
 | --- | --- |
@@ -19,68 +19,72 @@ whitespace; application screens prioritize tasks and real data.
 | Secondary text | #666666 |
 | Dividers / panel borders | #e5e5e5 |
 | Input border | #8f8f8f |
-| UI font | Self-hosted Inter Variable |
-| Landing headline | Self-hosted Source Serif 4 Variable |
+| UI and landing headline | Self-hosted Inter Variable, including Vietnamese |
 | Code and match IDs | System monospace |
 | Control / panel / dialog radius | 8 / 12 / 16px |
 | Spacing | 4 / 8 / 12 / 16 / 24 / 32 / 48 / 64 / 96px |
 | Control height | 40px desktop; at least 44px mobile |
 | Sidebar / topbar | 240 / 64px desktop |
 
-Source Serif 4 replaces the proposed system Georgia font because browser review
-showed inconsistent Vietnamese glyph fallback. Font sources and SIL Open Font
-License files are included in frontend/fonts/. The app makes no font CDN
-requests and requires no new JavaScript framework.
+The headline now uses Inter, avoiding mixed headline font families. The reported
+missing-glyph appearance was not reproduced exactly in the initial local review;
+the browser did load the old Source Serif font. We do not attribute that screenshot
+to a proven font-file failure. Font files, CSS and JavaScript now have
+content-based URL fingerprints to prevent stale asset combinations after updates.
+No external font CDN is required. Font licenses remain in `frontend/fonts/`.
 
-Use whitespace and dividers before introducing another card. Surfaces are
-opaque: no gradients, reflections, blur or decorative glow. Shadows are limited
-to transient layers such as dialogs and toasts. Semantic color remains available
-for errors, warnings and confirmations, accompanied by labels.
+Use whitespace and dividers before introducing another card. Opaque surfaces,
+restrained borders, and readable rows take priority over decoration. Semantic
+colors accompany status labels; shadows are reserved for transient layers.
 
-## Components and navigation
+## Layout and motion
 
-- Black primary buttons, bordered secondary buttons and text actions share the
-  same sizing and focus styles.
-- Typography uses Inter 400/500/600; task titles are 28px desktop and 24px mobile.
-  The public landing has the only serif headline.
-- Lists, standings, tournament fixtures and brackets use neutral borders,
-  restrained badges and readable rows. Numeric data uses tabular numerals.
-- Desktop navigation sits against the left edge. Below 1024px the same DOM tree
-  becomes a labelled drawer with keyboard containment, Escape/backdrop dismissal,
-  focus restoration and an inert background.
-- Below 768px forms become one column and inputs use 16px type. Tables, brackets
-  and code scroll within their own regions instead of overflowing the page.
-- Motion is brief and optional via prefers-reduced-motion. Visible focus,
-  native dialogs, live status announcements and existing permission visibility
-  remain in place.
+- One role-aware sidebar becomes a modal drawer below 1024px. It contains focus,
+  closes with Escape/backdrop/selection, restores focus and makes the workspace inert.
+- Forms become one column below 768px with 16px input text. Tables, code and
+  brackets scroll inside their regions. Upload is sticky on wide screens.
+- Landing elements enter in a short sequence. Page changes, buttons and arrows
+  have subtle transitions and press feedback. `prefers-reduced-motion` disables
+  movement and smooth scrolling.
+- Visible keyboard focus, native dialogs, live feedback, disabled pending actions,
+  compiler diagnostics and meaningful empty states are shared component patterns.
 
-## Game presentation
+## Page plan implemented
 
-Robot Battle and OTT v2 use a neutral board and distinguish side A with dark
-filled pieces and side B with light outlined pieces. A/B labels, piece shapes,
-coordinates, goals and event descriptions remain available. Changes are visual;
-board geometry, rules, frames and replay data are unchanged.
+| Page | Primary task and composition |
+| --- | --- |
+| Landing | Headline, login/register, labelled code sample, three-step workflow |
+| Overview | Real team, Active Bot, official schedule and account match statistics; arena appears when a match is opened |
+| Team & Bot | Team lifecycle/members, game-specific upload protocol, versions, compile logs, Active Bot selection |
+| Scrimmage | Eligibility, game/opponent, durable queue, cancellation, result and scoped replay |
+| Official schedule | Bot lock/start times, status, replay; Admin schedule and verification controls |
+| Seasons | Registration timeline/capacity, Captain registration, Admin roster freeze and champion publication |
+| Tournaments | Existing formats, fixtures, groups, brackets and advancement |
+| Standings | Per-game tournament/group results; elimination progress remains in brackets |
+| History & Replay | Player Scrimmage history; Official replays also open from the official schedule |
+| Rules & Samples | Installed games, rules form, source links, API guides and starter downloads |
+| Profile | Display name editing; username and system role remain controlled by authentication |
+| Accounts, Admin | Search, team/role/status, Player enable/disable, invitations and account recovery |
+| System, Admin | Actual runner readiness, toolchains, queue counts, active matches and interruptions |
 
-## Implementation boundaries
+Robot Battle, OTT v2 and Battlecode use a neutral Canvas and distinguish dark A
+from outlined/light B using labels and shapes. Battlecode frames come from the
+official engine's replay; its raw `.bc26` file is available separately.
 
-Routes and DOM bindings remain compatible. Team management still lives in
-#upload, and the shared Canvas/replay player still lives in #home. Legacy and
-Account-Only navigation remain distinct according to the existing permissions.
-Direct Official Match links resolve after the server's authentication mode has
-loaded. Backend, API payloads, authentication, CSRF, simulation, WebSocket and
-Official polling logic are unchanged.
+Legacy LAN and Account-Only authorization remain distinct. New backend features
+are documented in [Battlecode integration](BATTLECODE_2026.md) and the
+[acceptance matrix](FEATURE_ACCEPTANCE.md).
 
-Run these checks after frontend changes:
+## Verification
 
-    python scripts/version_frontend.py
-    python scripts/version_frontend.py --check
-    node --check frontend/app.js
-    node --check frontend/renderers.js
-    node scripts/check_account_frontend_routing.cjs
-    python scripts/check_account_ui.py
-    python -m pytest tests controller_tests -ra
+```text
+.venv\Scripts\python.exe scripts/version_frontend.py --check
+node --check frontend/app.js
+node --check frontend/renderers.js
+node scripts/check_account_frontend_routing.cjs
+.venv\Scripts\python.exe scripts/check_account_ui.py
+.venv\Scripts\python.exe -m pytest tests controller_tests -ra
+```
 
-The Account UI checker owns disposable data and verifies the mobile drawer.
-scripts/check_multiplayer_ui.py exercises three independent Chrome sessions,
-actual sample submissions, invitations, live frames, reconnect and saved replays.
-Use an isolated QA server when supplying its --url option.
+The browser checker owns disposable account data and verifies authentication,
+role gating, responsive navigation, focus restoration and mobile overflow.

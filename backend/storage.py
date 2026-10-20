@@ -191,7 +191,7 @@ class Store:
             results_by_player = {}
 
             for match_order, match in enumerate(self.matches.values()):
-                if match.get("official_request_id"):
+                if match.get("official_request_id") or match.get("scrimmage_request_id"):
                     continue  # Official Team results have a separate standings policy.
                 if match.get("status") != "completed":
                     continue

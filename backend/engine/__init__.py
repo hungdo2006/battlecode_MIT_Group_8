@@ -1,4 +1,5 @@
 from .registry import GameRegistry
+import os
 
 
 def create_registry() -> GameRegistry:
@@ -8,4 +9,7 @@ def create_registry() -> GameRegistry:
     registry = GameRegistry()
     registry.register(RobotBattleAdapter())
     registry.register(OTTAdapter())
+    if os.environ.get("ARENA_BATTLECODE26") == "1":
+        from .battlecode import BattlecodeAdapter
+        registry.register(BattlecodeAdapter())
     return registry

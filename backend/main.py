@@ -77,6 +77,9 @@ def validate_account_only_cutover(root: Path):
                 row = (connection.execute("""SELECT match_id, status
                     FROM official_match_requests WHERE id=?""", (request_id,)).fetchone()
                     if isinstance(request_id, str) else None)
+                practice_id = item.get('scrimmage_request_id')
+                if not row and isinstance(practice_id,str) and connection.execute("SELECT 1 FROM sqlite_schema WHERE type='table' AND name='scrimmage_requests'").fetchone():
+                    row = connection.execute("SELECT match_id,status FROM scrimmage_requests WHERE id=?", (practice_id,)).fetchone()
                 if (not row or row["match_id"] != match_id or
                     row["status"] not in {"DISPATCHING", "RUNNING", "COMPLETED", "INTERRUPTED"}):
                     unsafe_matches.append((match_id, item))
@@ -146,10 +149,14 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
                     dispatcher = app.state.official_dispatcher = OfficialDispatcher(
                         auth_runtime, writer, app.state.store, installed, manager)
                     await dispatcher.recover()
+                    from backend.scrimmage_http import ScrimmageDispatcher
+                    practice = app.state.scrimmage_dispatcher = ScrimmageDispatcher(auth_runtime,app.state.store,installed,manager)
+                    await practice.recover()
                     async def official_deadline_worker():
                         while True:
                             try:
                                 await dispatcher.tick()
+                                await practice.tick()
                             except Exception:
                                 import logging
                                 logging.getLogger(__name__).exception("Official dispatcher tick failed")
@@ -607,7 +614,12 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
             bot_id = store.new_id()
             folder = store.uploads / bot_id
             try:
-                prepared = await asyncio.to_thread(app.state.runner.prepare, source, filename, folder)
+                compile_bot = app.state.runner.prepare
+                if getattr(installed.get(game_id), 'whole_match', False):
+                    compile_bot = getattr(app.state.runner, 'prepare_battlecode', None)
+                    if compile_bot is None:
+                        raise HTTPException(503, 'Battlecode requires its configured Docker Sandbox')
+                prepared = await asyncio.to_thread(compile_bot, source, filename, folder)
             except ValueError as exc:
                 raise HTTPException(400, str(exc)) from exc
             bot = {"id": bot_id, "name": name.strip()[:48] or Path(filename).stem[:48],
@@ -704,7 +716,7 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
                 raise HTTPException(404, "Không tìm thấy trận đấu.")
             if match.get("status") != "completed":
                 raise HTTPException(409, "Chỉ có thể điều chỉnh kết quả trận đã hoàn tất.")
-            if match.get("tournament_id") or match.get("tournament_match_id") or match.get("official_request_id"):
+            if match.get("tournament_id") or match.get("tournament_match_id") or match.get("official_request_id") or match.get("scrimmage_request_id"):
                 raise HTTPException(409, "Luồng điều chỉnh này chỉ áp dụng cho trận tự do, không thuộc giải hoặc Team.")
             winner = None if payload.winner == "DRAW" else payload.winner
             if (match.get("result") or {}).get("winner") == winner:
@@ -1055,7 +1067,7 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
                     raise HTTPException(404, "Không tìm thấy trận đấu.")
                 if match.get("status") != "completed":
                     raise HTTPException(409, "Chỉ có thể điều chỉnh kết quả trận đã hoàn tất.")
-                if match.get("tournament_id") or match.get("tournament_match_id") or match.get("official_request_id"):
+                if match.get("tournament_id") or match.get("tournament_match_id") or match.get("official_request_id") or match.get("scrimmage_request_id"):
                     raise HTTPException(409, "Luồng điều chỉnh này chỉ áp dụng cho trận tự do, không thuộc giải hoặc Team.")
                 winner = None if payload.winner == "DRAW" else payload.winner
                 if (match.get("result") or {}).get("winner") == winner:
@@ -1231,10 +1243,16 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
         from backend.bot_http import install_bot_http
         from backend.official_http import install_official_http
         from backend.team_tournament_http import install_team_tournament_http
+        from backend.scrimmage_http import install_scrimmage_http
+        from backend.workspace_http import install_workspace_http
+        from backend.season_http import install_season_http
         install_team_http(app)
         install_bot_http(app)
         install_official_http(app)
         install_team_tournament_http(app)
+        install_scrimmage_http(app)
+        install_workspace_http(app)
+        install_season_http(app)
     return app
 
 
@@ -1250,14 +1268,15 @@ def safe_bot(bot: dict) -> dict:
 def safe_match(match: dict) -> dict:
     fields = ("id", "game_id", "game", "game_name", "game_version", "status", "created_at",
               "started_at", "finished_at", "rules", "rules_snapshot", "turn", "result", "winner",
-              "result_corrections",
+              "result_corrections", "raw_replay_available", "engine_commit",
               "player_a_name_snapshot", "player_b_name_snapshot", "bot_a_id", "bot_b_id",
               "bot_a_name_snapshot", "bot_b_name_snapshot", "bot_a_language", "bot_b_language")
     result = {key: deepcopy(match[key]) for key in fields if key in match}
     result["result_correctable"] = (match.get("status") == "completed"
                                     and not match.get("tournament_id")
                                     and not match.get("tournament_match_id")
-                                    and not match.get("official_request_id"))
+                                    and not match.get("official_request_id")
+                                    and not match.get("scrimmage_request_id"))
     result["bots"] = {side: {key: deepcopy(bot[key]) for key in ("id", "name", "language") if key in bot}
                       for side, bot in match.get("bots", {}).items()}
     return result

@@ -11,7 +11,7 @@ import re
 ROOT = Path(__file__).resolve().parent.parent
 FRONTEND = ROOT / "frontend"
 ASSET_URL = re.compile(
-    r"/static/(?P<name>styles\.css|app\.js|renderers\.js|favicon\.svg)"
+    r"/static/(?P<name>styles\.css|app\.js|renderers\.js|favicon\.svg|fonts/(?:InterVariable|SourceSerif4Variable)\.woff2)"
     r"(?:\?v=[^\s\"'<>]*)?"
 )
 
@@ -21,7 +21,9 @@ def versioned_html(source):
         name = match["name"]
         # Normalize CRLF checkout line endings so Windows and Git/Docker
         # fingerprint the same canonical text bytes.
-        canonical = (FRONTEND / name).read_bytes().replace(b"\r\n", b"\n")
+        canonical = (FRONTEND / name).read_bytes()
+        if not name.endswith('.woff2'):
+            canonical = canonical.replace(b"\r\n", b"\n")
         digest = hashlib.sha256(canonical).hexdigest()[:12]
         return f"/static/{name}?v={digest}"
     return ASSET_URL.sub(replace, source)
@@ -32,7 +34,10 @@ def main():
     parser.add_argument("--check", action="store_true", help="Fail if committed HTML needs new fingerprints")
     args = parser.parse_args()
     stale = []
-    for path in sorted(FRONTEND.glob("*.html")):
+    # Fingerprint font URLs in CSS before fingerprinting that stylesheet in HTML.
+    styles = FRONTEND / 'styles.css'
+    paths = ([styles] if styles.exists() else []) + sorted(FRONTEND.glob("*.html"))
+    for path in paths:
         source = path.read_text(encoding="utf-8")
         updated = versioned_html(source)
         if source != updated:

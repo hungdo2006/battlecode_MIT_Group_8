@@ -1,7 +1,9 @@
 """All Docker parameters are fixed here, never accepted from an API caller."""
 import base64
 import json
+import os
 import queue
+import socket
 import struct
 import threading
 import time
@@ -43,6 +45,8 @@ class Engine:
         if not all(info.get(key) for key in ('MemoryLimit', 'SwapLimit', 'CpuCfsQuota', 'PidsLimit')):
             raise RuntimeError('Engine must enforce memory, swap, CPU quota and PID cgroups; refusing weak isolation')
         self.image = self.client.images.get(image).id  # Pin the image ID until controller restart.
+        battlecode_image = os.environ.get('BATTLECODE_IMAGE')
+        self.battlecode_image = self.client.images.get(battlecode_image).id if battlecode_image else None
         self.sweep()
 
     def sweep(self):
@@ -50,28 +54,84 @@ class Engine:
             container.remove(force=True)
 
     def create(self, job_id, kind, owner):
+        battlecode = kind.startswith('battlecode_')
+        if battlecode and not self.battlecode_image:
+            raise InfrastructureError('Battlecode image is not configured')
         compile_job = kind == 'compile'
-        memory = (512 if compile_job else 256) * 1024 * 1024
-        work = 128 if compile_job else 32
+        memory = (1024 if battlecode else 512 if compile_job else 256) * 1024 * 1024
+        work = 256 if battlecode else 128 if compile_job else 32
         return self.client.containers.create(
-            self.image, ['python', '-c', 'import time; time.sleep(86400)'],
+            self.battlecode_image if battlecode else self.image, ['python', '-c', 'import time; time.sleep(86400)'],
             name=f'neon-{self.namespace}-{job_id}', user='10001:10001', working_dir='/work',
             environment={'HOME': '/tmp', 'TMPDIR': '/tmp', 'PYTHONIOENCODING': 'utf-8',
                          'PYTHONDONTWRITEBYTECODE': '1'},
             network_mode='none', read_only=True, cap_drop=['ALL'],
             ipc_mode='private', shm_size=1024 * 1024,
             security_opt=['no-new-privileges:true'], init=True,
-            mem_limit=memory, memswap_limit=memory, nano_cpus=1_000_000_000,
-            pids_limit=128 if compile_job else 64,
+            mem_limit=memory, memswap_limit=memory, nano_cpus=2_000_000_000 if battlecode else 1_000_000_000,
+            pids_limit=256 if battlecode else 128 if compile_job else 64,
             tmpfs={'/work': f'rw,exec,nosuid,nodev,size={work}m,uid=10001,gid=10001,mode=700',
                    '/tmp': 'rw,noexec,nosuid,nodev,size=16m,uid=10001,gid=10001,mode=700'},
-            ulimits=[Ulimit(name='nofile', soft=128, hard=128),
-                     Ulimit(name='fsize', soft=MAX_ARTIFACT, hard=MAX_ARTIFACT),
+            ulimits=[Ulimit(name='nofile', soft=1024 if battlecode else 128, hard=1024 if battlecode else 128),
+                     Ulimit(name='fsize', soft=2*MAX_ARTIFACT if battlecode else MAX_ARTIFACT, hard=2*MAX_ARTIFACT if battlecode else MAX_ARTIFACT),
                      Ulimit(name='core', soft=0, hard=0)],
             log_config=LogConfig(type='none'),
             labels={LABEL: self.namespace, 'io.neonarena.job': job_id,
                     'io.neonarena.kind': kind, 'io.neonarena.owner': owner},
             detach=True)
+
+    def run_battlecode(self, container, operation, payload, cancelled):
+        if operation not in ('compile', 'match'):
+            raise ValueError('Invalid Battlecode operation')
+        container.start()
+        execution = self.client.api.exec_create(container.id,
+            ['python', '/opt/arena/driver.py', operation], stdin=True, stdout=True, stderr=True, tty=False)
+        connection = self.client.api.exec_start(execution['Id'], socket=True, tty=False)
+        stream = connection._sock
+        stream.settimeout(1)
+        deadline = time.monotonic() + (40 if operation == 'compile' else 180)
+        output, errors = bytearray(), bytearray()
+
+        def exact(count):
+            data = bytearray()
+            while len(data) < count:
+                if cancelled.is_set() or time.monotonic() >= deadline:
+                    raise InfrastructureError('Battlecode operation timed out/cancelled')
+                try:
+                    chunk = stream.recv(count - len(data))
+                except socket.timeout:
+                    continue
+                if not chunk:
+                    if not data:
+                        return None
+                    raise InfrastructureError('Truncated Battlecode worker response')
+                data.extend(chunk)
+            return bytes(data)
+        try:
+            stream.sendall(json.dumps(payload, separators=(',', ':')).encode() + b'\n')
+            while True:
+                header = exact(8)
+                if header is None:
+                    break
+                size = struct.unpack('>I', header[4:])[0]
+                target = errors if header[0] == 2 else output
+                limit = 32768 if header[0] == 2 else 16 * 1024 * 1024
+                if size > limit - len(target):
+                    raise InfrastructureError('Battlecode response exceeds limit')
+                chunk = exact(size)
+                if chunk is None and size:
+                    raise InfrastructureError('Truncated Battlecode response')
+                target.extend(chunk or b'')
+            if self.client.api.exec_inspect(execution['Id'])['ExitCode'] != 0:
+                raise InfrastructureError('Battlecode worker failed')
+            result = json.loads(output)
+            if not isinstance(result, dict):
+                raise InfrastructureError('Invalid Battlecode worker response')
+            if result.get('infrastructure_error'):
+                raise InfrastructureError('Official engine unavailable: ' + str(result.get('infrastructure_error')))
+            return result
+        finally:
+            connection.close()
 
     def provision(self, container, files, target):
         container.start()

@@ -1,5 +1,6 @@
 """Treat compiler-produced archives as hostile; never call extractall()."""
 import hashlib
+import base64
 import io
 import json
 import os
@@ -95,3 +96,31 @@ class ArtifactStore:
                 or hashlib.sha256(blob).hexdigest() != digest):
             raise ValueError('Artifact/toolchain mismatch; resubmit source with current sandbox image')
         return metadata['language'], unpack(blob, metadata['language'])
+
+    def save_battlecode(self, job_id, language, source, image):
+        artifact_id = identifier(job_id)
+        payload = json.dumps({'language': language, 'source': base64.b64encode(source).decode(),
+                              'image': image}, sort_keys=True).encode()
+        used = sum(p.stat().st_size for p in self.root.glob('*') if p.is_file())
+        if used + len(payload) > 512 * 1024 * 1024:
+            raise ValueError('Artifact store quota reached')
+        temporary = self.root / f'{artifact_id}.bc.tmp'
+        temporary.write_bytes(payload)
+        os.replace(temporary, self.root / f'{artifact_id}.bc.json')
+        return {'artifact_id': artifact_id, 'artifact_digest': hashlib.sha256(payload).hexdigest()}
+
+    def load_battlecode(self, artifact_id, digest, image):
+        artifact_id = identifier(artifact_id)
+        path = self.root / f'{artifact_id}.bc.json'
+        if path.stat().st_size > 360000:
+            raise ValueError('Battlecode artifact exceeds limit')
+        raw = path.read_bytes()
+        if not isinstance(digest, str) or hashlib.sha256(raw).hexdigest() != digest:
+            raise ValueError('Battlecode artifact digest mismatch')
+        payload = json.loads(raw)
+        if payload.get('image') != image or payload.get('language') not in ('py', 'java'):
+            raise ValueError('Battlecode artifact/image mismatch')
+        source = base64.b64decode(payload['source'], validate=True)
+        if not 0 < len(source) <= 256 * 1024:
+            raise ValueError('Battlecode source exceeds limit')
+        return {'language': payload['language'], 'source': payload['source']}

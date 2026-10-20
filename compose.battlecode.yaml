@@ -1,0 +1,24 @@
+# Add to the existing sandbox Compose deployment. Never exposes the controller.
+# docker compose -f compose.yaml -f compose.battlecode.yaml up -d --build --wait
+services:
+  battlecode-image:
+    build:
+      context: .
+      dockerfile: integrations/battlecode26/Dockerfile
+    image: neon-arena-battlecode:2026
+    command: ["/bin/true"]
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 64m
+    pids_limit: 16
+  controller:
+    environment:
+      BATTLECODE_IMAGE: neon-arena-battlecode:2026
+    depends_on:
+      battlecode-image:
+        condition: service_completed_successfully
+  arena:
+    environment:
+      ARENA_BATTLECODE26: "1"

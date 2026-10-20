@@ -559,7 +559,7 @@ class OfficialSchedule:
         # artifact IDs/digests, source, runner tokens or internal owner details.
         fields = ("id","game_id","game","game_name","game_version","status",
                   "created_at","finished_at","turn","result","winner","rules",
-                  "rules_snapshot","player_a_name_snapshot","player_b_name_snapshot")
+                    "rules_snapshot","player_a_name_snapshot","player_b_name_snapshot","raw_replay_available","engine_commit")
         safe = {key:match[key] for key in fields if key in match}
         frames = payload.get("frames", [])
         # SQLite is the Official publication authority. A JSON match may

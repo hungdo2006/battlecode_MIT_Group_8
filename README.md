@@ -4,9 +4,10 @@
 
 ## Highlights
 
-- **Multi-game support:** Robot Battle and OTT v2, with an extensible game-adapter architecture.
+- **Multi-game support:** Robot Battle and OTT v2; optional official Battlecode 2026 engine with Java/Python crossplay.
 - **Bot submissions:** Python, C++, and Java, compiled and executed through a Docker-based sandbox.
-- **Team competitions:** Team management, active bots, scheduled official matches, and multiple tournament formats.
+- **Team competitions:** Team management, active bots, scheduled official matches, seasons with registration and verified champion publication, and multiple tournament formats.
+- **Asynchronous Scrimmage:** Frozen bot versions, persistent queue, offline execution and private replay for competing teams.
 - **Live experience:** Match visualization, results, history, and replay.
 - **Role-based access:** Player and Admin workflows in the optional Account-Only mode.
 
@@ -65,6 +66,8 @@ deploy/              Gateway and deployment configuration
 ## Documentation
 
 - [Frontend design system](docs/PREMIUM_MONOCHROME_DESIGN.md)
+- [Battlecode 2026 setup and Scrimmage](docs/BATTLECODE_2026.md)
+- [Player/Admin feature acceptance](docs/FEATURE_ACCEPTANCE.md)
 - [Docker sandbox and local setup](docs/SANDBOX.md)
 - [Game adapters and bot protocol](docs/ADAPTERS.md)
 - [Team tournament rules and API](docs/TEAM_TOURNAMENTS.md)

@@ -33,6 +33,22 @@ def test_frontend_fingerprint_is_stable_under_windows_autocrlf(tmp_path, monkeyp
     assert version_frontend.versioned_html(document) == result
 
 
+def test_font_preload_and_css_share_binary_content_fingerprint(tmp_path, monkeypatch):
+    import hashlib
+    monkeypatch.setattr(version_frontend,"FRONTEND",tmp_path)
+    (tmp_path/"fonts").mkdir()
+    font=tmp_path/"fonts/InterVariable.woff2"
+    original=b"wOF2\r\nfont-bytes"
+    font.write_bytes(original)
+    html='<link href="/static/fonts/InterVariable.woff2?v=stale">'
+    css='src:url("/static/fonts/InterVariable.woff2?v=stale")'
+    digest=hashlib.sha256(original).hexdigest()[:12]
+    assert '?v='+digest in version_frontend.versioned_html(html)
+    assert '?v='+digest in version_frontend.versioned_html(css)
+    font.write_bytes(original+b"new-version")
+    assert version_frontend.versioned_html(html) != html.replace("stale",digest)
+
+
 def test_committed_asset_versions_current():
     # The build script checks *all* HTML documents, not only index.html.
     for page in sorted((ROOT / "frontend").glob("*.html")):

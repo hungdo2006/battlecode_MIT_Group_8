@@ -39,7 +39,7 @@ class SandboxRunner:
         self.cleanup_lock = threading.Lock()
         self.pending_closes = {}  # job_id -> its original lease, never the next lease.
 
-    def rpc(self, path, payload=None, timeout=45, lease=None):
+    def rpc(self, path, payload=None, timeout=45, lease=None, max_bytes=1024 * 1024):
         body = None
         if payload is not None:
             with self.lease_lock:
@@ -52,8 +52,8 @@ class SandboxRunner:
         try:
             # Never send control-plane credentials through an inherited HTTP proxy.
             with build_opener(ProxyHandler({})).open(request, timeout=timeout) as response:
-                data = response.read(1024 * 1024 + 1)
-            if len(data) > 1024 * 1024:
+                data = response.read(max_bytes + 1)
+            if len(data) > max_bytes:
                 raise ValueError('Controller response exceeds limit')
             return json.loads(data)
         except HTTPError as exc:
@@ -119,7 +119,8 @@ class SandboxRunner:
     def health(self):
         try:
             health = self.rpc('/health', timeout=3)
-            return {'mode': self.mode, 'ready': self.available and health['ready'], 'toolchains': health['toolchains']}
+            return {'mode': self.mode, 'ready': self.available and health['ready'], 'toolchains': health['toolchains'],
+                    'battlecode26': health.get('battlecode26', False)}
         except RunnerUnavailable:
             return {'mode': self.mode, 'ready': False, 'toolchains': {}}
 
@@ -147,6 +148,23 @@ class SandboxRunner:
     def compatible(self, bot):
         if bot.get('execution_backend') != self.mode or not bot.get('artifact_id'):
             raise ValueError('Bot was compiled with legacy runner; resubmit source for sandbox execution')
+
+    def prepare_battlecode(self, source, filename, folder):
+        language = Path(filename).suffix.lower()[1:]
+        if language not in ('py', 'java') or not 0 < len(source) <= MAX_SOURCE_BYTES:
+            raise ValueError('Battlecode supports .py/.java, 1..256 KiB')
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / ('Main.java' if language == 'java' else 'bot.py')).write_bytes(source)
+        job = 'bc-c-' + uuid.uuid4().hex
+        result = self.rpc('/battlecode/compile/' + job, {'language': language, 'source': base64.b64encode(source).decode()})
+        return {**result, 'command': [], 'execution_backend': self.mode, 'engine': 'battlecode26'}
+
+    def whole_match(self, bots, job_id):
+        for bot in bots.values():
+            self.compatible(bot)
+            if bot.get('engine') != 'battlecode26':
+                raise RunnerUnavailable('Submission is not compiled against Battlecode')
+        return BattlecodeSession(self, bots, job_id)
 
     def session(self, bot, job_id):
         self.compatible(bot)
@@ -183,4 +201,21 @@ class SandboxSession:
 
     def close(self):
         self.closed.set()
+        self.runner.close_job(self.job_id, self.lease)
+
+
+class BattlecodeSession:
+    def __init__(self, runner, bots, job_id):
+        self.runner, self.bots, self.job_id = runner, bots, job_id
+        self.lease = runner.lease
+
+    def run(self, rules):
+        payload = {'map': rules['map']}
+        for side, bot in self.bots.items():
+            payload['artifact_' + side.lower()] = bot['artifact_id']
+            payload['digest_' + side.lower()] = bot['artifact_digest']
+        return self.runner.rpc('/battlecode/match/' + self.job_id, payload, timeout=190,
+                               lease=self.lease, max_bytes=16 * 1024 * 1024)
+
+    def close(self):
         self.runner.close_job(self.job_id, self.lease)

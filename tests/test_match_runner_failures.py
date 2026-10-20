@@ -1,4 +1,5 @@
 from contextlib import ExitStack
+import threading
 
 import pytest
 from fastapi.testclient import TestClient
@@ -54,3 +55,40 @@ def test_infrastructure_never_becomes_player_forfeit(tmp_path, authorize_organiz
         # MatchManager owns each handle before start; close also covers failed start.
         client.portal.call(client.app.state.manager.shutdown)
         assert runner.sessions and all(s.closed for s in runner.sessions)
+
+
+def test_shutdown_waits_for_close_already_in_progress(tmp_path, authorize_organizer, open_competition):
+    entered, release = threading.Event(), threading.Event()
+
+    class SlowClose:
+        closed = False
+        def start(self):
+            raise RunnerUnavailable('Engine down')
+        def close(self):
+            entered.set()
+            assert release.wait(5)
+            self.closed = True
+
+    handle = SlowClose()
+    class Runner(LegacyRunner):
+        def session(self, bot, job_id):
+            return handle
+
+    with TestClient(create_app(tmp_path, tick_seconds=0)) as client:
+        authorize_organizer(client)
+        open_competition(client)
+        bot = player_client(client).post('/api/games/robot_battle/samples/python/submit').json()
+        manager = client.app.state.manager
+        manager.runner = Runner()
+        official_match(client, {'bot_a': bot['id'], 'bot_b': bot['id']})
+        assert entered.wait(3)
+        timer = threading.Timer(.2, release.set)
+        timer.start()
+        try:
+            async def shutdown():
+                await manager.shutdown()
+                return handle.closed
+            assert client.portal.call(shutdown)
+        finally:
+            release.set()
+            timer.join()

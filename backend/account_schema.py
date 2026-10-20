@@ -388,4 +388,51 @@ MIGRATIONS = (
     (15, "team_tournament_large_fields", (
         "ALTER TABLE team_tournaments ADD COLUMN qualifier_target INTEGER CHECK (qualifier_target IS NULL OR qualifier_target IN (16,64))",
     )),
+    (16, "asynchronous_team_scrimmages", (
+        """CREATE TABLE scrimmage_requests (
+            id TEXT PRIMARY KEY NOT NULL,
+            requested_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+            team_a_id TEXT NOT NULL REFERENCES teams(id) ON DELETE RESTRICT,
+            team_b_id TEXT NOT NULL REFERENCES teams(id) ON DELETE RESTRICT,
+            game_id TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('QUEUED','DISPATCHING','RUNNING','COMPLETED','INTERRUPTED','CANCELLED')),
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            match_id TEXT UNIQUE,
+            plan_json TEXT NOT NULL CHECK (json_valid(plan_json)),
+            outcome_json TEXT CHECK (outcome_json IS NULL OR json_valid(outcome_json)),
+            status_reason TEXT,
+            CHECK (team_a_id != team_b_id)
+        ) STRICT""",
+        "CREATE INDEX scrimmage_queue ON scrimmage_requests(status,created_at,id)",
+        "CREATE INDEX scrimmage_team_a ON scrimmage_requests(team_a_id,created_at)",
+        "CREATE INDEX scrimmage_team_b ON scrimmage_requests(team_b_id,created_at)",
+    )),
+    (17, "competition_season_registration", (
+        """CREATE TABLE competition_seasons (
+            id TEXT PRIMARY KEY NOT NULL,
+            name TEXT NOT NULL,
+            game_id TEXT NOT NULL,
+            registration_opens_at INTEGER NOT NULL,
+            registration_closes_at INTEGER NOT NULL,
+            starts_at INTEGER NOT NULL,
+            ends_at INTEGER NOT NULL,
+            max_teams INTEGER NOT NULL CHECK (max_teams BETWEEN 2 AND 256),
+            created_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+            created_at INTEGER NOT NULL,
+            registration_closed_at INTEGER,
+            tournament_id TEXT UNIQUE REFERENCES team_tournaments(id) ON DELETE RESTRICT,
+            published_at INTEGER,
+            publication_json TEXT CHECK (publication_json IS NULL OR json_valid(publication_json)),
+            CHECK (registration_opens_at < registration_closes_at AND registration_closes_at <= starts_at AND starts_at < ends_at)
+        ) STRICT""",
+        """CREATE TABLE competition_season_entries (
+            season_id TEXT NOT NULL REFERENCES competition_seasons(id) ON DELETE RESTRICT,
+            team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE RESTRICT,
+            registered_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+            registered_at INTEGER NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('REGISTERED','WITHDRAWN')),
+            PRIMARY KEY (season_id,team_id)
+        ) STRICT""",
+    )),
 )

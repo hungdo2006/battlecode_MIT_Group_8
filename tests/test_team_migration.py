@@ -29,6 +29,8 @@ def test_new_database_creates_current_schema_with_team_official_email_and_totp(t
             (13, "team_tournament_double_elimination"),
             (14, "team_tournament_swiss_stage"),
             (15, "team_tournament_large_fields"),
+            (16, "asynchronous_team_scrimmages"),
+            (17, "competition_season_registration"),
         ]
         indexes = {row[0] for row in connection.execute("SELECT name FROM sqlite_schema WHERE type='index'")}
         assert "membership_active_user_global" in indexes
@@ -225,4 +227,33 @@ def test_official_attestation_requires_valid_digest_and_ownership(tmp_path):
         with pytest.raises(sqlite3.IntegrityError):
             connection.execute("""INSERT INTO official_source_attestations
                 (bot_id,source_sha256,attested_at) VALUES ('bot1',?,101)""",("b"*64,))
+        check_integrity(connection)
+
+
+def test_v15_upgrade_preserves_team_and_source_attestation(tmp_path, monkeypatch):
+    db = AccountDatabase(tmp_path)
+    with monkeypatch.context() as patch:
+        patch.setattr(account_database, "MIGRATIONS", MIGRATIONS[:15])
+        patch.setattr(account_database, "SCHEMA_VERSION", 15)
+        db.migrate()
+        with db.maintenance() as connection, transaction(connection):
+            connection.execute("""INSERT INTO users
+                (id,username,display_name,system_role,status,password_hash,created_at,updated_at)
+                VALUES ('u1','alice','Alice','PLAYER','INVITED',NULL,100,100)""")
+            connection.execute("""INSERT INTO teams
+                (id,slug,display_name,created_by,created_at,updated_at)
+                VALUES ('t1','team-one','Team One','u1',100,100)""")
+            connection.execute("""INSERT INTO submission_ownership
+                (bot_id,team_id,game_id,uploaded_by,origin,created_at)
+                VALUES ('bot1','t1','robot_battle','u1','NEW',100)""")
+            connection.execute("""INSERT INTO official_source_attestations
+                (bot_id,source_sha256,attested_at) VALUES ('bot1',?,100)""", ("a" * 64,))
+    db.migrate()
+    db.migrate()
+    with db.read() as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+        assert connection.execute("SELECT display_name FROM teams WHERE id='t1'").fetchone()[0] == "Team One"
+        assert connection.execute("SELECT source_sha256 FROM official_source_attestations WHERE bot_id='bot1'").fetchone()[0] == "a" * 64
+        for table in ("scrimmage_requests", "competition_seasons", "competition_season_entries"):
+            assert connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
         check_integrity(connection)

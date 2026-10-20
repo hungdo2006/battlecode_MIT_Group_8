@@ -23,3 +23,9 @@ qa-evidence-*/
 .qa-evidence/
 .qa-phase42e-*/
 qa-ci/
+
+# Disposable browser sessions and upstream research downloads
+.playwright-mcp/
+design-research/**/browser-session.json
+design-research/battlecode26-engine/battlecode26-*/
+design-research/battlecode26-engine/stop-platform-review

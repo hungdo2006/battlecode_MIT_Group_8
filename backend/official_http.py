@@ -1,6 +1,7 @@
 """Account-Only Official Match scheduling, Team visibility and replay APIs."""
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import Field
+from fastapi.responses import FileResponse
 
 from .auth_http import StrictBody,authenticate_account,runtime_for
 from .official_service import OfficialSchedule,OfficialConflict,OfficialNotFound
@@ -66,5 +67,18 @@ def install_official_http(app):
     async def player_replay(request_id:str,request:Request):
         return await execute(request,"PLAYER",
             lambda s,a:s.replay(a,request_id,audience="PLAYER",manager=app.state.manager))
+
+    def install_raw(audience):
+        @router.get('/api/'+audience.lower()+'/official-matches/{request_id}/replay.bc26')
+        async def raw(request_id:str,request:Request):
+            payload=await execute(request,audience,lambda service,actor:service.replay(actor,request_id,audience=audience,manager=app.state.manager))
+            match=payload['match']
+            path=app.state.store.replays/(match['id']+'.bc26')
+            if match.get('game_id')!='battlecode26' or not match.get('raw_replay_available') or not path.is_file():
+                from fastapi import HTTPException
+                raise HTTPException(404,'Raw Battlecode replay not available')
+            return FileResponse(path,filename='official-'+request_id+'.bc26',media_type='application/octet-stream',headers={'Cache-Control':'no-store'})
+    install_raw('PLAYER')
+    install_raw('ADMIN')
 
     app.include_router(router)

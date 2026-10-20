@@ -136,5 +136,28 @@ const { api, scopedApiPath } = vm.runInContext(sourceHelpers + "\n({api,scopedAp
     "Legacy mode must still load free-play standings");
   assert.equal(standingsApp.standings.length, 1);
 
-  console.log("PASS: account routing/CSRF, forbidden-session recheck, stale-login guard and standings modes");
+  // A delayed calendar/teams response must not replace a new account's state.
+  const officialStart = source.indexOf("async function refreshOfficialMatches(");
+  const officialEnd = source.indexOf("\nfunction renderOfficialMatches()", officialStart);
+  for (const delayedTeams of [false, true]) {
+    let reply;
+    const calendarApp = { accountOnly: true, account: {id:"old"}, accountAudience: delayedTeams ? "admin" : "player", officialMatches: [] };
+    const refresh = vm.runInNewContext(source.slice(officialStart, officialEnd) + "\nrefreshOfficialMatches", {
+      app: calendarApp,
+      api: url => url.endsWith("official-matches") && delayedTeams
+        ? Promise.resolve({requests:[{id:"private-old"}]})
+        : new Promise(resolve => { reply = resolve; }),
+      $: () => { throw new Error("Stale response touched DOM"); },
+      renderStats: () => { throw new Error("Stale response rendered stats"); },
+      renderOfficialMatches: () => { throw new Error("Stale response rendered matches"); },
+    });
+    const pending = refresh();
+    await new Promise(resolve => setImmediate(resolve));
+    calendarApp.account = {id:"new"};
+    calendarApp.accountAudience = "player";
+    reply(delayedTeams ? {teams:[]} : {requests:[{id:"private-old"}]});
+    await pending;
+    assert.equal(calendarApp.officialMatches.length, 0);
+  }
+  console.log("PASS: account routing/CSRF, forbidden-session recheck, stale calendar guard and standings modes");
 })().catch(error => { console.error(error); process.exitCode = 1; });

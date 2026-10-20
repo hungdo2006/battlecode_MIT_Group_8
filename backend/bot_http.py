@@ -78,7 +78,12 @@ def install_bot_http(app):
             bot_id=ticket["bot_id"]
             folder=app.state.store.uploads / bot_id
             try:
-                prepared=await asyncio.to_thread(app.state.runner.prepare, source, body.filename, folder)
+                compile_bot = app.state.runner.prepare
+                if getattr(app.state.registry.get(body.game_id), 'whole_match', False):
+                    compile_bot = getattr(app.state.runner, 'prepare_battlecode', None)
+                    if compile_bot is None:
+                        raise HTTPException(503, 'Battlecode requires its configured Docker Sandbox')
+                prepared=await asyncio.to_thread(compile_bot, source, body.filename, folder)
                 bot={"id":bot_id,"team_id":ticket["team_id"],"name":body.name.strip() or Path(body.filename).stem[:48],
                      "filename":body.filename,"language":Path(body.filename).suffix.lower()[1:],
                      "game_id":body.game_id,"created_at":ticket["created_at"],**prepared,

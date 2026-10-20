@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import logging
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -41,24 +42,27 @@ class MatchManager:
                     participants: dict | None = None, invitation_id: str | None = None,
                     tournament_id: str | None = None,
                     tournament_match_id: str | None = None,
-                    official: dict | None = None) -> dict:
+                    official: dict | None = None, scrimmage: dict | None = None) -> dict:
         if len(self.live) >= 2:
             raise ValueError("Tối đa 2 trận cùng lúc. Hãy đợi trận hiện tại kết thúc.")
         # Only the trusted server-side Official dispatcher can supply this
         # snapshot. Legacy/public match requests retain their original admission.
-        if official is None:
+        if official is not None and scrimmage is not None:
+            raise ValueError('A match cannot be both Official and Scrimmage')
+        plan = official if official is not None else scrimmage
+        if plan is None:
             game_id, rules = self.store.match_configuration(request.game_id or request.game, request.rules)
         else:
-            game_id = official["game_id"]
-            if request.game_id != game_id or request.bot_a != official["slots"]["A"]["bot_id"] or request.bot_b != official["slots"]["B"]["bot_id"]:
+            game_id = plan["game_id"]
+            if request.game_id != game_id or request.bot_a != plan["slots"]["A"]["bot_id"] or request.bot_b != plan["slots"]["B"]["bot_id"]:
                 raise ValueError("Official request differs from locked slots")
-            rules = deepcopy(official["rules_snapshot"])
+            rules = deepcopy(plan["rules_snapshot"])
         bots = {"A": self.store.get_bot(request.bot_a), "B": self.store.get_bot(request.bot_b)}
         if any(not bot or bot["status"] != "ready" for bot in bots.values()):
             raise ValueError("Cả hai bot phải tồn tại và đã biên dịch thành công.")
-        if official:
+        if plan:
             for side, bot in bots.items():
-                slot = official["slots"][side]
+                slot = plan["slots"][side]
                 if (bot.get("team_id") != slot["team_id"]
                     or bot.get("game_id") != slot["game_id"]
                     or bot.get("artifact_id") != slot["artifact_id"]
@@ -72,8 +76,8 @@ class MatchManager:
         rules = adapter.validate_rules(rules)
         state = adapter.create_initial_state(rules)
         metadata = adapter.get_metadata()
-        match_id = ("o" + official["id"][:15]) if official else self.store.new_id()
-        if official and (self.store.get_match(match_id) is not None or
+        match_id = ("o" + official["id"][:15]) if official else ("s" + scrimmage["id"][:15]) if scrimmage else self.store.new_id()
+        if plan and (self.store.get_match(match_id) is not None or
                          (self.store.replays / f"{match_id}.jsonl").exists()):
             raise ValueError("Official match has already been published; never dispatch twice")
         meta = {"id": match_id, "game_id": game_id, "game": game_id,
@@ -90,12 +94,14 @@ class MatchManager:
             meta["official_team_ids"] = {
                 side: official["slots"][side]["team_id"] for side in ("A", "B")
             }
+        if scrimmage:
+            meta['scrimmage_request_id'] = scrimmage['id']
         for side, bot in bots.items():
             prefix = side.lower()
             participant = (
-                {"id": official["slots"][side]["team_id"],
-                 "name": official["slots"][side]["team_name_snapshot"]}
-                if official else (participants or {}).get(side) or bot.get("owner") or {}
+                {"id": plan["slots"][side]["team_id"],
+                 "name": plan["slots"][side]["team_name_snapshot"]}
+                if plan else (participants or {}).get(side) or bot.get("owner") or {}
             )
             meta.update({f"player_{prefix}_id": participant.get("id"),
                          f"player_{prefix}_name_snapshot": participant.get("name"),
@@ -136,7 +142,41 @@ class MatchManager:
             return None
         live = self.live.get(match_id)
         replay = {"version": 1, "frames": deepcopy(live.frames)} if live else self.store.get_replay(match_id)
+        if replay and any(not frame.get('pending_engine') for frame in replay.get('frames', [])):
+            replay['frames'] = [frame for frame in replay['frames'] if not frame.get('pending_engine')]
         return {"match": match, **(replay or {"version": 1, "frames": []})}
+
+    async def _publish_external(self, live, payload):
+        frames = payload.get('frames')
+        if not isinstance(frames, list) or not 1 <= len(frames) <= 6000:
+            raise RunnerUnavailable('Invalid official-engine replay')
+        outcome = frames[-1].get('result')
+        if not isinstance(outcome, dict) or outcome.get('winner') not in ('A', 'B', None):
+            raise RunnerUnavailable('Official-engine result is unavailable')
+        for frame in frames:
+            if frame.get('game_id') != live.meta['game_id'] or not isinstance(frame.get('turn'), int):
+                raise RunnerUnavailable('Official-engine frame identity mismatch')
+            frame['rules'] = deepcopy(live.meta['rules'])
+            frame['max_rounds'] = payload.get('max_rounds', 0)
+        raw = base64.b64decode(payload['raw_replay'], validate=True)
+        if not raw.startswith(b'\x1f\x8b') or len(raw) > 8 * 1024 * 1024:
+            raise RunnerUnavailable('Invalid raw official replay')
+        def persist():
+            with (self.store.replays / (live.meta['id'] + '.bc26')).open('xb') as stream:
+                stream.write(raw)
+            with self.store.lock:
+                with (self.store.replays / (live.meta['id'] + '.jsonl')).open('ab') as stream:
+                    for frame in frames:
+                        stream.write(self.store._frame_line(frame))
+        await asyncio.to_thread(persist)
+        live.state = frames[-1]
+        live.meta.update(turn=frames[-1]['turn'], result=outcome, winner=outcome.get('winner'),
+                         status='completed', finished_at=timestamp(), raw_replay_available=True,
+                         engine_commit=payload.get('engine_commit'))
+        async with live.changed:
+            live.frames.extend(frames)
+            await asyncio.to_thread(self.store.save_match, live.meta)
+            live.changed.notify_all()
 
     async def _publish(self, live: LiveMatch, state: dict):
         frame = live.adapter.serialize_state(state)
@@ -158,6 +198,13 @@ class MatchManager:
         try:
             live.meta["status"] = "running"
             await asyncio.to_thread(self.store.save_match, live.meta)
+            if getattr(live.adapter, 'whole_match', False):
+                if not hasattr(self.runner, 'whole_match'):
+                    raise RunnerUnavailable('Official Battlecode requires its configured sandbox')
+                session = processes['engine'] = self.runner.whole_match(bots, 'bc-r-' + live.meta['id'])
+                payload = await asyncio.to_thread(session.run, live.meta['rules'])
+                await self._publish_external(live, payload)
+                return
             faults = {}
             # Register the handle before remote startup: cancellation owns it even while Docker creates it.
             for player, bot in bots.items():
@@ -204,10 +251,19 @@ class MatchManager:
             async with live.changed:
                 live.changed.notify_all()
         finally:
-            await asyncio.gather(*[asyncio.to_thread(p.close) for p in processes.values()])
-            self.live.pop(live.meta["id"], None)
-            if self.on_activity:
-                await self.on_activity()
+            # Shutdown can arrive after a terminal frame, while this finally is
+            # already closing remote handles. Keep ownership until all closes
+            # finish even when cancellation lands during cleanup.
+            closing = asyncio.gather(*[asyncio.to_thread(p.close) for p in processes.values()], return_exceptions=True)
+            try:
+                await asyncio.shield(closing)
+            except asyncio.CancelledError:
+                await closing
+                raise
+            finally:
+                self.live.pop(live.meta["id"], None)
+                if self.on_activity:
+                    await self.on_activity()
 
     async def cancel(self, match_id: str):
         task = self.match_tasks.get(match_id)

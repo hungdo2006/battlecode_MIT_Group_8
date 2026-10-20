@@ -48,6 +48,18 @@ class Open(Payload):
     artifact_digest: str = Field(pattern=r'^[a-f0-9]{64}$')
 
 
+class BattlecodeCompile(Compile):
+    language: str = Field(pattern=r'^(py|java)$')
+
+
+class BattlecodeMatch(Payload):
+    artifact_a: str = Field(pattern=r'^[a-zA-Z0-9_-]{1,80}$')
+    digest_a: str = Field(pattern=r'^[a-f0-9]{64}$')
+    artifact_b: str = Field(pattern=r'^[a-zA-Z0-9_-]{1,80}$')
+    digest_b: str = Field(pattern=r'^[a-f0-9]{64}$')
+    map: str = Field(pattern=r'^(DefaultSmall|DefaultMedium|DefaultLarge)$')
+
+
 class Observation(Payload):
     seq: int = Field(ge=0, le=100000)
     observation: dict
@@ -151,12 +163,13 @@ class Controller:
                 if (job.owner != payload.owner or job.lease != payload.lease
                         or job.kind != kind or job.fingerprint != fingerprint):
                     raise HTTPException(409, 'Job ID already used with different parameters')
-                if job.cancelled.is_set() and not (kind == 'compile' and job.result is not None):
+                if job.cancelled.is_set() and not (kind in ('compile', 'battlecode_compile', 'battlecode_match') and job.result is not None):
                     raise HTTPException(409, 'Job is closed; never restart a closed job ID')
                 return job
             active = sum(j.kind == kind and (not j.cancelled.is_set() or j.container is not None)
                          for j in self.jobs.values())
-            if active >= (1 if kind == 'compile' else 4) or len(self.jobs) >= 4096:
+            capacity = 1 if kind in ('compile', 'battlecode_compile') else 2 if kind == 'battlecode_match' else 4
+            if active >= capacity or len(self.jobs) >= 4096:
                 raise HTTPException(503, 'Sandbox capacity reached')
             self.remember_id(job_id)
             job = Job(kind, payload.owner, fingerprint, lease=payload.lease)
@@ -266,6 +279,54 @@ class Controller:
                 raise
             finally:
                 # Keep result for duplicate HTTP calls, but remove all processes/workspace.
+                self.close(job)
+
+    def battlecode(self, job_id, payload, operation):
+        with self.lock:
+            self.authorize_owner(payload.owner, payload.lease)
+        if not getattr(self.engine, 'battlecode_image', None):
+            raise HTTPException(503, 'Battlecode image is not configured')
+        source = None
+        if operation == 'compile':
+            try:
+                source = base64.b64decode(payload.source, validate=True)
+            except ValueError:
+                raise HTTPException(400, 'Invalid source encoding') from None
+            if not 0 < len(source) <= MAX_SOURCE_BYTES:
+                raise HTTPException(400, 'Source must be 1..256 KiB')
+            request = {'language': payload.language, 'source': payload.source}
+        else:
+            try:
+                request = {'map': payload.map,
+                    'A': self.store.load_battlecode(payload.artifact_a, payload.digest_a, self.engine.battlecode_image),
+                    'B': self.store.load_battlecode(payload.artifact_b, payload.digest_b, self.engine.battlecode_image)}
+            except (ValueError, OSError):
+                raise HTTPException(409, 'Battlecode artifact unavailable or changed') from None
+        job = self.reserve(job_id, payload, 'battlecode_' + operation)
+        with job.lock:
+            with self.lock:
+                self.authorize_owner(payload.owner, payload.lease)
+            if job.result is not None:
+                return job.result
+            if job.failure:
+                raise InfrastructureError('Previous Battlecode operation failed; never retry a match implicitly')
+            try:
+                self.ensure_container(job_id, job)
+                result = self.engine.run_battlecode(job.container, operation, request, job.cancelled)
+                with self.lock:
+                    self.authorize_owner(payload.owner, payload.lease)
+                if job.cancelled.is_set():
+                    raise InfrastructureError('Battlecode operation cancelled')
+                if operation == 'compile' and result.get('status') == 'ready':
+                    result.update(self.store.save_battlecode(job_id, payload.language, source, self.engine.battlecode_image))
+                elif operation == 'match' and not result.get('frames'):
+                    raise InfrastructureError('Official Battlecode replay is unavailable')
+                job.result = result
+                return result
+            except Exception as error:
+                job.failure = error
+                raise
+            finally:
                 self.close(job)
 
     def open(self, job_id, payload):
@@ -413,6 +474,7 @@ def create_app():
     def health():
         app.state.controller.engine.client.ping()
         return {'ready': True, 'epoch': app.state.controller.epoch,
+                'battlecode26': bool(getattr(app.state.controller.engine, 'battlecode_image', None)),
                 'toolchains': {'python': 'sandbox', 'cpp': 'sandbox', 'javac': 'sandbox', 'java': 'sandbox'}}
 
     @app.post('/owner')
@@ -436,6 +498,14 @@ def create_app():
     @app.post('/runtime/{job_id}')
     def open_runtime(job_id: str, payload: Open):
         return app.state.controller.open(job_id, payload)
+
+    @app.post('/battlecode/compile/{job_id}')
+    def battlecode_compile(job_id: str, payload: BattlecodeCompile):
+        return app.state.controller.battlecode(job_id, payload, 'compile')
+
+    @app.post('/battlecode/match/{job_id}')
+    def battlecode_match(job_id: str, payload: BattlecodeMatch):
+        return app.state.controller.battlecode(job_id, payload, 'match')
 
     @app.post('/runtime/{job_id}/request')
     def request(job_id: str, payload: Observation):

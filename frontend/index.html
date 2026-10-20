@@ -8,11 +8,10 @@
   <meta name="description" content="NEON ARENA — không gian thi đấu bot đa game trên local và LAN.">
   <title>NEON ARENA · Tournament workspace</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=b3f8c3c483b1">
-  <link rel="preload" href="/static/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="preload" href="/static/fonts/SourceSerif4Variable.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/static/styles.css?v=1833bb775191">
-  <script src="/static/renderers.js?v=0ec9658b9ac2" defer></script>
-  <script src="/static/app.js?v=a93437af4154" defer></script>
+  <link rel="preload" href="/static/fonts/InterVariable.woff2?v=693b77d4f32e" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/static/styles.css?v=7dfc4981525b">
+  <script src="/static/renderers.js?v=553857e777a3" defer></script>
+  <script src="/static/app.js?v=7fd0fdb196bc" defer></script>
 </head>
 <body class="account-landing-active">
   <!-- Public welcome screen; workspace visibility is never an authorization boundary. -->
@@ -20,12 +19,12 @@
     <div class="landing-frame">
       <header class="landing-header">
         <div class="landing-brand"><span class="landing-logo" aria-hidden="true">N↗</span><span>NEON ARENA<small>BOT TOURNAMENT PLATFORM</small></span></div>
-        <span class="landing-header-note">Competitive programming. Shared ambition.</span>
+        <a class="landing-header-note" href="#landing-workflow">Khám phá cách thi đấu <span aria-hidden="true">↓</span></a>
       </header>
       <main class="landing-main">
         <div class="landing-copy">
           <p class="landing-eyebrow">NỀN TẢNG THI ĐẤU BOT</p>
-          <h1 id="landing-title">Viết chiến thuật.<br><span>Bước vào đấu trường.</span></h1>
+          <h1 id="landing-title">Viết chiến thuật.<br><span>Làm chủ trận đấu.</span></h1>
           <p class="landing-lead">Từ những dòng code đến một đội thi đấu. Xây dựng bot, tranh tài cùng đối thủ và khám phá điều làm nên một chiến thuật xuất sắc.</p>
           <div class="landing-actions">
             <button class="landing-action primary" id="landing-login" type="button" disabled>Đăng nhập <span aria-hidden="true">↗</span></button>
@@ -36,8 +35,21 @@
           <p class="landing-register-note" id="landing-register-note"></p>
           <button class="landing-retry hidden" id="landing-retry" type="button">Thử kết nối lại</button>
         </div>
+        <aside class="landing-protocol" aria-labelledby="landing-protocol-title">
+          <div class="landing-protocol-heading"><span class="eyebrow">CODE → ARENA</span><span class="tag">Python · Robot Battle</span></div>
+          <h2 id="landing-protocol-title">Một ý tưởng.<br>Hàng trăm nước đi.</h2>
+          <p>Bot đọc trạng thái, chọn hành động và trả kết quả. Bạn tập trung vào chiến thuật.</p>
+          <pre aria-label="Ví dụ giao thức bot Python"><code><span class="code-comment"># Đọc một lượt. Chọn một nước đi.</span>
+import json, sys
+
+for line in sys.stdin:
+    state = json.loads(line)
+    action = {"type": "wait"}
+    print(json.dumps(action), flush=True)</code></pre>
+          <div class="landing-protocol-footer"><span>Ví dụ giao thức · không phải trận trực tiếp</span><a href="/static/protocol.html">Đọc hướng dẫn <span aria-hidden="true">↗</span></a></div>
+        </aside>
       </main>
-      <section class="landing-workflow" aria-label="Từ ý tưởng đến trận đấu">
+      <section class="landing-workflow" id="landing-workflow" aria-label="Từ ý tưởng đến trận đấu">
         <div><span class="landing-step-number">01</span><h2>Viết chiến thuật của bạn</h2><p>Xây dựng bot bằng Python, C++ hoặc Java. Bắt đầu từ ý tưởng hoặc bot mẫu.</p></div>
         <div><span class="landing-step-number">02</span><h2>Cùng đội bước vào giải đấu</h2><p>Thành lập đội, chọn bot đại diện và chuẩn bị cho những trận đấu tiếp theo.</p></div>
         <div><span class="landing-step-number">03</span><h2>Học từ từng nước đi</h2><p>Theo dõi trận đấu và xem lại replay để hoàn thiện chiến thuật của bạn.</p></div>
@@ -71,15 +83,22 @@
         <a class="nav-item" href="#upload" data-view="upload"><svg class="nav-icon" aria-hidden="true"><use href="#i-upload"/></svg>Team &amp; Bot</a>
       </div>
       <div class="nav-group"><span class="nav-group-label">Thi đấu</span>
+        <a class="nav-item hidden" href="#seasons" data-view="seasons"><svg class="nav-icon" aria-hidden="true"><use href="#i-trophy"/></svg>Mùa thi đấu</a>
         <a class="nav-item" href="#standings" data-view="standings"><svg class="nav-icon" aria-hidden="true"><use href="#i-trophy"/></svg>Bảng xếp hạng</a>
         <a class="nav-item" href="#tournaments" data-view="tournaments"><svg class="nav-icon" aria-hidden="true"><use href="#i-trophy"/></svg>Giải đấu</a>
         <a class="nav-item hidden" href="#official" data-view="official"><svg class="nav-icon" aria-hidden="true"><use href="#i-play"/></svg>Official Match</a>
+        <a class="nav-item hidden" href="#scrimmage" data-view="scrimmage"><svg class="nav-icon" aria-hidden="true"><use href="#i-players"/></svg><span id="scrimmage-nav-label">Thách đấu</span></a>
         <a class="nav-item" href="#create" data-view="create"><svg class="nav-icon" aria-hidden="true"><use href="#i-players"/></svg>Phòng thi đấu</a>
         <a class="nav-item" href="#watch" data-view="watch"><svg class="nav-icon" aria-hidden="true"><use href="#i-play"/></svg>Lịch sử &amp; Replay</a>
       </div>
       <div class="nav-group"><span class="nav-group-label">Tài liệu</span>
         <a class="nav-item" href="#rules" data-view="rules"><svg class="nav-icon" aria-hidden="true"><use href="#i-sliders"/></svg>Game &amp; Luật chơi</a>
         <a class="nav-item" href="/lan"><svg class="nav-icon" aria-hidden="true"><use href="#i-network"/></svg>Hướng dẫn LAN</a>
+      </div>
+      <div class="nav-group"><span class="nav-group-label">Tài khoản &amp; vận hành</span>
+        <a class="nav-item hidden" href="#profile" data-view="profile"><svg class="nav-icon" aria-hidden="true"><use href="#i-players"/></svg>Hồ sơ cá nhân</a>
+        <a class="nav-item hidden" href="#administration" data-view="administration"><svg class="nav-icon" aria-hidden="true"><use href="#i-lock"/></svg>Tài khoản &amp; đội</a>
+        <a class="nav-item hidden" href="#system" data-view="system"><svg class="nav-icon" aria-hidden="true"><use href="#i-network"/></svg>Giám sát hệ thống</a>
       </div>
     </nav>
     <div class="sidebar-bottom">
@@ -128,6 +147,12 @@
           <div class="stat-card"><div><span class="stat-label">Trận hoàn thành</span><strong id="stat-matches">—</strong></div><span class="stat-note">Đã lưu replay</span></div>
           <div class="stat-card"><div><span class="stat-label">Đang thi đấu</span><strong id="stat-live">—</strong></div><span class="stat-note" id="live-note">Đang tải…</span></div>
         </div>
+
+        <section class="workspace-overview hidden" id="workspace-overview" aria-label="Các bước tiếp theo">
+          <div class="overview-heading"><div><p class="eyebrow">TIẾP TỤC TỪ ĐÂY</p><h2 id="overview-title">Chuẩn bị cho trận đấu tiếp theo</h2></div><span class="tag" id="overview-role">Workspace</span></div>
+          <div class="overview-steps" id="overview-steps"></div>
+          <div class="overview-next"><div><span class="eyebrow">LỊCH THI ĐẤU</span><h3 id="overview-next-title">Đang tải lịch đấu…</h3><p id="overview-next-note" class="form-note"></p></div><button class="button ghost small" data-go="official">Xem lịch đấu <span aria-hidden="true">↗</span></button></div>
+        </section>
 
         <div class="arena-section-title"><div><span class="eyebrow">THE MAIN STAGE</span><h2>Live Arena</h2></div><span class="section-caption">Mỗi bước đi. Cùng theo dõi.</span></div>
         <div class="arena-layout">
@@ -201,7 +226,7 @@
           <section class="panel"><div class="panel-heading"><h2>Submission mới</h2><span class="tag">Tối đa 256 KiB</span></div><form id="upload-form" class="padded-form">
             <label>Game của bot<select name="game_id" class="game-select" id="upload-game" required></select></label><label>Tên bot<input name="name" maxlength="48" placeholder="Ví dụ: Atlas" autocomplete="off"></label>
             <label class="drop-zone" id="drop-zone"><input type="file" name="file" id="bot-file" accept=".py,.cpp,.java" required aria-describedby="file-help"><span class="upload-glyph"><svg><use href="#i-upload"/></svg></span><strong id="file-label">Thả code vào đây</strong><span>hoặc nhấn để chọn file</span><small id="file-help">.py · .cpp · .java — tối đa 256 KiB</small><span class="file-language hidden" id="file-language"></span></label>
-            <p class="form-note">Java dùng <code>public class Main</code>, không có package. Trả một dòng JSON trên <code>stdout</code> và flush; ghi debug vào <code>stderr</code>.</p><a class="text-button" href="/static/protocol.html" target="_blank" rel="noopener">Đọc giao thức bot <span>↗</span></a>
+            <p class="form-note" id="upload-protocol-note">Java dùng <code>public class Main</code>, không có package. Trả một dòng JSON trên <code>stdout</code> và flush; ghi debug vào <code>stderr</code>.</p><a class="text-button" id="upload-protocol-link" href="/static/protocol.html" target="_blank" rel="noopener">Đọc giao thức bot <span>↗</span></a>
             <button class="button primary full" type="submit">Tải lên & biên dịch <span>↗</span></button><div class="feedback hidden" id="upload-feedback" role="status" aria-live="polite"></div><pre class="compiler-log hidden" id="compiler-log" tabindex="0" aria-label="Compiler diagnostics"></pre>
           </form></section>
           <section class="panel"><div class="panel-heading"><h2>Bắt đầu từ bot mẫu <span class="tag" id="samples-game">Game</span></h2></div><div class="sample-list" id="sample-list"></div><div class="protocol-preview"><span class="eyebrow">Action của game</span><pre id="action-examples"></pre></div><div class="safety-note"><strong>Môi trường demo tin cậy</strong><span>Chỉ nộp code của nhóm trong local/LAN riêng. Docker sandbox giảm rủi ro, không bảo đảm an toàn tuyệt đối.</span></div></section>
@@ -260,6 +285,13 @@
         </section>
       </section>
 
+      <section class="view" id="view-scrimmage" aria-label="Thách đấu và hàng đợi">
+        <div class="page-intro"><p class="eyebrow">SCRIMMAGE</p><h1 id="scrimmage-title">Thách đấu</h1><p>Chọn đối thủ và gửi bot vào hàng đợi. Hai đội không cần online; bot đại diện được chốt tại thời điểm gửi yêu cầu. Trận thử không ảnh hưởng bảng điểm giải.</p></div>
+        <section class="panel hidden" id="scrimmage-create-panel"><div class="panel-heading"><h2>Trận thử mới</h2><span class="tag">Team vs Team</span></div>
+          <form id="scrimmage-create" class="padded-form account-form"><label>Game<select name="game_id" id="scrimmage-game" required></select></label><label>Đội đối thủ<select name="opponent_team_id" id="scrimmage-opponent" required></select></label><p class="form-note" id="scrimmage-eligibility"></p><button class="button primary" type="submit">Gửi thách đấu <span aria-hidden="true">↗</span></button><div id="scrimmage-feedback" class="feedback hidden" role="status"></div></form>
+        </section>
+        <section class="panel"><div class="panel-heading"><h2>Hàng đợi &amp; kết quả</h2><button class="button ghost small" id="refresh-scrimmages" type="button">Làm mới</button></div><div id="scrimmage-list" class="match-list"><div class="empty-state">Đang tải trận thử…</div></div></section>
+      </section>
       <section class="view" id="view-watch" aria-label="Lịch sử và replay"><div class="page-intro"><div class="eyebrow">EVERY STRATEGY HAS A STORY</div><h1>Lịch sử &amp; Replay</h1><p>Xem trực tiếp hoặc khám phá lại từng lượt. Replay sử dụng dữ liệu đã lưu, không chạy lại bot.</p></div><section class="panel"><div class="panel-heading"><h2>Lịch sử trận đấu</h2><button class="text-button" id="refresh-matches">Làm mới ↻</button></div><div id="all-matches" class="match-list"></div></section></section>
 
       <section class="view" id="view-rules" aria-label="Game và luật chơi">
@@ -267,6 +299,32 @@
         <div class="game-library" id="game-library" aria-label="Danh sách game đã cài đặt"></div>
         <section class="panel game-information"><div><span class="eyebrow">Game đang chọn</span><h2 id="game-name">Đang tải…</h2><p id="game-description"></p></div><a id="game-source" class="text-button hidden" target="_blank" rel="noopener">Repository tham khảo <span>↗</span></a><div class="fixed-rules" id="game-fixed" aria-label="Luật cố định của game"></div></section>
         <div class="two-column"><section class="panel"><div class="panel-heading"><h2 id="rules-heading">Cấu hình luật</h2><span class="tag">Cấu hình</span></div><form id="rules-form" class="padded-form"><p class="form-note" id="rules-access-note"></p><div id="rules-fields" class="rules-fields"></div><div class="form-buttons"><button class="button primary" type="submit">Lưu cấu hình <span>↗</span></button><button class="button ghost" type="button" id="default-rules">Khôi phục mặc định</button></div><div class="feedback hidden" id="rules-feedback" role="status"></div></form></section><section class="panel rule-explainer"><div class="panel-heading"><h2>Cách trò chơi hoạt động</h2></div><ol id="rules-guide"></ol></section></div>
+      </section>
+      <section class="view" id="view-seasons" aria-label="Mùa thi đấu và đăng ký">
+        <div class="page-intro"><p class="eyebrow">COMPETITION</p><h1>Mùa thi đấu</h1><p>Tìm cuộc thi phù hợp, đăng ký đội trong thời hạn và theo dõi kết quả chính thức.</p></div>
+        <section class="panel hidden" id="season-admin-panel"><div class="panel-heading"><h2>Thiết lập mùa giải</h2><span class="tag">Admin</span></div><form id="season-create" class="padded-form account-form">
+          <label>Tên mùa giải<input name="name" required maxlength="64"></label><label>Game<select name="game_id" id="season-game" required></select></label><label>Mở đăng ký<input name="registration_opens_at" type="datetime-local" required></label><label>Đóng đăng ký<input name="registration_closes_at" type="datetime-local" required></label><label>Bắt đầu thi đấu<input name="starts_at" type="datetime-local" required></label><label>Kết thúc dự kiến<input name="ends_at" type="datetime-local" required></label><label>Số đội tối đa<input name="max_teams" type="number" value="64" min="2" max="256" required></label><p class="form-note">Thời gian theo múi giờ của máy bạn. Captain của đội ACTIVE được đăng ký trong thời hạn. Admin đóng đăng ký trước khi chốt danh sách vào giải.</p><button class="button primary" type="submit">Tạo mùa giải</button><div id="season-create-feedback" class="feedback hidden" role="status"></div>
+        </form></section>
+        <section class="panel"><div class="panel-heading"><h2>Các mùa thi đấu</h2><button class="button ghost small" id="refresh-seasons" type="button">Làm mới</button></div><div id="season-list" class="match-list"></div></section>
+      </section>
+      <section class="view" id="view-profile" aria-label="Hồ sơ cá nhân">
+        <div class="page-intro"><p class="eyebrow">TÀI KHOẢN</p><h1>Hồ sơ cá nhân</h1><p>Cập nhật tên hiển thị của bạn trong đội và workspace.</p></div>
+        <section class="panel profile-panel"><div class="panel-heading"><h2>Thông tin tài khoản</h2><span class="tag" id="profile-role"></span></div><form id="profile-form" class="padded-form"><label>Tên đăng nhập<input id="profile-username" readonly autocomplete="username"></label><label>Tên hiển thị<input name="display_name" id="profile-display-name" required maxlength="64" autocomplete="nickname"></label><p class="form-note">Vai trò được quản trị theo tài khoản. Nếu quên mật khẩu, liên hệ Admin để nhận mã khôi phục.</p><button class="button primary" type="submit">Lưu hồ sơ</button><div id="profile-feedback" class="feedback hidden" role="status"></div></form></section>
+      </section>
+      <section class="view" id="view-administration" aria-label="Quản lý tài khoản và đội">
+        <div class="page-intro"><p class="eyebrow">QUẢN TRỊ</p><h1>Tài khoản &amp; đội</h1><p>Kiểm tra vai trò, thành viên và trạng thái tham gia. Thay đổi quyền có hiệu lực trên máy chủ.</p></div>
+        <section class="panel"><div class="panel-heading"><h2>Tài khoản</h2><form id="admin-account-search" class="inline-search"><label for="admin-account-query" class="sr-only">Tìm tài khoản</label><input id="admin-account-query" name="search" placeholder="Tên hoặc username" maxlength="128"><button class="button ghost small" type="submit">Tìm</button></form></div>
+          <div class="data-table-wrap" tabindex="0" role="region" aria-label="Danh sách tài khoản, cuộn ngang để xem đầy đủ"><table class="data-table"><thead><tr><th>Thành viên</th><th>Vai trò</th><th>Trạng thái</th><th>Đội</th><th>Thao tác</th></tr></thead><tbody id="admin-accounts-body"></tbody></table></div><div class="table-pagination"><span id="admin-account-count" class="form-note"></span><div class="form-buttons"><button class="button ghost small" id="admin-accounts-prev" type="button">Trước</button><button class="button ghost small" id="admin-accounts-next" type="button">Sau</button></div></div>
+        </section>
+        <div class="two-column administration-tools"><section class="panel"><div class="panel-heading"><h2>Mời Player mới</h2></div><form id="admin-invite-form" class="padded-form"><label>Tên đăng nhập<input name="username" required minlength="3" maxlength="32" autocomplete="off"></label><label>Tên hiển thị<input name="name" maxlength="64" required></label><button class="button ghost" type="submit">Tạo lời mời Player</button><label class="hidden" id="admin-invite-token-label">Mã kích hoạt dùng một lần<input id="admin-invite-token" readonly autocomplete="off" spellcheck="false"></label><div id="admin-invite-feedback" class="feedback hidden" role="status"></div></form></section><div id="admin-recovery-host"></div></div>
+        <section class="panel administration-tools"><div class="panel-heading"><h2>Các đội thi đấu</h2><button class="button ghost small" id="admin-refresh-teams" type="button">Làm mới</button></div><div id="admin-teams-list" class="match-list"></div></section>
+        <section class="panel administration-tools"><div class="panel-heading"><h2>Submission &amp; biên dịch</h2></div><div id="admin-submissions-list" class="match-list"></div></section>
+      </section>
+      <section class="view" id="view-system" aria-label="Giám sát hệ thống">
+        <div class="page-intro"><p class="eyebrow">VẬN HÀNH</p><h1>Giám sát hệ thống</h1><p>Trạng thái runner, hàng đợi và các tác vụ thực tế trên máy chủ.</p></div>
+        <section class="panel"><div class="panel-heading"><h2>Runtime</h2><button class="button ghost small" id="system-refresh" type="button">Kiểm tra lại</button></div><dl id="system-status" class="system-status"></dl><div id="system-feedback" class="feedback hidden" role="status"></div></section>
+        <section class="panel administration-tools"><div class="panel-heading"><h2>Trận đang chạy</h2><span class="tag">Tối đa 2 trận</span></div><div id="system-active" class="match-list"></div></section>
+        <section class="panel administration-tools"><div class="panel-heading"><h2>Gián đoạn gần đây</h2></div><div id="system-interruptions" class="match-list"></div></section>
       </section>
       <footer class="main-footer"><span><strong>neon arena</strong><span class="muted"> · Built for curious minds.</span></span><span>Đồ án Lập trình mạng <span class="footer-dot">·</span> Local / LAN</span></footer>
     </main>

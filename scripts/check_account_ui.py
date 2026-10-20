@@ -170,7 +170,8 @@ def run():
                 assert not landing.is_visible() and not dialog.is_visible()
                 assert page.locator("#view-official").is_visible()
                 assert page.locator('.nav-item[data-view="create"]').is_hidden()
-                assert page.locator('.nav-item[data-view="watch"]').is_hidden()
+                assert page.locator('.nav-item[data-view="watch"]').is_visible()
+                assert page.locator('.nav-item[data-view="scrimmage"]').is_visible()
                 # Team workspace intentionally lives in Upload, not Home.
                 # Navigate through the real UI before asserting its visibility.
                 page.locator('.nav-item[data-view="upload"]').click()
@@ -193,13 +194,15 @@ def run():
                 assert navigation.get_attribute("aria-modal") == "true"
                 assert page.locator(".shell").evaluate("node => node.inert")
                 assert navigation.locator('[data-view="create"]').is_hidden()
-                assert navigation.locator('[data-view="watch"]').is_hidden()
+                assert navigation.locator('[data-view="watch"]').is_visible()
+                assert navigation.locator('[data-view="scrimmage"]').is_visible()
                 # Last visible link -> Tab returns to the first control.
-                navigation.locator('a[href="/lan"]').focus()
+                controls = navigation.locator('a[href], button:not(:disabled), [tabindex="0"]').filter(visible=True)
+                controls.last.focus()
                 page.keyboard.press("Tab")
-                assert page.evaluate("document.activeElement.classList.contains('brand')")
+                assert controls.first.evaluate("node => node === document.activeElement")
                 page.keyboard.press("Shift+Tab")
-                assert page.evaluate("document.activeElement.getAttribute('href') === '/lan'")
+                assert controls.last.evaluate("node => node === document.activeElement")
                 page.keyboard.press("Escape")
                 assert toggle.evaluate("node => node === document.activeElement")
                 assert not page.locator(".shell").evaluate("node => node.inert")
@@ -210,7 +213,7 @@ def run():
 
                 for width, height in ((360, 800), (390, 844), (768, 1024)):
                     page.set_viewport_size({"width": width, "height": height})
-                    for view in ("home", "upload", "standings", "tournaments", "official", "rules"):
+                    for view in ("home", "upload", "standings", "tournaments", "official", "scrimmage", "watch", "seasons", "profile", "rules"):
                         toggle.click()
                         navigation.locator(f'[data-view="{view}"]').click()
                         assert page.locator(f"#view-{view}").is_visible()

@@ -471,7 +471,7 @@ class TeamTournamentService:
         return self.auth.require_actor(actor, self.auth._now(), admin=admin,
                                        player_only=not admin, touch=False)
 
-    def create(self, actor, *, name, game_id, team_ids, format="round_robin", qualifier_target=None):
+    def create(self, actor, *, name, game_id, team_ids, format="round_robin", qualifier_target=None, season_id=None):
         self._ready()
         with transaction(self.db):
             now = self.auth._now()
@@ -523,6 +523,13 @@ class TeamTournamentService:
             self.db.execute("""INSERT INTO team_tournament_audit
                 (tournament_id,actor_user_id,action,occurred_at)
                 VALUES (?,?,'CREATED',?)""", (tournament_id, admin["id"], now))
+            if season_id is not None:
+                season=self.db.execute('SELECT * FROM competition_seasons WHERE id=?',(season_id,)).fetchone()
+                roster={row[0] for row in self.db.execute("SELECT team_id FROM competition_season_entries WHERE season_id=? AND status='REGISTERED'",(season_id,))}
+                if (not season or season['tournament_id'] or season['game_id']!=game_id or roster!=set(team_ids)
+                    or (season['registration_closed_at'] is None and now<season['registration_closes_at'])):
+                    raise TournamentConflict('Season roster cannot be frozen')
+                self.db.execute('UPDATE competition_seasons SET tournament_id=? WHERE id=?',(tournament_id,season_id))
             return self.detail(actor, tournament_id, admin=True)
 
     def start(self, actor, tournament_id):

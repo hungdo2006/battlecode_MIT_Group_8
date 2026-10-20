@@ -8,11 +8,46 @@
   <meta name="description" content="NEON ARENA — không gian thi đấu bot đa game trên local và LAN.">
   <title>NEON ARENA · Tournament workspace</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=0ab76a04fe4c">
-  <link rel="stylesheet" href="/static/styles.css?v=3e609600b26a">
+  <link rel="stylesheet" href="/static/styles.css?v=613efb29c7b0">
   <script src="/static/renderers.js?v=d15c4fb4c581" defer></script>
-  <script src="/static/app.js?v=f6566e1498a0" defer></script>
+  <script src="/static/app.js?v=e125380b3638" defer></script>
 </head>
-<body>
+<body class="account-landing-active">
+  <!-- Public welcome screen; workspace visibility is never an authorization boundary. -->
+  <section class="account-landing" id="account-landing" aria-labelledby="landing-title">
+    <div class="landing-frame">
+      <header class="landing-header">
+        <div class="landing-brand"><span class="landing-logo" aria-hidden="true">N↗</span><span>NEON ARENA<small>BOT TOURNAMENT PLATFORM</small></span></div>
+        <span class="landing-header-note">CODE · COMPETE · CONQUER</span>
+      </header>
+      <main class="landing-main">
+        <div class="landing-copy">
+          <p class="landing-eyebrow">WELCOME TO THE ARENA</p>
+          <h1 id="landing-title">Biến code thành<br><span>chiến thuật chiến thắng.</span></h1>
+          <p class="landing-lead">Xây dựng bot bằng Python, C++ hoặc Java. Thành lập đội, tranh tài cùng đối thủ và theo dõi từng trận đấu trực tiếp.</p>
+          <div class="landing-actions">
+            <button class="landing-action primary" id="landing-login" type="button" disabled>Đăng nhập <span aria-hidden="true">↗</span></button>
+            <button class="landing-action secondary" id="landing-register" type="button" disabled>Đăng ký Player</button>
+          </div>
+          <p class="landing-status" id="landing-status" role="status" aria-live="polite">Đang kiểm tra phiên đăng nhập…</p>
+          <p class="landing-register-note" id="landing-register-note"></p>
+          <button class="landing-retry hidden" id="landing-retry" type="button">Thử kết nối lại</button>
+        </div>
+        <div class="landing-visual" aria-hidden="true">
+          <div class="landing-match-card">
+            <small>NEON ARENA · MATCH PREVIEW</small>
+            <div class="landing-matchup">
+              <div class="landing-bot"><span>A</span>BOT A</div>
+              <span class="landing-versus">VS</span>
+              <div class="landing-bot"><span>B</span>BOT B</div>
+            </div>
+            <div class="landing-card-footer">Code meets possibility · Strategy makes the difference</div>
+          </div>
+        </div>
+      </main>
+      <footer class="landing-footer"><span>NEON ARENA · Competitive bot programming</span><span>Built for curious minds.</span></footer>
+    </div>
+  </section>
   <a class="skip-link" href="#main-content">Đến nội dung chính</a>
   <svg class="icon-sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
     <symbol id="i-home" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></symbol>
@@ -231,7 +266,7 @@
   </div>
 
   <dialog class="organizer-dialog account-dialog glass-surface glass-elevated" id="account-dialog" aria-labelledby="account-title">
-    <div class="padded-form"><span class="dialog-icon"><svg><use href="#i-lock"/></svg></span><div><span class="eyebrow">NEON ARENA · ACCOUNT</span><h2 id="account-title">Đăng nhập NEON ARENA</h2><p class="form-note">Một cổng đăng nhập chung cho Admin và Player. Server xác định vai trò từ tài khoản đã xác thực.</p></div>
+    <div class="padded-form"><button class="button ghost small" id="account-back" type="button">← Về trang chủ</button><span class="dialog-icon"><svg><use href="#i-lock"/></svg></span><div><span class="eyebrow">NEON ARENA · ACCOUNT</span><h2 id="account-title">Đăng nhập NEON ARENA</h2><p class="form-note">Một cổng đăng nhập chung cho Admin và Player. Server xác định vai trò từ tài khoản đã xác thực.</p></div>
       <div class="form-buttons" aria-label="Lựa chọn tài khoản"><button id="account-login-choice" class="button primary" type="button">Đăng nhập</button><button id="account-register-choice" class="button ghost hidden" type="button">Đăng ký</button></div>
       <form id="account-login-form" class="account-form"><label for="account-username">Tên đăng nhập<input id="account-username" name="username" required minlength="3" maxlength="32" autocomplete="username"></label><label>Mật khẩu<input type="password" name="password" required maxlength="1024" autocomplete="current-password"></label><label id="account-admin-otp-field" class="hidden">Mã xác minh Admin<input name="otp" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" placeholder="6 chữ số"></label><button class="button primary full" type="submit">Đăng nhập <span>↗</span></button></form>
       <form id="account-register-form" class="account-form hidden"><label>Tên đăng nhập<input name="username" required minlength="3" maxlength="32" autocomplete="username"></label><label id="account-register-name-field" class="hidden">Tên hiển thị<input name="display_name" maxlength="64" autocomplete="nickname"></label><label id="account-register-email-field" class="hidden">Email<input type="email" name="email" maxlength="254" autocomplete="email"></label><label>Mật khẩu mới<input type="password" name="password" required minlength="8" maxlength="1024" autocomplete="new-password"></label><label>Nhập lại mật khẩu<input type="password" name="confirm_password" required minlength="8" maxlength="1024" autocomplete="new-password"></label><p class="form-note" id="account-register-note">Đăng ký chỉ tạo tài khoản Player. Nếu quên mật khẩu, liên hệ Admin để nhận mã khôi phục.</p><button class="button primary full" type="submit">Tạo tài khoản Player ↗</button></form>

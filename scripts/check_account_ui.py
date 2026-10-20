@@ -84,7 +84,7 @@ def run():
                 dialog = page.locator("#account-dialog")
                 landing = page.locator("#account-landing")
                 landing.wait_for(state="visible")
-                page.locator("#landing-login").wait_for(state="enabled")
+                page.wait_for_function("!document.querySelector('#landing-login').disabled")
                 assert not dialog.is_visible()
                 assert page.locator(".shell").is_hidden()
                 assert page.locator("#landing-register").is_enabled()

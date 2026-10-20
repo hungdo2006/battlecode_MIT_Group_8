@@ -573,6 +573,26 @@ function acceptSession(data) {
   renderInvitations();
 }
 
+// The public welcome screen is presentation-only. All protected APIs still
+// require a verified Account-Only session and server-enforced role.
+function showAccountLanding(message = "Chọn Đăng nhập hoặc Đăng ký để bắt đầu.") {
+  if ($("#account-dialog").open) $("#account-dialog").close();
+  document.body.classList.add("account-landing-active");
+  $("#account-landing").classList.remove("hidden");
+  $("#landing-login").disabled = false;
+  $("#landing-register").disabled = !app.selfRegistration;
+  $("#landing-register-note").textContent = app.selfRegistration
+    ? "Tạo tài khoản Player để tham gia các giải đấu."
+    : "Ban tổ chức hiện chưa mở đăng ký Player.";
+  $("#landing-status").textContent = message;
+  $("#landing-retry").classList.add("hidden");
+}
+
+function hideAccountLanding() {
+  document.body.classList.remove("account-landing-active");
+  $("#account-landing").classList.add("hidden");
+}
+
 function accountEntryTab(tab) {
   const registration = tab === "register" && app.selfRegistration;
   $("#account-login-form").classList.toggle("hidden", registration);
@@ -586,7 +606,7 @@ function accountEntryTab(tab) {
   first.focus();
 }
 
-function showAccountDialog(message = "Đăng nhập để tiếp tục vào workspace.") {
+function showAccountDialog(message = "Đăng nhập để tiếp tục vào workspace.", tab = "login") {
   const dialog = $("#account-dialog");
   $("#account-feedback").textContent = message;
   $("#account-feedback").classList.remove("hidden", "error");
@@ -605,7 +625,7 @@ function showAccountDialog(message = "Đăng nhập để tiếp tục vào work
   $("#account-recovery-note").textContent = app.emailVerification
     ? "Có thể nhận email khôi phục, hoặc nhờ Admin cấp mã một lần."
     : "Liên hệ Admin để nhận mã khôi phục dùng một lần, có hạn 30 phút.";
-  accountEntryTab("login");
+  accountEntryTab(tab);
   if (app.resetTokenLoaded) {
     $("#account-password-tools").open = true;
     $("#account-reset-password-form [name=password]").focus();
@@ -627,10 +647,22 @@ function acceptAccount(data, audience) {
   app.participant = { id: data.account.id, name: data.account.display_name };
   app.organizerAvailable = app.role === "organizer";
   if ($("#account-dialog").open) $("#account-dialog").close();
+  hideAccountLanding();
   renderSession();
 }
 
-$("#account-dialog").addEventListener("cancel", event => event.preventDefault());
+$("#account-dialog").addEventListener("cancel", event => {
+  if (!app.accountOnly || app.account) event.preventDefault();
+});
+$("#account-back").addEventListener("click", () => {
+  $("#account-dialog").close();
+  $("#landing-login").focus();
+});
+$("#landing-login").addEventListener("click", () => showAccountDialog(undefined, "login"));
+$("#landing-register").addEventListener("click", () => {
+  if (app.selfRegistration) showAccountDialog(undefined, "register");
+});
+$("#landing-retry").addEventListener("click", () => bootstrap());
 $("#account-login-choice").addEventListener("click", () => accountEntryTab("login"));
 $("#account-register-choice").addEventListener("click", () => accountEntryTab("register"));
 
@@ -646,7 +678,7 @@ function accountExpired() {
   app.competitionSocket?.close(); app.socket?.close();
   clearTimeout(app.competitionTimer); clearTimeout(app.reconnectTimer);
   renderSession();
-  showAccountDialog("Phiên đã hết hạn hoặc bị thu hồi. Hãy đăng nhập lại.");
+  showAccountLanding("Phiên đã hết hạn hoặc bị thu hồi. Hãy đăng nhập lại.");
 }
 
 async function restoreAccount() {
@@ -803,7 +835,6 @@ async function accountLogout() {
   } catch (error) {
     if (error.status === 401) {
       accountExpired();
-      showAccountDialog("Phiên đã hết hiệu lực. Hãy đăng nhập lại.");
     } else {
       // Keep the account and retry action: a lost response does not prove that
       // the server revoked the session or removed the browser cookie.
@@ -822,7 +853,7 @@ async function accountLogout() {
   app.competitionSocket?.close(); app.socket?.close();
   clearTimeout(app.competitionTimer); clearTimeout(app.reconnectTimer);
   renderSession();
-  showAccountDialog("Đã đăng xuất an toàn.");
+  showAccountLanding("Đã đăng xuất an toàn. Bạn có thể đăng nhập lại.");
 }
 
 $("#session-form").addEventListener("submit", async event => {
@@ -2356,13 +2387,19 @@ async function bootstrap() {
       $("#account-mode-note").classList.remove("hidden");
       if (!app.account && !await restoreAccount()) {
         setConnection(true); renderSession();
-        showAccountDialog(app.emailVerificationNotice || undefined);
+        showAccountLanding(app.emailVerificationNotice || undefined);
+        // Deep links for password recovery and email verification must
+        // still open the relevant form without an extra click.
+        if (app.resetTokenLoaded || app.emailVerificationNotice) {
+          showAccountDialog(app.emailVerificationNotice || undefined);
+        }
         app.emailVerificationNotice = null;
         return;
       }
     } else {
       // Establish the legacy cookie first; parallel startup requests then share one identity.
       acceptSession(await api("/api/session"));
+      hideAccountLanding();
     }
     const canInspectPrivate = !app.accountOnly || app.accountAudience === "admin";
     const [bots, registry, matches, tournaments, competition] = await Promise.all([
@@ -2398,6 +2435,12 @@ async function bootstrap() {
     // needs its own timed retry after Retry-After elapses.
     if (app.accountOnly && error.status === 429) scheduleAccountBootstrapRetry();
     else if (error.transport || !app.accountOnly) setConnection(false);
+    if (document.body.classList.contains("account-landing-active")) {
+      $("#landing-status").textContent = error.status === 429
+        ? "Máy chủ đang giới hạn yêu cầu. Hệ thống sẽ tự thử lại."
+        : "Không thể kết nối máy chủ. Hãy thử lại sau.";
+      $("#landing-retry").classList.toggle("hidden", error.status === 429);
+    }
     toast(`Chưa kết nối được workspace: ${error.message}`, true);
   }
   finally { app.initializing = false; renderConnection(); }

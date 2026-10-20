@@ -94,8 +94,10 @@ def run():
                 dialog.wait_for(state="visible")
                 assert page.locator("#account-register-form").is_visible()
                 page.fill("#account-register-form [name=username]", "qa_new")
-                page.fill("#account-register-form [name=display_name]", "QA New")
-                page.fill("#account-register-form [name=email]", "qa.new@example.org")
+                if page.locator("#account-register-name-field").is_visible():
+                    page.fill("#account-register-form [name=display_name]", "QA New")
+                if page.locator("#account-register-email-field").is_visible():
+                    page.fill("#account-register-form [name=email]", "qa.new@example.org")
                 page.fill("#account-register-form [name=password]", PASSWORD)
                 page.click("#account-register-form [type=submit]")
                 page.locator("#account-login-form").wait_for(state="visible")

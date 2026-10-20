@@ -82,14 +82,22 @@ def run():
                 page.on("request", record_auth_post)
                 page.goto(origin, wait_until="domcontentloaded")
                 dialog = page.locator("#account-dialog")
-                dialog.wait_for(state="visible")
-                assert page.locator("#account-mode-note").is_visible()
+                landing = page.locator("#account-landing")
+                landing.wait_for(state="visible")
+                page.wait_for_function("!document.querySelector('#landing-login').disabled")
+                assert not dialog.is_visible()
+                assert page.locator(".shell").is_hidden()
+                assert page.locator("#landing-register").is_enabled()
                 # Public self-registration: one login, no user-selected role.
                 assert page.locator("#account-login-form [name=audience]").count() == 0
-                page.click("#account-register-choice")
+                page.click("#landing-register")
+                dialog.wait_for(state="visible")
+                assert page.locator("#account-register-form").is_visible()
                 page.fill("#account-register-form [name=username]", "qa_new")
-                page.fill("#account-register-form [name=display_name]", "QA New")
-                page.fill("#account-register-form [name=email]", "qa.new@example.org")
+                if page.locator("#account-register-name-field").is_visible():
+                    page.fill("#account-register-form [name=display_name]", "QA New")
+                if page.locator("#account-register-email-field").is_visible():
+                    page.fill("#account-register-form [name=email]", "qa.new@example.org")
                 page.fill("#account-register-form [name=password]", PASSWORD)
                 page.click("#account-register-form [type=submit]")
                 page.locator("#account-login-form").wait_for(state="visible")
@@ -102,7 +110,12 @@ def run():
                 assert not any("/account/auth/" in path and path != "/api/account/auth/register"
                                and path != "/api/account/auth/login" for path, _ in auth_posts), auth_posts
                 assert not dialog.is_visible()
+                assert not landing.is_visible()
+                assert page.locator("#account-mode-note").is_visible()
                 page.click("#organizer-toggle")
+                landing.wait_for(state="visible")
+                assert not dialog.is_visible()
+                page.click("#landing-login")
                 dialog.wait_for(state="visible")
 
                 page.fill("#account-username", "qa.admin")
@@ -139,13 +152,20 @@ def run():
                     page.unroute(logout_url, fail_logout)
 
                 page.click("#organizer-toggle")
+                landing.wait_for(state="visible")
+                assert not dialog.is_visible()
+                assert "Đã đăng xuất an toàn" in page.locator("#landing-status").inner_text()
+                page.click("#landing-login")
                 dialog.wait_for(state="visible")
-                assert page.locator("#account-feedback").inner_text() == "Đã đăng xuất an toàn."
                 page.fill("#account-username", "qa.player")
                 page.fill("#account-login-form [name=password]", PASSWORD)
                 page.click("#account-login-form [type=submit]")
                 page.wait_for_function("document.querySelector('#participant-role').textContent === 'PLAYER'")
                 assert page.locator('.nav-item[data-view="upload"]').is_visible()
+                # A returning authenticated Player must skip the welcome screen.
+                page.reload(wait_until="domcontentloaded")
+                page.wait_for_function("document.querySelector('#participant-role').textContent === 'PLAYER'")
+                assert not landing.is_visible() and not dialog.is_visible()
                 assert page.locator('.nav-item[data-view="create"]').is_hidden()
                 assert page.locator('.nav-item[data-view="watch"]').is_hidden()
                 # Team workspace intentionally lives in Upload, not Home.
@@ -164,8 +184,10 @@ def run():
                         WHERE audience='PLAYER' AND revoked_at IS NULL""")
                 # Account-Only's official calendar refreshes every 10 seconds;
                 # allow a full interval plus headroom for the auth WS fallback.
-                dialog.wait_for(state="visible", timeout=16000)
+                landing.wait_for(state="visible", timeout=16000)
                 page.wait_for_function("document.querySelector('#participant-role').textContent === 'SIGNED OUT'")
+                assert not dialog.is_visible()
+                assert page.locator(".shell").is_hidden()
                 assert page.locator("#workspace-game-select").is_disabled()
                 assert not errors, errors
                 browser.close()
@@ -174,7 +196,7 @@ def run():
             thread.join(timeout=20)
             if thread.is_alive():
                 raise RuntimeError("Temporary Account-Only server did not stop cleanly")
-    print("PASS Account-Only browser UI: signup/unified login, failed logout (503/network/unconfirmed), retry, revocation, legacy 410")
+    print("PASS Account-Only browser UI: landing, signup/login, session restore, logout/retry, revocation, legacy 410")
 
 
 if __name__ == "__main__":

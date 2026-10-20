@@ -16,13 +16,13 @@ const assert = require('node:assert/strict');
 const outcome = OUTCOME;
 const app = {accountAudience: 'admin', account: {id: 'admin'}, participant: {},
   role: 'organizer', organizerAvailable: true, csrf: 'csrf', initialized: true};
-let dialog = null, errorToast = null, attempts = 0, closes = 0;
+let landing = null, errorToast = null, attempts = 0, closes = 0;
 app.competitionSocket = app.socket = {close() { closes++; }};
 function renderSession() {}
-function showAccountDialog(message) { dialog = message; }
+function showAccountLanding(message) { landing = message; }
 function toast(message, error) { errorToast = {message, error}; }
 function jsonOptions() { return {}; }
-function accountExpired() { app.account = null; app.accountAudience = null; }
+function accountExpired() { app.account = null; app.accountAudience = null; showAccountLanding("Phiên đã hết hạn hoặc bị thu hồi. Hãy đăng nhập lại."); }
 async function api() {
   attempts++;
   if (attempts > 1 || outcome === 'success') return {logged_out: true};
@@ -37,22 +37,22 @@ LOGOUT
     assert.equal(app.account.id, 'admin');
     assert.equal(app.accountAudience, 'admin');
     assert.equal(app.logoutError, true);
-    assert.equal(dialog, null);
+    assert.equal(landing, null);
     assert.equal(closes, 0);
     assert.equal(errorToast.error, true);
     assert.match(errorToast.message, /Chưa xác nhận đăng xuất/);
     await accountLogout(); // The same session can retry after connectivity returns.
     assert.equal(attempts, 2);
     assert.equal(app.account, null);
-    assert.equal(dialog, 'Đã đăng xuất an toàn.');
+    assert.equal(landing, 'Đã đăng xuất an toàn. Bạn có thể đăng nhập lại.');
   } else if (outcome === '401') {
     assert.equal(app.account, null);
-    assert.equal(dialog, 'Phiên đã hết hiệu lực. Hãy đăng nhập lại.');
+    assert.equal(landing, 'Phiên đã hết hạn hoặc bị thu hồi. Hãy đăng nhập lại.');
     assert.equal(errorToast, null);
   } else {
     assert.equal(app.account, null);
     assert.equal(app.role, 'player');
-    assert.equal(dialog, 'Đã đăng xuất an toàn.');
+    assert.equal(landing, 'Đã đăng xuất an toàn. Bạn có thể đăng nhập lại.');
   }
 })().catch(error => { console.error(error); process.exitCode = 1; });
 '''.replace("OUTCOME", json.dumps(outcome)).replace("LOGOUT", logout)

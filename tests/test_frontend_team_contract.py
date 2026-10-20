@@ -230,4 +230,5 @@ def test_mid_bootstrap_revocation_rechecks_session_without_conflating_permission
     for scenario in ('"permission"', '"revoked"', '"changed-session"', '"offline"'):
         assert scenario in smoke
     checker = (ROOT / "scripts" / "check_account_ui.py").read_text(encoding="utf-8")
-    assert 'dialog.wait_for(state="visible", timeout=16000)' in checker
+    assert 'landing.wait_for(state="visible", timeout=16000)' in checker
+    assert 'assert not dialog.is_visible()' in checker

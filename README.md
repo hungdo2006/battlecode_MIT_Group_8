@@ -64,6 +64,7 @@ deploy/              Gateway and deployment configuration
 
 ## Documentation
 
+- [Frontend design system](docs/PREMIUM_MONOCHROME_DESIGN.md)
 - [Docker sandbox and local setup](docs/SANDBOX.md)
 - [Game adapters and bot protocol](docs/ADAPTERS.md)
 - [Team tournament rules and API](docs/TEAM_TOURNAMENTS.md)

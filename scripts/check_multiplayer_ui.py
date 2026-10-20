@@ -169,7 +169,10 @@ def check(url, code, games=('robot_battle', 'ott_v2'), output_dir=None):
             page.wait_for_function('game => app.match.game_id === game', arg=records[-1]['game'])
             assert page.evaluate('frameGameId(currentFrame())') == records[-1]['game']
         a.set_viewport_size({'width': 390, 'height': 844})
+        a.locator('#nav-toggle').click()
         a.locator('.nav-item[data-view=create]').click()
+        assert a.locator('#nav-toggle').get_attribute('aria-expanded') == 'false'
+        assert not a.locator('.shell').evaluate('node => node.inert')
         assert a.evaluate('document.documentElement.scrollWidth <= innerWidth')
         a.evaluate('window.scrollTo({top:0,behavior:"instant"})')
         a.screenshot(path=str(output / 'mobile-lobby.png'), full_page=True, animations='disabled')

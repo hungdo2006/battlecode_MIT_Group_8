@@ -1,6 +1,8 @@
 "use strict";
 // Canvas renderers receive saved JSON state. They never execute bot code.
-const ARENA_COLORS = { A: "#2867cc", B: "#a66125" };
+// A uses a solid dark body; B uses a light body and outline. Labels and piece
+// shapes remain visible without relying on a colored player palette.
+const ARENA_COLORS = { A: "#171717", B: "#525252" };
 const colors = ARENA_COLORS;
 const PIECE_NAMES = { rock: "Búa", paper: "Bao", scissors: "Kéo" };
 const squareName = position => `${String.fromCharCode(97 + position.col)}${position.row + 1}`;
@@ -14,38 +16,39 @@ function polygon(ctx, points, fill, stroke = null, width = 1) {
 
 function drawRobot(ctx, x, y, size, player, hp, maximum, time, isHit) {
   const color = colors[player];
+  const solid = player === "A";
+  const armor = solid ? "#262626" : "#ffffff";
+  const detail = solid ? "#525252" : "#e5e5e5";
+  const ink = solid ? "#ffffff" : color;
   ctx.save();
   ctx.translate(x, y);
   const scale = size / 60;
   ctx.scale(scale, scale);
   ctx.globalAlpha = hp <= 0 ? 0.28 : 1;
-  ctx.fillStyle = "#243c631a";
+  ctx.fillStyle = "#0000000a";
   ctx.beginPath(); ctx.ellipse(0, 22, 28, 8, 0, 0, Math.PI * 2); ctx.fill();
   if (hp > 0) {
     ctx.strokeStyle = color + "55"; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.ellipse(0, 22, 32, 10, 0, 0, Math.PI * 2); ctx.stroke();
   }
-  const bob = reducedMotion ? 0 : Math.sin(time / 500 + (player === "A" ? 0 : 2)) * 1;
-  ctx.translate(0, bob);
-  ctx.shadowBlur = isHit ? 4 : 0;
-  ctx.shadowColor = isHit ? "#b4404e" : color;
-  polygon(ctx, [[-20, 8], [-7, 8], [-8, 24], [-25, 24]], "#e2eaf7", color);
-  polygon(ctx, [[7, 8], [20, 8], [25, 24], [8, 24]], "#e2eaf7", color);
-  polygon(ctx, [[-24, -17], [-15, -12], [-17, 7], [-29, 7], [-31, -8]], "#e8eff9", color);
-  polygon(ctx, [[24, -17], [15, -12], [17, 7], [29, 7], [31, -8]], "#e8eff9", color);
-  polygon(ctx, [[-15, -18], [15, -18], [21, -8], [17, 12], [-17, 12], [-21, -8]], isHit ? "#f6d9dc" : "#f7faff", color, 1.3);
   ctx.shadowBlur = 0;
-  ctx.fillStyle = "#dce7f8"; ctx.fillRect(-9, -10, 18, 13);
+  polygon(ctx, [[-20, 8], [-7, 8], [-8, 24], [-25, 24]], detail, color);
+  polygon(ctx, [[7, 8], [20, 8], [25, 24], [8, 24]], detail, color);
+  polygon(ctx, [[-24, -17], [-15, -12], [-17, 7], [-29, 7], [-31, -8]], armor, color);
+  polygon(ctx, [[24, -17], [15, -12], [17, 7], [29, 7], [31, -8]], armor, color);
+  polygon(ctx, [[-15, -18], [15, -18], [21, -8], [17, 12], [-17, 12], [-21, -8]], isHit ? "#d4d4d4" : armor, color, 1.3);
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = detail; ctx.fillRect(-9, -10, 18, 13);
   ctx.strokeStyle = color; ctx.strokeRect(-9, -10, 18, 13);
-  ctx.fillStyle = color; ctx.fillRect(-3, -7, 6, 7);
-  polygon(ctx, [[-12, -38], [12, -38], [17, -30], [11, -20], [-11, -20], [-17, -30]], "#e7effb", color, 1.3);
+  ctx.fillStyle = ink; ctx.fillRect(-3, -7, 6, 7);
+  polygon(ctx, [[-12, -38], [12, -38], [17, -30], [11, -20], [-11, -20], [-17, -30]], armor, color, 1.3);
   ctx.shadowBlur = 0; ctx.shadowColor = color;
-  ctx.fillStyle = color; ctx.fillRect(-10, -32, 20, 5);
+  ctx.fillStyle = ink; ctx.fillRect(-10, -32, 20, 5);
   ctx.shadowBlur = 0;
   ctx.strokeStyle = color; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(0, -38); ctx.lineTo(0, -45); ctx.stroke();
   ctx.fillStyle = color; ctx.fillRect(-2, -47, 4, 3);
-  ctx.fillStyle = "#dce6f4"; ctx.fillRect(-24, 32, 48, 3);
+  ctx.fillStyle = "#d4d4d4"; ctx.fillRect(-24, 32, 48, 3);
   ctx.fillStyle = color; ctx.fillRect(-24, 32, 48 * Math.max(0, hp / maximum), 3);
   ctx.font = "11px Consolas, monospace"; ctx.textAlign = "center";
   ctx.fillStyle = color; ctx.fillText(`ROBOT ${player}`, 0, 48);
@@ -55,22 +58,20 @@ function drawRobot(ctx, x, y, size, player, hp, maximum, time, isHit) {
 function drawRobotArena(ctx, canvas, frame, transition, time, reducedMotion) {
   const w = canvas.width, h = canvas.height;
   ctx.clearRect(0, 0, w, h);
-  const background = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w * .7);
-  background.addColorStop(0, "#f8fafd"); background.addColorStop(1, "#f3f6fb");
-  ctx.fillStyle = background; ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = "#fafafa"; ctx.fillRect(0, 0, w, h);
   const n = frame.rules.map_size;
   const gridSize = Math.min(h - 98, w - 150);
   const cell = gridSize / n;
   const gx = (w - gridSize) / 2, gy = (h - gridSize) / 2;
-  ctx.strokeStyle = "#9eafc855"; ctx.lineWidth = 1;
+  ctx.strokeStyle = "#e5e5e5"; ctx.lineWidth = 1;
   for (let i = 0; i <= n; i++) {
     ctx.beginPath(); ctx.moveTo(gx + i * cell, gy); ctx.lineTo(gx + i * cell, gy + gridSize); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(gx, gy + i * cell); ctx.lineTo(gx + gridSize, gy + i * cell); ctx.stroke();
   }
   // Solid, quiet board frame; coordinate and movement geometry is unchanged.
-  ctx.strokeStyle = "#c1cfe0"; ctx.lineWidth = 1;
+  ctx.strokeStyle = "#a3a3a3"; ctx.lineWidth = 1;
   ctx.strokeRect(gx, gy, gridSize, gridSize);
-  ctx.font = "11px Consolas, monospace"; ctx.textAlign = "center"; ctx.fillStyle = "#60718b";
+  ctx.font = "11px Consolas, monospace"; ctx.textAlign = "center"; ctx.fillStyle = "#666666";
   for (let i = 0; i < n; i++) {
     ctx.fillText(String(i).padStart(2, "0"), gx + (i + .5) * cell, gy - 12);
     ctx.fillText(String(i).padStart(2, "0"), gx - 18, gy + (i + .5) * cell + 3);
@@ -117,24 +118,27 @@ function drawRobotArena(ctx, canvas, frame, transition, time, reducedMotion) {
 
 function drawPiece(ctx, x, y, size, piece, opacity = 1) {
   const color = colors[piece.owner];
+  const solid = piece.owner === "A";
+  const ink = solid ? "#ffffff" : "#404040";
+  const detail = solid ? "#404040" : "#f5f5f5";
   ctx.save(); ctx.translate(x, y); ctx.scale(size / 54, size / 54); ctx.globalAlpha = opacity;
   ctx.shadowColor = color; ctx.shadowBlur = 0;
-  polygon(ctx, [[-24, -12], [-14, -23], [14, -23], [24, -12], [24, 13], [13, 23], [-13, 23], [-24, 13]], "#ffffff", color, 1.2);
+  polygon(ctx, [[-24, -12], [-14, -23], [14, -23], [24, -12], [24, 13], [13, 23], [-13, 23], [-24, 13]], solid ? "#171717" : "#ffffff", color, 1.2);
   ctx.shadowBlur = 0;
   if (piece.type === "rock") {
-    polygon(ctx, [[-13, -7], [-8, -14], [2, -16], [12, -9], [14, 6], [6, 12], [-10, 10], [-15, 3]], "#e2eaf8", color, 1.4);
-    ctx.strokeStyle = color; ctx.beginPath(); ctx.moveTo(-8, -9); ctx.lineTo(2, -2); ctx.lineTo(10, -6); ctx.stroke();
+    polygon(ctx, [[-13, -7], [-8, -14], [2, -16], [12, -9], [14, 6], [6, 12], [-10, 10], [-15, 3]], detail, ink, 1.4);
+    ctx.strokeStyle = ink; ctx.beginPath(); ctx.moveTo(-8, -9); ctx.lineTo(2, -2); ctx.lineTo(10, -6); ctx.stroke();
   } else if (piece.type === "paper") {
-    polygon(ctx, [[-11, -16], [5, -16], [13, -8], [13, 14], [-11, 14]], "#e6edf8", color, 1.3);
-    polygon(ctx, [[5, -16], [5, -8], [13, -8]], "#c3d5ef", color);
-    ctx.strokeStyle = color + "aa";
+    polygon(ctx, [[-11, -16], [5, -16], [13, -8], [13, 14], [-11, 14]], detail, ink, 1.3);
+    polygon(ctx, [[5, -16], [5, -8], [13, -8]], solid ? "#737373" : "#d4d4d4", ink);
+    ctx.strokeStyle = ink;
     for (const yLine of [-3, 3, 9]) { ctx.beginPath(); ctx.moveTo(-6, yLine); ctx.lineTo(8, yLine); ctx.stroke(); }
   } else {
-    ctx.strokeStyle = color; ctx.lineWidth = 2;
+    ctx.strokeStyle = ink; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(-7, 9, 5, 0, Math.PI * 2); ctx.stroke();
     ctx.beginPath(); ctx.arc(7, 9, 5, 0, Math.PI * 2); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(-5, 5); ctx.lineTo(11, -15); ctx.moveTo(5, 5); ctx.lineTo(-11, -15); ctx.stroke();
-    ctx.fillStyle = color; ctx.fillRect(-2, -2, 4, 4);
+    ctx.fillStyle = ink; ctx.fillRect(-2, -2, 4, 4);
   }
   ctx.fillStyle = color; ctx.font = "10px Consolas,monospace"; ctx.textAlign = "center";
   ctx.fillText(`${piece.owner} / ${piece.type[0].toUpperCase()}`, 0, 32);
@@ -144,9 +148,7 @@ function drawPiece(ctx, x, y, size, piece, opacity = 1) {
 function drawOTT(ctx, canvas, frame, transition, time, reducedMotion) {
   const width = canvas.width, height = canvas.height;
   ctx.clearRect(0, 0, width, height);
-  const bg = ctx.createRadialGradient(width / 2, height / 2, 0, width / 2, height / 2, width * .65);
-  bg.addColorStop(0, "#f7faff"); bg.addColorStop(1, "#f3f6fb");
-  ctx.fillStyle = bg; ctx.fillRect(0, 0, width, height);
+  ctx.fillStyle = "#fafafa"; ctx.fillRect(0, 0, width, height);
   const grid = Math.min(height - 98, width - 100), cell = grid / frame.board_size;
   const gx = (width - grid) / 2, gy = (height - grid) / 2;
   const center = p => ({ x: gx + (p.col + .5) * cell, y: gy + (frame.board_size - 1 - p.row + .5) * cell });
@@ -156,9 +158,9 @@ function drawOTT(ctx, canvas, frame, transition, time, reducedMotion) {
   for (let row = 0; row < frame.board_size; row++) {
     for (let col = 0; col < frame.board_size; col++) {
       const p = center({ row, col });
-      ctx.fillStyle = (row + col) % 2 ? "#eaf0f8" : "#f9fbfe";
+      ctx.fillStyle = (row + col) % 2 ? "#ededed" : "#ffffff";
       ctx.fillRect(p.x - cell / 2, p.y - cell / 2, cell, cell);
-      ctx.strokeStyle = "#c1cfe055"; ctx.lineWidth = 1;
+      ctx.strokeStyle = "#d4d4d4"; ctx.lineWidth = 1;
       ctx.strokeRect(p.x - cell / 2, p.y - cell / 2, cell, cell);
       for (const player of ["A", "B"]) {
         if (same(frame.goals[player], { row, col })) {
@@ -174,7 +176,7 @@ function drawOTT(ctx, canvas, frame, transition, time, reducedMotion) {
       }
     }
   }
-  ctx.font = "12px Consolas,monospace"; ctx.textAlign = "center"; ctx.fillStyle = "#5e718d";
+  ctx.font = "12px Consolas,monospace"; ctx.textAlign = "center"; ctx.fillStyle = "#666666";
   for (let index = 0; index < frame.board_size; index++) {
     ctx.fillText(String.fromCharCode(97 + index), gx + (index + .5) * cell, gy - 12);
     ctx.fillText(String(frame.board_size - index), gx - 17, gy + (index + .5) * cell + 3);
@@ -186,7 +188,7 @@ function drawOTT(ctx, canvas, frame, transition, time, reducedMotion) {
     ctx.beginPath(); ctx.moveTo(from.x, from.y); ctx.lineTo(to.x, to.y); ctx.stroke(); ctx.setLineDash([]);
     if (move.captured && t < 1 && !reducedMotion) {
       drawPiece(ctx, to.x, to.y, cell * .71, move.captured, 1 - t);
-      ctx.save(); ctx.strokeStyle = "#b4404e"; ctx.globalAlpha = 1 - t; ctx.lineWidth = 2;
+      ctx.save(); ctx.strokeStyle = "#525252"; ctx.globalAlpha = 1 - t; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.arc(to.x, to.y, cell * (.15 + t * .6), 0, Math.PI * 2); ctx.stroke(); ctx.restore();
     }
   }
@@ -202,11 +204,11 @@ function drawOTT(ctx, canvas, frame, transition, time, reducedMotion) {
       drawPiece(ctx, p.x, p.y - cell * .03, cell * .72, piece);
     }
   }
-  ctx.font = "12px Consolas,monospace"; ctx.fillStyle = "#516a8d"; ctx.textAlign = "left";
+  ctx.font = "12px Consolas,monospace"; ctx.fillStyle = "#525252"; ctx.textAlign = "left";
   ctx.fillText("R / BÚA", gx + grid + 20, gy + 25);
   ctx.fillText("P / BAO", gx + grid + 20, gy + 48);
   ctx.fillText("S / KÉO", gx + grid + 20, gy + 71);
-  ctx.fillStyle = "#64748b"; ctx.fillText("R > S", gx + grid + 20, gy + 117);
+  ctx.fillStyle = "#666666"; ctx.fillText("R > S", gx + grid + 20, gy + 117);
   ctx.fillText("S > P", gx + grid + 20, gy + 140); ctx.fillText("P > R", gx + grid + 20, gy + 163);
 }
 
@@ -216,8 +218,8 @@ window.NeonRenderers = (() => {
   const registry = new Map();
   const generic = {
     draw(ctx, canvas, frame) {
-      ctx.fillStyle = "#f8fafd"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = "#435b7b"; ctx.font = "12px Consolas,monospace";
+      ctx.fillStyle = "#fafafa"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#404040"; ctx.font = "12px Consolas,monospace";
       JSON.stringify(frame, null, 2).split("\n").slice(0, 30).forEach((line, i) => ctx.fillText(line.slice(0, 90), 40, 55 + i * 15));
     },
     hud(frame) { return { grid: frame.game_id || "GAME", phase: "STATE VIEW", turnMax: "—", players: { A: { value: 0, max: 1, text: "PLAYER A" }, B: { value: 0, max: 1, text: "PLAYER B" } } }; },

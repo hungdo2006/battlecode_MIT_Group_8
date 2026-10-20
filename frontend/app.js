@@ -428,7 +428,7 @@ function applyPermissions() {
   if (app.accountOnly) {
     document.querySelectorAll(".player-only, [data-go=upload], .nav-item[data-view=upload], #quick-match, #create-match").forEach(node => node.classList.add("hidden"));
     if (accountPlayer) {
-      document.querySelectorAll(".nav-item[data-view=upload], #view-upload .two-column, #view-upload .library-panel").forEach(node => node.classList.remove("hidden"));
+      document.querySelectorAll(".nav-item[data-view=upload], #view-upload .two-column, #view-upload .library-panel, #view-upload .upload-section-heading, [data-go=upload]").forEach(node => node.classList.remove("hidden"));
       $("#account-team-panel").classList.remove("hidden");
       $("#account-team-panel").closest(".view").classList.remove("hidden");
     } else {
@@ -440,6 +440,13 @@ function applyPermissions() {
     $$('.nav-item[data-view="official"]').forEach(node => node.classList.add("hidden"));
   }
   $('.nav-item[data-view="create"]').classList.toggle("hidden", app.accountOnly);
+  $$('[data-go="create"]').forEach(node => node.classList.toggle("hidden", app.accountOnly));
+  $$('[data-go="official"]').forEach(node => node.classList.toggle("hidden", !app.accountOnly));
+  $$('[data-go="watch"], .history-panel').forEach(node => node.classList.toggle("hidden", accountPlayer));
+  $$(".legacy-match-panel").forEach(node => node.classList.toggle("hidden", app.accountOnly || !organizer));
+  setText("#standby-overlay > span:not(.standby-icon)", app.accountOnly
+    ? "Chọn một trận trong lịch đấu để xem diễn biến hoặc replay."
+    : "Trận sẽ bắt đầu khi hai Player chấp nhận lời mời.");
   $('.nav-item[data-view="watch"]').classList.toggle("hidden", accountPlayer);
   $(".docs-link").classList.toggle("hidden", app.accountOnly);
   if (accountPlayer && location.hash === "#watch") location.hash = "home";
@@ -465,7 +472,7 @@ function renderCompetitionBanner() {
   $("#competition-banner").classList.toggle("competition-live", state?.competition_locked === true);
   setText("#competition-game", app.games.find(game => game.game_id === state?.selected_game_id)?.name || "Đang tải game…");
   const legacyMessage = state?.phase === "open" ? "Game và luật đã khóa. Organizer mời hai Player READY; trận bắt đầu sau hai lượt ACCEPT." : state?.phase === "draining" ? `Đã chặn trận mới. Đang chờ ${state.pending_matches} trận/bot kết thúc trước khi mở khóa cấu hình.` : "Ban tổ chức đang chuẩn bị game và luật. Có thể nộp bot cho game hiện tại; chưa thể tạo trận.";
-  const accountMessage = state?.phase === "open" ? "Game và luật đã khóa. Team có thể nộp bot, Captain chọn Active Bot; Official Match ở Phase 4.2D." : state?.phase === "draining" ? `Đã chặn trận mới. Đang chờ ${state.pending_matches} tác vụ hiện có kết thúc trước khi mở khóa cấu hình.` : "Admin đang chuẩn bị game và luật. Team có thể nộp bot cho game hiện tại; Official Match chưa mở.";
+  const accountMessage = state?.phase === "open" ? "Game và luật đã khóa. Captain chọn bot đại diện trước giờ khóa của từng trận." : state?.phase === "draining" ? `Đã chặn trận mới. Đang chờ ${state.pending_matches} tác vụ hiện có kết thúc trước khi mở khóa cấu hình.` : "Admin đang chuẩn bị game và luật. Team có thể nộp bot cho game hiện tại.";
   setText("#competition-message", app.accountOnly ? accountMessage : legacyMessage);
 }
 
@@ -576,6 +583,7 @@ function acceptSession(data) {
 // The public welcome screen is presentation-only. All protected APIs still
 // require a verified Account-Only session and server-enforced role.
 function showAccountLanding(message = "Chọn Đăng nhập hoặc Đăng ký để bắt đầu.") {
+  closeWorkspaceNavigation({ returnFocus: false });
   if ($("#account-dialog").open) $("#account-dialog").close();
   document.body.classList.add("account-landing-active");
   $("#account-landing").classList.remove("hidden");
@@ -889,14 +897,84 @@ $("#organizer-form").addEventListener("submit", async event => {
 const labels = {
   home: "Tổng quan",
   standings: "Bảng xếp hạng",
-  upload: "Nộp bot",
+  upload: "Team & Bot",
   create: "Phòng thi đấu",
   tournaments: "Giải đấu",
   watch: "Lịch sử & Replay",
   official: "Official Match",
   rules: "Game & Luật chơi",
 };
+
+// One navigation tree on every viewport. This only manages presentation/focus;
+// the existing router and server remain responsible for access and permissions.
+const navigationViewport = window.matchMedia("(max-width: 1023px)");
+const workspaceNavigation = $("#workspace-navigation");
+const navigationToggle = $("#nav-toggle");
+const navigationBackdrop = $("#nav-backdrop");
+
+function closeWorkspaceNavigation({ returnFocus = true } = {}) {
+  const wasOpen = document.body.dataset.navigation === "open";
+  delete document.body.dataset.navigation;
+  navigationBackdrop.hidden = true;
+  navigationToggle.setAttribute("aria-expanded", "false");
+  $(".shell").inert = false;
+  $(".skip-link").inert = false;
+  workspaceNavigation.removeAttribute("role");
+  workspaceNavigation.removeAttribute("aria-modal");
+  workspaceNavigation.inert = navigationViewport.matches;
+  if (wasOpen && returnFocus && navigationToggle.getClientRects().length) navigationToggle.focus();
+}
+
+function openWorkspaceNavigation() {
+  if (!navigationViewport.matches || document.body.classList.contains("account-landing-active")) return;
+  document.body.dataset.navigation = "open";
+  workspaceNavigation.inert = false;
+  workspaceNavigation.setAttribute("role", "dialog");
+  workspaceNavigation.setAttribute("aria-modal", "true");
+  navigationBackdrop.hidden = false;
+  navigationToggle.setAttribute("aria-expanded", "true");
+  $(".shell").inert = true;
+  $(".skip-link").inert = true;
+  requestAnimationFrame(() => {
+    if (document.body.dataset.navigation === "open") $("#nav-close").focus();
+  });
+}
+
+navigationToggle.addEventListener("click", openWorkspaceNavigation);
+$("#nav-close").addEventListener("click", () => closeWorkspaceNavigation());
+navigationBackdrop.addEventListener("click", () => closeWorkspaceNavigation());
+workspaceNavigation.addEventListener("click", event => {
+  if (event.target.closest("a[href]") && navigationViewport.matches) closeWorkspaceNavigation();
+});
+navigationViewport.addEventListener("change", () => {
+  const focusedNavigation = workspaceNavigation.contains(document.activeElement);
+  closeWorkspaceNavigation({ returnFocus: false });
+  if (focusedNavigation) {
+    if (navigationViewport.matches) navigationToggle.focus();
+    else workspaceNavigation.querySelector(".nav-item.active:not(.hidden)")?.focus();
+  }
+});
+document.addEventListener("keydown", event => {
+  if (document.body.dataset.navigation !== "open") return;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    event.stopPropagation();
+    closeWorkspaceNavigation();
+  } else if (event.key === "Tab") {
+    const controls = [...workspaceNavigation.querySelectorAll('a[href], button:not(:disabled), [tabindex="0"]')]
+      .filter(node => node.getClientRects().length && !node.closest(".hidden, [hidden]"));
+    const first = controls[0], last = controls.at(-1);
+    if (event.shiftKey && (document.activeElement === first || !workspaceNavigation.contains(document.activeElement))) {
+      event.preventDefault(); last?.focus();
+    } else if (!event.shiftKey && (document.activeElement === last || !workspaceNavigation.contains(document.activeElement))) {
+      event.preventDefault(); first?.focus();
+    }
+  }
+}, true);
+closeWorkspaceNavigation({ returnFocus: false });
+
 function navigate() {
+  closeWorkspaceNavigation({ returnFocus: false });
   let view = location.hash.slice(1) || "home";
   if (!labels[view] || (view === "official" && !app.accountOnly)) view = "home";
   $$(".view").forEach(node => node.classList.toggle("active", node.id === `view-${view}`));
@@ -1394,6 +1472,7 @@ function renderTournaments() {
     } else if (tournament.format === "round_robin") {
       if (tournament.standings?.length) {
         const table = el("div", "tournament-standings");
+        table.tabIndex = 0;
         table.setAttribute("role", "table");
         table.setAttribute("aria-label", "Bảng xếp hạng vòng tròn");
         const columns = [
@@ -1479,6 +1558,9 @@ function renderTournaments() {
       disclosure.append(schedule);
     } else {
       const bracket = el("div", "tournament-bracket");
+      bracket.tabIndex = 0;
+      bracket.setAttribute("role", "region");
+      bracket.setAttribute("aria-label", "Nhánh đấu, cuộn ngang để xem các vòng");
       const lanes = tournament.format === "double_elimination"
         ? ["winners", "losers", "final"]
         : ["main"];
@@ -1488,6 +1570,9 @@ function renderTournaments() {
         const lane = el("section", "tournament-bracket-lane");
         lane.append(el("h4", "", bracketNames[laneName]));
         const board = el("div", "tournament-bracket-board");
+        board.tabIndex = 0;
+        board.setAttribute("role", "region");
+        board.setAttribute("aria-label", bracketNames[laneName]);
         for (const round of laneRounds) {
           const roundColumn = el("div", "tournament-bracket-round");
           roundColumn.append(el("h5", "", round.name));
@@ -1656,6 +1741,8 @@ function renderTeamTournaments() {
         card.append(progress);
       }
       const table = el("div", "tournament-standings"); table.setAttribute("role", "table");
+      table.tabIndex = 0;
+      table.setAttribute("aria-label", "Bảng điểm giải đấu, cuộn ngang để xem đầy đủ");
       const columns = [["rank", "HẠNG"], ["team_name", "ĐỘI"], ["played", "ĐẤU"], ["wins", "THẮNG"], ["draws", "HÒA"], ["losses", "THUA"], ...(isSwiss ? [["byes", "BYE"], ["buchholz", "BUCHHOLZ"]] : []), ["points", "ĐIỂM"]];
       const headerRow = el("div", "tournament-standing-row heading");
       columns.forEach(([key, label]) => { const cell = el("span", `tournament-standing-cell ${key}`, label); cell.setAttribute("role", "columnheader"); headerRow.append(cell); });
@@ -1676,6 +1763,8 @@ function renderTeamTournaments() {
         const groupPanel = el("section", "tournament-group");
         groupPanel.append(el("h4", "", `${group.name} · Hai đội đầu bảng vào vòng loại trực tiếp`));
         const table = el("div", "tournament-standings"); table.setAttribute("role", "table");
+        table.tabIndex = 0;
+        table.setAttribute("aria-label", "Bảng điểm " + group.name);
         const columns = [["rank", "HẠNG"], ["team_name", "ĐỘI"], ["played", "ĐẤU"], ["wins", "THẮNG"], ["draws", "HÒA"], ["losses", "THUA"], ["score_difference", "HIỆU SỐ"], ["score_for", "ĐIỂM SỐ"], ["points", "ĐIỂM"]];
         const header = el("div", "tournament-standing-row heading");
         columns.forEach(([key, label]) => header.append(el("span", `tournament-standing-cell ${key}`, label)));
@@ -1691,6 +1780,9 @@ function renderTeamTournaments() {
     if (actions.childElementCount) card.append(actions);
     if (["single_elimination", "double_elimination", "group_knockout", "swiss_single_elimination"].includes(tournament.format) && tournament.bracket.length) {
       const bracket = el("div", "tournament-bracket");
+      bracket.tabIndex = 0;
+      bracket.setAttribute("role", "region");
+      bracket.setAttribute("aria-label", "Nhánh đấu, cuộn ngang để xem các vòng");
       const bracketRounds = [...new Set(tournament.bracket.map(slot => slot.round_number))].sort((a, b) => a - b);
       const isLargeQualifier = tournament.format === "group_knockout" && Boolean(tournament.qualifier_target);
       const qualifierRounds = isLargeQualifier ? bracketRounds.filter(round => tournament.bracket.some(slot => slot.round_number === round && slot.bracket === "WINNERS")) : [];
@@ -2422,6 +2514,8 @@ async function bootstrap() {
     setConnection(health.status === "ok");
     renderBots(); renderRules(true); renderMatches(); renderStandings(); renderTournaments(); renderTeamTournaments();
     applyPermissions();
+    // Resolve mode-specific deep links once the server's auth mode is known.
+    navigate();
     app.initialized = true;
     connectCompetitionSocket();
     updatePlayback();
@@ -2512,6 +2606,7 @@ async function refreshAccountTeam() {
     }
     inbox.append(row);
   }
+  if (!inbox.childElementCount) inbox.append(el("p", "form-note", "Không có lời mời Team đang chờ."));
   if (team) {
     const members = await api(`/api/player/teams/${encodeURIComponent(team.id)}/members`);
     const target = $("#account-team-members");
@@ -2688,18 +2783,20 @@ function renderOfficialMatches() {
     return;
   }
   for (const item of app.officialMatches) {
-    const row = el("article", "panel glass-surface glass-subtle");
+    const row = el("article", "official-match-row");
+    const copy = el("div", "official-match-copy");
     const slots = Object.fromEntries((item.slots || []).map(slot => [slot.side, slot]));
     const label = side => slots[side]?.team_name_snapshot ||
       app.officialTeams.find(team => team.id === (side === "A" ? item.team_a_id : item.team_b_id))?.display_name ||
       (side === "A" ? "Team A" : "Team B");
-    row.append(el("strong", "", label("A") + " vs " + label("B")));
-    row.append(el("div", "form-note", item.game_id + " · Khóa: " + officialDateTime(item.bot_lock_at) +
+    copy.append(el("strong", "", label("A") + " vs " + label("B")));
+    copy.append(el("div", "form-note", item.game_id + " · Khóa: " + officialDateTime(item.bot_lock_at) +
       " · Đấu: " + officialDateTime(item.scheduled_at)));
-    row.append(el("div", "form-note", "Trạng thái: " + item.status +
-      (item.status_reason ? " · " + item.status_reason : "")));
-    if (item.outcome) row.append(el("div", "form-note", "Kết quả: " +
+    copy.append(el("span", "tag official-match-status", "Trạng thái: " + item.status));
+    if (item.status_reason) copy.append(el("div", "form-note", item.status_reason));
+    if (item.outcome) copy.append(el("div", "form-note", "Kết quả: " +
       (item.outcome.winner_side || "Hòa") + " · " + (item.outcome.turn ?? 0) + " lượt"));
+    row.append(copy);
     if (item.match_id) {
       const watch = el("button", "button ghost small", "Xem Live / Replay ↗");
       watch.type = "button";

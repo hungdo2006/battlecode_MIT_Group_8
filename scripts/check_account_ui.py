@@ -99,6 +99,7 @@ def run():
                 if page.locator("#account-register-email-field").is_visible():
                     page.fill("#account-register-form [name=email]", "qa.new@example.org")
                 page.fill("#account-register-form [name=password]", PASSWORD)
+                page.fill("#account-register-form [name=confirm_password]", PASSWORD)
                 page.click("#account-register-form [type=submit]")
                 page.locator("#account-login-form").wait_for(state="visible")
                 assert page.locator("#account-username").input_value() == "qa_new"
@@ -163,9 +164,11 @@ def run():
                 page.wait_for_function("document.querySelector('#participant-role').textContent === 'PLAYER'")
                 assert page.locator('.nav-item[data-view="upload"]').is_visible()
                 # A returning authenticated Player must skip the welcome screen.
+                page.goto(origin + "/#official", wait_until="domcontentloaded")
                 page.reload(wait_until="domcontentloaded")
-                page.wait_for_function("document.querySelector('#participant-role').textContent === 'PLAYER'")
+                page.wait_for_function("app.initialized && document.querySelector('#participant-role').textContent === 'PLAYER'")
                 assert not landing.is_visible() and not dialog.is_visible()
+                assert page.locator("#view-official").is_visible()
                 assert page.locator('.nav-item[data-view="create"]').is_hidden()
                 assert page.locator('.nav-item[data-view="watch"]').is_hidden()
                 # Team workspace intentionally lives in Upload, not Home.
@@ -177,6 +180,56 @@ def run():
                 assert page.locator("#account-team-inbox").is_visible()
                 assert page.locator("#workspace-game-select").is_disabled()
                 assert page.evaluate("fetch('/api/session').then(r => r.status)") == 410
+
+                # The responsive shell uses one real navigation tree. Check
+                # keyboard containment, dismissal and role-gated destinations.
+                page.set_viewport_size({"width": 390, "height": 844})
+                navigation = page.locator("#workspace-navigation")
+                toggle = page.locator("#nav-toggle")
+                navigation.wait_for(state="hidden")
+                toggle.click()
+                page.wait_for_function("document.activeElement.id === 'nav-close'")
+                assert toggle.get_attribute("aria-expanded") == "true"
+                assert navigation.get_attribute("aria-modal") == "true"
+                assert page.locator(".shell").evaluate("node => node.inert")
+                assert navigation.locator('[data-view="create"]').is_hidden()
+                assert navigation.locator('[data-view="watch"]').is_hidden()
+                # Last visible link -> Tab returns to the first control.
+                navigation.locator('a[href="/lan"]').focus()
+                page.keyboard.press("Tab")
+                assert page.evaluate("document.activeElement.classList.contains('brand')")
+                page.keyboard.press("Shift+Tab")
+                assert page.evaluate("document.activeElement.getAttribute('href') === '/lan'")
+                page.keyboard.press("Escape")
+                assert toggle.evaluate("node => node === document.activeElement")
+                assert not page.locator(".shell").evaluate("node => node.inert")
+                assert navigation.evaluate("node => node.inert")
+                toggle.click()
+                page.locator("#nav-backdrop").click(position={"x": 370, "y": 100})
+                assert toggle.get_attribute("aria-expanded") == "false"
+
+                for width, height in ((360, 800), (390, 844), (768, 1024)):
+                    page.set_viewport_size({"width": width, "height": height})
+                    for view in ("home", "upload", "standings", "tournaments", "official", "rules"):
+                        toggle.click()
+                        navigation.locator(f'[data-view="{view}"]').click()
+                        assert page.locator(f"#view-{view}").is_visible()
+                        assert toggle.get_attribute("aria-expanded") == "false"
+                        assert not page.evaluate(
+                            "document.documentElement.scrollWidth > window.innerWidth"
+                        ), (width, view)
+                    if width < 768:
+                        assert page.locator("#upload-form [name=name]").evaluate(
+                            "node => getComputedStyle(node).fontSize === '16px'"
+                        )
+                # Resizing an open drawer restores desktop navigation and
+                # releases the workspace instead of leaving it inert.
+                toggle.click()
+                page.set_viewport_size({"width": 1440, "height": 900})
+                assert navigation.is_visible()
+                assert not navigation.evaluate("node => node.inert")
+                assert not page.locator(".shell").evaluate("node => node.inert")
+                assert navigation.get_attribute("aria-modal") is None
 
                 runtime = application.state.account_http
                 with runtime.database.writer_connection(runtime.writer) as connection, transaction(connection):
@@ -196,7 +249,7 @@ def run():
             thread.join(timeout=20)
             if thread.is_alive():
                 raise RuntimeError("Temporary Account-Only server did not stop cleanly")
-    print("PASS Account-Only browser UI: landing, signup/login, session restore, logout/retry, revocation, legacy 410")
+    print("PASS Account-Only browser UI: landing, signup/login, session restore, logout/retry, mobile navigation/focus/layout, revocation, legacy 410")
 
 
 if __name__ == "__main__":

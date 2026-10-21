@@ -64,5 +64,5 @@ jobs:
           retention-days: 7
 
 # Browser, Docker sandbox, crash tests and Account-Only real execution are
-# separate release gates documented in docs/PHASE_4_2E_RELEASE_QA.md.
+# separate release gates documented in docs/QA.md.
 # They are intentionally NOT reported as passing from this baseline workflow.

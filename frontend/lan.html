@@ -4,53 +4,32 @@
   <link rel="stylesheet" href="/static/styles.css?v=7dfc4981525b"></head>
 <body><article class="protocol-document lan-guide">
 <a class="text-button" href="/">← Trở về đấu trường</a>
-<p class="eyebrow">NETWORK PROGRAMMING / MULTI-CLIENT</p>
-<h1>Một máy chủ.<br><em>Kết nối cả nhóm.</em></h1>
-<p>Một laptop chạy FastAPI và các bot. Các laptop còn lại chỉ cần trình duyệt, cùng Wi-Fi và địa chỉ LAN của máy chủ; không cần cài compiler hay Docker trên máy người chơi.</p>
+<p class="eyebrow">LOCAL / LAN</p>
+<h1>Một máy chủ.<br>Kết nối cả nhóm.</h1>
+<p>Máy host chạy FastAPI và Docker Sandbox. Người chơi chỉ cần trình duyệt trên cùng mạng; không cần compiler hoặc Docker trên máy của mình.</p>
 <div class="network-status"><strong id="current-origin">Đang kiểm tra kết nối…</strong><p id="network-mode"></p><div id="lan-links"></div></div>
-<h2>01 / Khởi động máy chủ Windows</h2>
-<p>Với Docker Desktop (Linux containers), chạy theo hướng dẫn Phase 2 trong README:</p>
+<h2>01 / Khởi động</h2>
 <pre>py -3 scripts/configure_sandbox.py
-docker compose up --build -d --wait</pre>
-<p>Hoặc dùng chế độ legacy cho code tin cậy, không cần Docker:</p>
-<p>Cài Python, JDK và G++ theo README trong source. Trong thư mục LTM chạy:</p>
-<pre>start.bat
-# Hoặc khi môi trường đã cài:
-.\.venv\Scripts\python.exe run.py --host 0.0.0.0 --port 8000</pre>
-<p><code>0.0.0.0</code> là địa chỉ lắng nghe trên mọi card mạng, không phải URL để nhập vào trình duyệt. Giữ cửa sổ server mở. Một process, một worker để toàn bộ spectator dùng chung trạng thái trận.</p>
-<h2>02 / Tìm IPv4 và truy cập từ laptop thứ hai</h2>
+docker compose up -d --build --wait
+docker compose ps</pre>
+<p>Trong <code>.env</code>, đặt <code>ARENA_BIND_IP=0.0.0.0</code> để nhận kết nối LAN; dùng <code>127.0.0.1</code> nếu chỉ truy cập trên host. Mặc định demo dùng mã Organizer trong file riêng này. Cách bật tài khoản: <code>docs/SANDBOX.md</code> trong repository.</p>
+<h2>02 / Kết nối từ máy khác</h2>
 <pre>ipconfig
-Get-NetConnectionProfile</pre>
-<p>Lấy <strong>IPv4 Address</strong> của card <strong>Wireless LAN adapter Wi-Fi</strong>, ví dụ <code>192.168.2.16</code>. Không chọn địa chỉ adapter VPN/WSL/VirtualBox. Laptop B mở <code>http://IP-MAY-CHU:8000</code>. Cả hai máy nên mở bằng cùng URL LAN để link chia sẻ và cookie phiên ổn định.</p>
-<p>Không dùng localhost trên laptop B: đó là địa chỉ của chính laptop B. IP có thể thay đổi sau khi kết nối Wi-Fi lại; chạy ipconfig để xem IP mới. Muốn ổn định, dùng DHCP reservation trên router theo MAC của card Wi-Fi; không tự chọn một IP trùng thiết bị khác.</p>
-<h2>03 / Demo ba laptop</h2>
-<p><strong>Account-Only:</strong> đăng nhập bằng tài khoản Admin/Player; mã Organizer và cookie legacy không cấp quyền. Team quản lý bot, Captain chọn Active Bot và theo dõi Official Match do Admin xếp lịch. Quy trình ba laptop dưới đây dành cho chế độ legacy (<code>ARENA_ACCOUNT_ONLY=0</code>).</p>
-<ol>
-<li>Laptop 1 chạy server legacy. Đặt <code>ARENA_ADMIN_CODE</code> trong PowerShell trước <code>start.bat</code>; mở quyền Organizer, chọn Robot Battle/OTT v2, lưu luật rồi <strong>LOCK GAME / OPEN COMPETITION</strong>.</li>
-<li>Laptop 2/3 mở URL LAN, đặt nickname Hoang/Minh, upload bot Python/C++/Java theo game hiện tại. Trong <strong>MY SUBMISSIONS</strong>, mỗi người nhấn <strong>SET AS ACTIVE BOT</strong>; giữ website mở để READY.</li>
-<li>Organizer mở <strong>Phòng thi đấu</strong>, thấy Player online và bot/ngôn ngữ. Chọn hai người READY, nhấn <strong>INVITE TO MATCH</strong>. Organizer không nộp bot hoặc tự tham gia.</li>
-<li>Hai Player nhận popup cùng lời mời, mỗi người chọn Accept/Decline. Một Accept chưa chạy trận; hai Accept tự tạo đúng một trận và cả ba tự mở cùng <strong>LIVE ARENA</strong>.</li>
-<li>Ba trình duyệt nhận cùng sequence/result. Pause/Reset/tua độc lập; bot vẫn chạy trên server. Hoang / C++ VS Minh / Python được lưu vào history/replay, kể cả sau khi đổi nickname.</li>
-<li>Hết trận, Player về READY nếu còn online. Mất mạng/reconnect không hủy trận đang chạy. Reconnect lời mời không tự Accept. Decline/hết hạn 60 giây/Organizer Cancel/Close kết thúc lời mời chưa chạy.</li>
-</ol>
-<p>Cookie giữ 30 ngày, không dùng nickname làm định danh. Tên trùng được phân biệt bằng ID ngắn. Presence dựa trên WebSocket/heartbeat 10 giây, timeout 35 giây. Restart giữ Active Bot/identity/history, hủy lời mời cũ đang chờ và thu hồi quyền Organizer.</p>
-<p>Close chặn lời mời/trận mới, chờ trận và bot cleanup trước khi đổi game/luật. Replay dùng snapshot/game của chính trận, không bị đổi theo cuộc thi. Chỉ chạy bot tin cậy trong LAN.</p>
-<h2>04 / Firewall và lỗi kết nối</h2>
-<p>Chỉ dùng Wi-Fi riêng đáng tin cậy. Trong <strong>Windows Settings → Network &amp; Internet → Wi-Fi → mạng hiện tại</strong>, chọn profile <strong>Private</strong> nếu đúng là mạng của nhóm. Khi Windows hỏi quyền cho Python, cho phép trên Private networks. Không cần tắt toàn bộ firewall.</p>
-<p>Nếu vẫn bị chặn, trên máy chủ mở PowerShell với quyền Administrator và thêm đúng rule TCP cổng đang dùng, chỉ cho mạng riêng và subnet LAN:</p>
+Test-NetConnection IP-MAY-CHU -Port 8000</pre>
+<p>Chọn IPv4 của card Wi-Fi, không chọn VPN/WSL. Máy khác mở <code>http://IP-MAY-CHU:8000</code>, thay cổng nếu đã đổi <code>ARENA_PORT</code>. Không nhập <code>0.0.0.0</code> hoặc localhost của máy người chơi. Guest Wi-Fi/client isolation có thể chặn các máy cùng SSID.</p>
+<p>Chỉ mở cổng web trên firewall mạng Private. Không tắt toàn bộ firewall hoặc mở controller 9000/Docker API. Ví dụ rule Windows cho mạng riêng:</p>
 <pre>New-NetFirewallRule -DisplayName "NEON ARENA LAN 8000" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 8000 -Profile Private -RemoteAddress LocalSubnet
-# Xem rule:
-Get-NetFirewallRule -DisplayName "NEON ARENA LAN 8000"
-# Gỡ rule khi không còn demo:
+# Gỡ khi không còn cần:
 Remove-NetFirewallRule -DisplayName "NEON ARENA LAN 8000"</pre>
-<p>Trên laptop B kiểm tra:</p>
-<pre>Test-NetConnection IP-MAY-CHU -Port 8000
-Invoke-RestMethod http://IP-MAY-CHU:8000/api/health</pre>
-<ul><li><code>TcpTestSucceeded=False</code>: kiểm tra server, IPv4, port, firewall và hai máy cùng subnet. Guest Wi-Fi hoặc AP/client isolation có thể chặn hai client dù cùng SSID.</li><li>Trang vào được nhưng bot không chạy: compiler chỉ cần trên máy chủ; xem Compiler log và /api/health.</li><li>Live mất kết nối: giữ server hoạt động; browser tự reconnect theo sequence còn thiếu. Nếu dùng proxy, phải chuyển tiếp WebSocket Upgrade.</li></ul>
-<h2>05 / HTTPS, WSS và reverse proxy sau này</h2>
-<p>Frontend gọi REST bằng đường dẫn tương đối; WebSocket dùng host của website và tự chuyển <code>ws</code> thành <code>wss</code> khi trang dùng HTTPS. Mẫu Nginx và cấu hình nằm trong <code>docs/NETWORKING.md</code> và <code>deploy/nginx.conf.example</code>.</p>
-<p>Khi dùng domain/VPS, cấu hình <code>ARENA_READ_ONLY=1</code> và <code>ARENA_ALLOWED_HOSTS=arena.example.com</code>. Chạy backend trên loopback phía sau proxy tin cậy. Chế độ này vẫn cho xem live/replay, nhưng server chặn upload, chạy trận và chỉnh luật. Demo LAN không cần proxy hay TLS.</p>
-<div class="safety-note">TRUSTED GROUP ONLY<br><span>Chỉ chạy code bot do nhóm tin cậy viết. Subprocess không phải sandbox. Không port-forward router hay công khai tính năng thực thi code lên Internet khi chưa có sandbox an toàn.</span></div>
+<h2>03 / Chọn đúng luồng thi đấu</h2>
+<ul>
+<li><strong>Account-Only:</strong> Admin/Player đăng nhập; Player vào Team, Captain chọn Active Bot. Admin lên lịch Official, hoặc member gửi Scrimmage. Trận đã gửi hợp lệ tiếp tục chạy khi logout. Origin LAN phải được operator cấu hình chính xác.</li>
+<li><strong>Demo legacy:</strong> Organizer chọn game/luật và mở cuộc thi; hai Player ở các phiên trình duyệt riêng nộp bot, chọn Active Bot và giữ trang mở. Organizer mời hai người READY; cả hai chấp nhận mới bắt đầu trận.</li>
+</ul>
+<p>Pause/tua replay chỉ điều khiển trình xem; không dừng trận trên server. Nếu bot lỗi, đọc compiler diagnostics và kiểm tra <code>/api/health</code>; nếu mất live, browser thử reconnect.</p>
+<h2>04 / Public HTTPS</h2>
+<p>Account-Only public dùng Caddy trong <code>compose.public.yaml</code>, HTTPS, cookie/CSRF và origin/host chính xác. Mẫu Nginx trong <code>deploy/nginx.conf.example</code> dành cho legacy read-only. Cấu hình local HTTP không phải cấu hình Internet. Chi tiết: <code>docs/OPERATIONS.md</code>.</p>
+<div class="safety-note">MÔI TRƯỜNG TIN CẬY<br><span>Docker Sandbox giảm rủi ro thực thi bot nhưng không bảo đảm an toàn tuyệt đối. Native runner chỉ dùng code tin cậy. Không chia sẻ .env hoặc port-forward dịch vụ chưa được nghiệm thu.</span></div>
 </article><script>
 (async () => {
   const health = await fetch('/api/health').then(response => response.json());

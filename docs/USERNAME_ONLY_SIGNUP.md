@@ -1,113 +1,36 @@
-# Username-only Player registration — optional public mode
+# Tài khoản và Team
 
-This is an explicit product change for a **small supervised class/pilot** on
-the existing **Account-Only HTTPS gateway**. It is not a substitute for email
-identity verification, enrollment controls, CAPTCHA, or an independent security review.
+Áp dụng khi bật [Account-Only](SANDBOX.md). Admin và Player dùng chung form đăng nhập; server xác định vai trò. Đăng ký luôn tạo Player, không cấp quyền Admin.
 
-## Behavior
+## Luồng Player
 
-- One login form remains unchanged. Server derives `ADMIN` vs `PLAYER` from SQLite.
-- Player signup requires **username + password** (minimum 8 characters).
-  `display_name` defaults to username, `email` is optional and omitted by
-  the new frontend when email verification is disabled.
-- New accounts are `ACTIVE` and always `PLAYER`. Existing accounts, Teams,
-  Admin TOTP credentials and Docker volumes are preserved.
-- No email is collected in username-only mode; account ownership **cannot
-  be proven through email**. Admins must verify the requesting student by an
-  external trusted process before issuing any recovery token.
-- Admin issues a one-use recovery token from the Admin-only panel under
-  **Official Match → Hỗ trợ khôi phục tài khoản Player**. Issuance requires a
-  valid Admin session and CSRF token. In the password-only classroom demo
-  setting, Admin TOTP is disabled by explicit operator opt-in.
-- Admin privately passes the token to the Player. The Player enters it under
-  **Quên mật khẩu Player?** and chooses a fresh password. Admin never reads or
-  sets the Player's password. A token expires in 30 minutes; issuing a newer
-  token invalidates older unspent reset tokens. Successful reset invalidates
-  all existing account sessions and outstanding reset tokens. No reset token
-  is written to the audit-event details or URL.
-- Admin accounts cannot be reset via this Player recovery path.
-- Existing email-verification mode remains available when configured with
-  an authenticated STARTTLS sender; no code path should silently weaken it.
+1. Đăng ký nếu Admin đã bật self-registration; xác minh email nếu môi trường yêu cầu.
+2. Trong **Team & Bot**, tạo Team hoặc nhận lời mời. Mỗi Player có tối đa một membership chưa rời Team.
+3. Người tạo là Captain; Team mới ở DRAFT, Captain kích hoạt thành ACTIVE.
+4. Member được nộp/xem source bot trong Team. Chỉ Captain chọn Active Bot theo game, quản lý thành viên và đăng ký Season.
+5. Nộp một file Python/C++/Java tối đa 256 KiB cho Robot/OTT; chờ ready trước khi chọn. Bản nộp mới là phiên bản mới; lỗi biên dịch có diagnostics. [Battlecode](BATTLECODE_2026.md) có định dạng riêng.
 
-## Feature gates
+Admin có thể quản lý trạng thái Player và xem vận hành. Đội khác không được đọc source/diagnostics riêng; quyền xem giải/replay được kiểm tra ở server. Xem [giải đấu](TEAM_TOURNAMENTS.md).
 
-Defaults remain **OFF**. On a verified HTTPS public deployment, opt in with:
+## Chế độ đăng ký
 
-```dotenv
-ARENA_ACCOUNT_AUTH=1
-ARENA_ACCOUNT_ONLY=1
-# For the professor's supervised public demo:
-ARENA_ADMIN_TOTP_REQUIRED=0
-ARENA_PUBLIC_ADMIN_PASSWORD_ONLY=1
-ARENA_PUBLIC_GATEWAY=1
-ARENA_PUBLIC_DOMAIN=traitimcodon.duckdns.org
-ARENA_SELF_REGISTRATION=1
-ARENA_PUBLIC_USERNAME_SIGNUP=1
-ARENA_EMAIL_VERIFICATION=0
-```
+| Môi trường | Cấu hình |
+| --- | --- |
+| Local/LAN, không xác minh email | `ARENA_SELF_REGISTRATION=1`, `ARENA_EMAIL_VERIFICATION=0`; username + password từ 8 ký tự |
+| Public có email | `ARENA_EMAIL_VERIFICATION=1` và SMTP STARTTLS hợp lệ; đăng ký chờ xác minh |
+| Public pilot không email | `ARENA_PUBLIC_USERNAME_SIGNUP=1`, `ARENA_EMAIL_VERIFICATION=0`; cần HTTPS Account-Only gateway và self-registration |
 
-The base `compose.yaml` passes the new flag to Arena; the public overlay also
-declares it. Do **not** expose Arena port 8000, Controller port 9000, Docker
-socket or SSH publicly. Only Caddy 80/443 should be publicly reachable.
+Không cần bật `ARENA_PUBLIC_USERNAME_SIGNUP` cho local. Đóng nhận mới bằng `ARENA_SELF_REGISTRATION=0`; giữ sender/email verification nếu còn tài khoản chờ xác minh hoặc cần email recovery. Không có email thì hệ thống không chứng minh được danh tính qua email.
 
-The existing account schema **v9 is unchanged**: usernames and password hashes
-remain in `users`, and a `user_emails` record is optional for these users.
-A fresh offline migration is **not required** for this feature, but back up all
-data/upload/artifact volumes before a deployment and check schema integrity.
-Do not run `docker compose down -v`.
+Giới hạn đăng ký hiện tại là 5 lần thử/60 giây theo địa chỉ nguồn tin cậy, trong bộ nhớ một backend; không thay thế kiểm soát tuyển sinh hoặc chống lạm dụng ở gateway.
 
-## Security and QA before accepting public students
+## Khôi phục và Admin MFA
 
-- Account creation has a process-local, per-trusted-client-IP rate limit
-  (currently 5 attempts / 60 seconds). This is not globally durable and can
-  be bypassed by distributed attackers; deploy an additional edge-level
-  protection or private course enrollment control before unrestricted signup.
-- Verify recovery identity **out of band**. A username alone is not evidence
-  of account ownership. Treat any request to reissue tokens as sensitive.
-- Run unit/integration tests, actual Chrome signup/login/password reset,
-  MFA/CSRF/source-header spoofing/429 tests, Docker sandbox bot submission and
-  full Official Match + replay verification before opening enrollment.
-- Tokens are **secrets**. Do not paste them into tickets, logs or public chat.
-  They appear once in an Admin response; don't share browser screenshots
-  while they are visible.
-- If the same username is impersonated/registered by someone else, the app
-  cannot determine which claimant is the real student. For a large public
-  event, require an organizer-issued enrollment code or verified student
-  identity, and reconsider email verification.
-- After signoff, the operator may explicitly enable the two signup flags
-  on the EC2 `.env`, render/inspect the public Compose configuration, rebuild
-  and redeploy. This PR does **not** start, stop or configure AWS.
+Player không dùng email recovery có thể xin mã từ Admin tại **Official Match → Hỗ trợ khôi phục tài khoản Player**, rồi nhập ở **Quên mật khẩu Player?**. Admin phải xác minh danh tính ngoài hệ thống. Mã dùng một lần, hạn 30 phút; cấp mã mới vô hiệu mã cũ. Reset thành công thu hồi phiên cũ. Không chụp/chia sẻ mã trong log hoặc ticket.
 
-## Rollback
+Admin được bootstrap offline, không qua đăng ký Player hoặc recovery Player. Public gateway chấp nhận đúng một cấu hình:
 
-- Set `ARENA_SELF_REGISTRATION=0` to stop new registrations without
-  removing existing Player accounts. Leave `ARENA_PUBLIC_USERNAME_SIGNUP=1`
-  while already-issued Admin recovery tokens still need to work, or re-enable
-  it after re-review.
-- Preserve `arena_data`, `arena_uploads`, `arena_artifacts` volumes.
-- Never share an Admin TOTP recovery secret or login password with students.
+- Mặc định bảo vệ MFA: `ARENA_ADMIN_TOTP_REQUIRED=1`, `ARENA_PUBLIC_ADMIN_PASSWORD_ONLY=0`.
+- Pilot có giám sát được chủ môi trường chọn: `ARENA_ADMIN_TOTP_REQUIRED=0`, `ARENA_PUBLIC_ADMIN_PASSWORD_ONLY=1`.
 
-## Password-only Admin operator decision
-
-The classroom/pilot owner chose **Admin username + password without TOTP**.
-This is less secure than the original MFA-protected internet gateway. The
-application preserves MFA as the public default. The HTTPS Compose overlay
-accepts only two mutually exclusive choices:
-
-- Default: `ARENA_ADMIN_TOTP_REQUIRED=1`, `ARENA_PUBLIC_ADMIN_PASSWORD_ONLY=0`.
-- Supervised pilot: `ARENA_ADMIN_TOTP_REQUIRED=0`, `ARENA_PUBLIC_ADMIN_PASSWORD_ONLY=1`.
-
-Do not disable both options or enable both options: public gateway startup
-must reject either ambiguous setting. Existing Admin TOTP enrollment data is
-**not removed**, so switching back to MFA is possible. Admin password-only
-sessions are NOT a defense against phishing or stolen credentials. Use a
-unique long Admin password, limited staff access, account rate limiting,
-private recovery verification and monitoring. Avoid production/public events
-with this configuration unless the risks and access controls are reviewed.
-
-On EC2, the old `.env` has `ARENA_ADMIN_TOTP_REQUIRED=1`; the operator must
-explicitly change it to `0` and add `ARENA_PUBLIC_ADMIN_PASSWORD_ONLY=1`
-before starting a newly pulled image. The same run also needs
-`ARENA_SELF_REGISTRATION=1`, `ARENA_PUBLIC_USERNAME_SIGNUP=1` and
-`ARENA_EMAIL_VERIFICATION=0` for no-email Player signup. Verify all values
-by an appropriately redacted Compose render without disclosing credentials.
+Cấu hình thứ hai giảm bảo vệ khi lộ mật khẩu; không xóa dữ liệu TOTP đã enroll. Cách enroll, migration và public HTTPS ở [vận hành](OPERATIONS.md).

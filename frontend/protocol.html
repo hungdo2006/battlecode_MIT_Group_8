@@ -2,20 +2,23 @@
 <html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#ffffff"><title>NEON ARENA · Giao thức bot</title><link rel="icon" href="/static/favicon.svg?v=b3f8c3c483b1"><link rel="preload" href="/static/fonts/InterVariable.woff2?v=693b77d4f32e" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/static/styles.css?v=7dfc4981525b"></head>
 <body><article class="protocol-document">
-<a class="text-button" href="/#upload">← Trở về Nộp bot</a><h1>BOT PROTOCOL / JSON LINES v1</h1>
-<p>Bot chạy liên tục trong một subprocess. Mỗi request: đọc một dòng JSON UTF-8 trên stdin, trả đúng một dòng JSON trên stdout rồi flush. Chỉ ghi debug vào stderr. Mỗi submission chọn một game; server kiểm tra action theo game đó.</p>
-<h2>Robot Battle</h2><p>Hai bot được hỏi cùng trạng thái. Tọa độ x sang phải, y đi xuống. Move dùng 4 hướng; attack trúng đối thủ ở ô kề sau di chuyển.</p>
-<pre>{"protocol":1,"game_id":"robot_battle","game":"robot_battle","player":"A","turn":0,"rules":{"map_size":12,"initial_hp":100,"damage":20,"max_turns":100},"you":{"x":1,"y":6,"hp":100},"enemy":{"x":10,"y":6,"hp":100}}</pre>
+<a class="text-button" href="/#upload">← Trở về Team &amp; Bot</a><h1>Giao thức bot</h1>
+<p>Robot Battle và OTT v2 nhận một file Python/C++/Java không rỗng, tối đa 256 KiB. Java dùng <code>public class Main</code>, không package. Đọc một dòng JSON UTF-8 trên stdin, trả một JSON action trên stdout rồi flush; debug vào stderr.</p>
+<h2>Robot Battle</h2>
+<p>Observation có <code>player, turn, rules, you, enemy</code>; robot có x/y/hp. Cả hai bot nhận cùng trạng thái trước lượt; x sang phải, y xuống dưới. Move bốn hướng; attack trúng ô kề theo khoảng cách Manhattan sau move.</p>
 <pre>{"type":"move","direction":"right"}
 {"type":"attack"}
 {"type":"wait"}</pre>
-<h2>OTT v2</h2><p>A = P1, B = P2. Chỉ bot đến lượt được hỏi. Bàn 9×9, row/col từ 0; row 0 nằm dưới. Board là ma trận ô null hoặc <code>{"id":"...","owner":"A","type":"rock"}</code>. Ba type: rock, paper, scissors. A đi trước và nhắm i9 (8,8); B nhắm a1 (0,0).</p>
-<p>Observation gồm <code>protocol, game_id, game, player, turn, round, round_turn, current_player, rules, board_size, board, goals, counts, scores, last_move, legal_actions</code>. <code>turn</code> là sequence toàn trận; <code>round_turn</code> là số nước đã đi trong ván. <code>legal_actions</code> chứa các action hợp lệ; bot có thể chọn từ danh sách hoặc tự tính. Server luôn xác thực lại action.</p>
+<h2>OTT v2</h2>
+<p>Chỉ bot tới lượt được gọi. Board 9×9, row 0 ở dưới, col 0 bên trái; ô null hoặc <code>{"id":"...","owner":"A","type":"rock"}</code>. Type là rock/paper/scissors. A nhắm (8,8), B nhắm (0,0). Chọn từ <code>legal_actions</code> để có nước hợp lệ; server vẫn kiểm tra lại.</p>
 <pre>{"action":"move","from":{"row":1,"col":3},"to":{"row":2,"col":4}}</pre>
-<p>Mỗi nước di chuyển một ô theo 8 hướng. Búa ăn Kéo, Kéo ăn Bao, Bao ăn Búa; không vào ô quân cùng đội/cùng loại hoặc quân mạnh hơn. Không có wait/attack. Đến góc đích hoặc loại hết một loại quân địch: thắng ván. Hết giới hạn nước hoặc không còn nước hợp lệ: hòa ván. Chơi đủ số ván rồi so điểm thắng.</p>
-<h2>Giới hạn runner</h2><p>Lượt đầu mỗi bot: 3 giây; các lượt sau: 1 giây. Stdout tối đa 4 KiB/dòng và 256 KiB/trận; stderr 64 KiB/trận. Crash, timeout, JSON/action sai: xử thua cả trận. Bot được giữ nguyên process qua các ván.</p>
-<p>Subprocess không phải sandbox. Chỉ dùng code tin cậy trong nhóm trên local/LAN riêng.</p>
-<h2>Bot mẫu</h2><div id="examples">Đang tải registry…</div>
+<p>Di chuyển một ô theo tám hướng; Búa ăn Kéo, Kéo ăn Bao, Bao ăn Búa. Không có wait/attack riêng. Đến đích hoặc loại hết một loại quân địch thắng ván; hết giới hạn nước/không còn nước hợp lệ hòa ván. Xem <code>rules</code>, <code>round</code> và <code>scores</code> để theo dõi trận nhiều ván.</p>
+<h2>Giới hạn Robot/OTT</h2>
+<p>Giữ một process mỗi bot qua các ván. Phản hồi đầu: 3 giây; sau đó: 1 giây. Stdout tối đa 4 KiB/dòng, 256 KiB/trận; stderr 64 KiB/trận. Crash, timeout hoặc action sai là lỗi bot; lỗi hạ tầng gây gián đoạn và không tự tính bot thua.</p>
+<p>Docker Compose mặc định dùng sandbox container; native runner là subprocess và chỉ dành cho code tin cậy.</p>
+<h2>Battlecode 2026 — khi được bật</h2>
+<p>Dùng API engine MIT, không dùng JSON stdin trên. Python: <code>def turn():</code> với <code>rc</code>; Java: <code>package arena; public class RobotPlayer</code>, method <code>public static void run(RobotController rc)</code>. Một file UTF-8 tối đa 256 KiB; không hỗ trợ C++/ZIP/map upload. Mẫu trong registry bên dưới; chi tiết ở <code>docs/BATTLECODE_2026.md</code>.</p>
+<h2>Bot mẫu theo game</h2><div id="examples">Đang tải registry…</div>
 <script>
 (async () => {
   const health = await fetch('/api/health').then(response => response.json());

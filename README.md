@@ -1,82 +1,33 @@
 # NEON ARENA
 
-**NEON ARENA** is a self-hosted platform for competitive programming with autonomous bots. Players submit code, teams compete in scheduled matches, and organizers manage tournaments through a web interface.
+Nền tảng tự host để thi đấu bot: Robot Battle, OTT v2 và Battlecode 2026 tùy chọn. Player quản lý Team/bot; Admin tổ chức giải, lên lịch Official Match và công bố kết quả Season. Bot chạy trong Docker Sandbox; Scrimmage tiếp tục chạy khi người chơi đăng xuất.
 
-## Highlights
+## Chạy nhanh
 
-- **Multi-game support:** Robot Battle and OTT v2; optional official Battlecode 2026 engine with Java/Python crossplay.
-- **Bot submissions:** Python, C++, and Java, compiled and executed through a Docker-based sandbox.
-- **Team competitions:** Team management, active bots, scheduled official matches, seasons with registration and verified champion publication, and multiple tournament formats.
-- **Asynchronous Scrimmage:** Frozen bot versions, persistent queue, offline execution and private replay for competing teams.
-- **Live experience:** Match visualization, results, history, and replay.
-- **Role-based access:** Player and Admin workflows in the optional Account-Only mode.
+Cần Docker Engine/Desktop chạy Linux containers, Docker Compose hỗ trợ `!reset` khi dùng public overlay, và Python 3 để tạo cấu hình.
 
-## Tech stack
+```sh
+python scripts/configure_sandbox.py
+docker compose up -d --build --wait
+docker compose ps
+```
 
-| Layer | Technologies |
+Mở **http://localhost:8000**. Mặc định là demo LAN dùng mã Organizer trong `.env`, chưa bật tài khoản. Muốn chỉ truy cập từ máy này, đặt `ARENA_BIND_IP=127.0.0.1` trong `.env` trước khi chạy. Windows có thể dùng `py -3` thay `python`.
+
+## Tài liệu
+
+| Nhu cầu | Hướng dẫn |
 | --- | --- |
-| Frontend | HTML, CSS, JavaScript, Canvas |
-| Backend | Python, FastAPI, REST, WebSocket |
-| Data | SQLite, JSON/JSONL replays |
-| Runtime | Docker Compose, isolated bot containers |
-| HTTPS gateway | Caddy (separately configured) |
+| Cài Docker, bật Account-Only | [Cài đặt](docs/SANDBOX.md) |
+| Demo nhiều máy | [LAN và chế độ legacy](docs/NETWORKING.md) |
+| Đăng ký, Team, bot và khôi phục tài khoản | [Tài khoản](docs/USERNAME_ONLY_SIGNUP.md) |
+| Season, Official Match, Scrimmage và bảng điểm | [Giải đấu](docs/TEAM_TOURNAMENTS.md) |
+| Migration, backup/restore, public HTTPS | [Vận hành](docs/OPERATIONS.md) |
+| Protocol bot và thêm game | [Adapter](docs/ADAPTERS.md) |
+| Bật engine MIT tùy chọn | [Battlecode 2026](docs/BATTLECODE_2026.md) |
+| Chạy kiểm thử và phạm vi đã xác minh | [QA](docs/QA.md) |
+| Quy ước giao diện | [Thiết kế](docs/PREMIUM_MONOCHROME_DESIGN.md) |
 
-## Run locally
+Backend: Python/FastAPI, SQLite và JSON/JSONL. Frontend: HTML/CSS/JavaScript/Canvas. Source chính nằm trong `backend/`, `frontend/`, `sandbox_controller/`, `samples/`; test trong `tests/` và `controller_tests/`.
 
-**Requirements:** Docker Engine/Desktop with Linux containers, Docker Compose v2, and Python 3 for the configuration helper.
-
-1. Create private local configuration:
-
-   ```bash
-   python3 scripts/configure_sandbox.py
-   ```
-
-   On Windows, use `py -3 scripts/configure_sandbox.py`. The script creates or completes `.env` without printing credentials. To restrict access to your own machine, set `ARENA_BIND_IP=127.0.0.1` in `.env` before starting.
-
-2. Build and start the services:
-
-   ```bash
-   docker compose up -d --build --wait
-   docker compose ps
-   ```
-
-3. Open **http://localhost:8000**. The default configuration runs the trusted local/LAN demo; its Organizer code is stored privately in `.env`.
-
-Useful commands:
-
-```bash
-docker compose logs -f arena controller
-docker compose down                    # Keeps named data volumes
-```
-
-> Do not use `docker compose down -v` if you want to retain data. Do not commit `.env`.
-
-## Repository structure
-
-```text
-backend/             API, accounts, matchmaking, and game engines
-frontend/            Web application and match visualization
-sandbox_controller/  Isolated bot execution controller
-samples/             Example bots
-tests/               Automated tests
-docs/                Specifications, QA, and operator guides
-deploy/              Gateway and deployment configuration
-```
-
-## Documentation
-
-- [Frontend design system](docs/PREMIUM_MONOCHROME_DESIGN.md)
-- [Battlecode 2026 setup and Scrimmage](docs/BATTLECODE_2026.md)
-- [Player/Admin feature acceptance](docs/FEATURE_ACCEPTANCE.md)
-- [Docker sandbox and local setup](docs/SANDBOX.md)
-- [Game adapters and bot protocol](docs/ADAPTERS.md)
-- [Team tournament rules and API](docs/TEAM_TOURNAMENTS.md)
-- [Account registration and recovery](docs/USERNAME_ONLY_SIGNUP.md)
-- [Deployment and organizer handover](docs/PHASE_4_3_OPERATOR_HANDOVER.md)
-- [Release QA and acceptance](docs/PHASE_4_3_CONSOLIDATED_QA.md)
-
-## Deployment and security
-
-NEON ARENA supports both **local/LAN** and **Internet-facing** deployments. The default `compose.yaml` is intended for trusted local networks. For public hosting, including **AWS EC2**, the repository provides an optional **Caddy HTTPS gateway** (`compose.public.yaml`) and **Account-Only** authentication. Public deployment requires additional configuration, security review, and acceptance testing; it is not enabled by default.
-
-Only the HTTPS gateway should be exposed to the Internet—never the backend, sandbox controller, or Docker socket. Player self-registration is opt-in. Before updating an existing deployment, back up persistent data and rehearse database migrations offline. See the [operator handover](docs/PHASE_4_3_OPERATOR_HANDOVER.md) and [release QA guide](docs/PHASE_4_3_CONSOLIDATED_QA.md).
+`docker compose down` giữ dữ liệu; thêm `-v` sẽ xóa volume. Giữ kín `.env`, token, cookie và backup. Public HTTPS cần cấu hình riêng; kết quả QA cục bộ không chứng nhận production.

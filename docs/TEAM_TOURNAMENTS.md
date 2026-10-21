@@ -1,43 +1,36 @@
-# Account-Only Team tournaments
+# Season, giải Team và Scrimmage
 
-Team tournaments in the Account-Only workflow are separate from the legacy Player tournament records. Supported formats are round-robin, single elimination, double elimination, group stage followed by single elimination, and Swiss stage followed by single elimination.
+Các luồng này cần Account-Only và Docker Sandbox. Để chạy trận, Team phải ACTIVE và có bot ready/được attestation cho đúng game; Captain chọn Active Bot trước hạn khóa.
 
-## Rules
+## Tổ chức giải
 
-- Admin can create a tournament with any number of distinct ACTIVE Teams and an installed game. For 2–16 Teams, Admin chooses the format. For 17–64 Teams, the system selects group stage plus knockout. For more than 64 Teams, it runs single-elimination qualifiers until 16 or 64 remain, according to Admin's choice, then starts group stage plus knockout.
-- Starting a round-robin tournament generates every pair. Single elimination creates a bracket and grants automatic byes when needed.
-- Double elimination creates winners and losers brackets. A Team is eliminated after its second loss. The grand final pits both bracket champions against each other; a reset final is scheduled only if the losers-bracket champion wins the first grand final.
-- Group stage plus knockout creates two groups for 4–8 Teams, four groups for 9–32 Teams, or eight groups for 33–64 Teams, distributes Teams in the order selected at creation, and generates round-robin fixtures inside each group. The top two from each group advance; cross-pairings are A1–B2 and B1–A2 (and corresponding adjacent-group pairs for larger fields).
-- Swiss stage plus knockout requires 4–16 Teams. It runs three rounds for 4–8 Teams and four rounds for 9–16 Teams. After each round, Teams are paired by standings and rematches are avoided when a valid pairing exists. An odd field gives one bye point to the lowest-ranked Team that has not received a bye. Swiss standings award 1 point for a win, 0.5 for a draw and 0 for a loss; ties are ordered by Buchholz, score difference, score, wins and Team name. The top four qualify when there are 4–7 Teams; the top eight qualify when there are 8–16 Teams, seeded into single elimination.
-- Admin schedules each fixture individually. Scheduling creates an Official Match request in the same SQLite transaction that links the request to its fixture.
-- Official Match retains the existing bot lock deadline, source/artifact checks, sandbox execution, result verification and replay access rules.
-- Active members of participating Teams can read the tournament, standings and fixture status. Admin can read all Team tournaments.
-- Group standings award 3 points for a win, 1 for a draw and 0 for a loss; ties are ordered by points, score difference, score, wins and then Team name. Swiss standings are separate and use their own point scale and Buchholz tiebreaker. The free-play Player leaderboard keeps its original meaning and remains separate from Team tournament tables.
-- In knockout fixtures, a draw automatically schedules a rematch with bots locked immediately and a one-minute start delay. The system allows three official attempts for a fixture; if all three draw, Admin must select which Team advances. That decision is audited.
+1. Admin chọn game và lưu luật. Có thể tạo giải trực tiếp từ các Team hoặc tạo Season với cửa sổ đăng ký/capacity.
+2. Captain đăng ký/rút Team trong cửa sổ còn mở. Admin đóng đăng ký rồi chốt danh sách thành Tournament.
+3. Admin bắt đầu Tournament để tạo fixture/nhánh; lên lịch riêng từng fixture với `bot_lock_at <= scheduled_at`, không đặt hạn trong quá khứ. Luật được snapshot khi xếp lịch.
+4. Tới hạn khóa, hệ thống chốt bot/source/artifact; tới giờ thi đấu tự chạy Official, không cần Player online.
+5. Chỉ kết quả được đối chiếu terminal replay mới hoàn tất fixture, tiến nhánh và cập nhật bảng điểm.
+6. Khi giải COMPLETED, Admin xác nhận công bố Season; nhà vô địch và bảng điểm được lưu thành snapshot audit.
 
-The first release does not include automatic date generation or tournament cancellation. An Official Match that is blocked, interrupted or cancelled does not count as a completed fixture.
+Ngày bắt đầu/kết thúc Season là lịch dự kiến; giờ khóa/giờ chạy của từng fixture điều khiển thực thi. Không tự kết thúc trận ở ngày cuối Season. Trận BLOCKED/INTERRUPTED/CANCELLED không được tính như đã đấu xong.
 
-## Account-Only API
+## Thể thức
 
-- `POST /api/admin/team-tournaments` accepts `qualifier_target: 16` or `64` for fields above 64 Teams; it defaults to 64 if omitted. Fields of 17–64 Teams are set to `group_knockout` automatically.
-- `GET /api/admin/team-tournaments`
-- `POST /api/admin/team-tournaments`
-- `GET /api/admin/team-tournaments/{id}`
-- `POST /api/admin/team-tournaments/{id}/start`
-- `POST /api/admin/team-tournaments/{id}/fixtures/{fixture_id}/schedule`
-- `POST /api/admin/team-tournaments/{id}/fixtures/{fixture_id}/resolve-tie`
-- `GET /api/player/team-tournaments`
-- `GET /api/player/team-tournaments/{id}`
+| Số đội | Lựa chọn |
+| --- | --- |
+| 2–16 | Round Robin, Single/Double Elimination; Group + Knockout và Swiss + Knockout cần 4–16 |
+| 17–64 | Tự chọn Group + Knockout |
+| Trên 64 | Vòng loại Single Elimination xuống 16 hoặc 64, sau đó Group + Knockout |
 
-Mutating routes require the existing Admin audience cookie and CSRF protection. The Player routes are scoped to a current membership in one of the tournament Teams.
+Single Elimination có bye khi cần. Double Elimination loại sau hai lần thua; reset grand final chỉ khi đội từ nhánh thua thắng final đầu. Group + Knockout lấy hai đội đầu mỗi bảng. Swiss chạy 3 vòng cho 4–8 đội, 4 vòng cho 9–16, ưu tiên tránh gặp lại; top 4/top 8 vào knockout tương ứng dưới 8/từ 8 đội.
 
-## Database migration
+Round Robin/vòng bảng: thắng 3, hòa 1, thua 0; xếp theo điểm, hiệu số, điểm ghi được, số thắng, tên Team. Swiss: thắng 1, hòa 0,5, bye 1; thêm Buchholz trước hiệu số. Bảng Team tournament tách khỏi leaderboard Player legacy.
 
-SQLite migrations v10–v15 are append-only. Back up and rehearse on a disposable copy before applying them to an existing installation. For an offline migration, stop the backend and run:
+Knockout hòa tự lên lịch lại, khóa bot ngay và trễ một phút. Sau ba Official cùng hòa, Admin chọn đội đi tiếp; quyết định được audit. Chưa có tự sinh ngày thi đấu hoặc hủy toàn bộ Team Tournament.
 
-```powershell
-python -m backend.admin_cli --data-dir <disposable-data-dir> migrate
-python -m backend.admin_cli --data-dir <disposable-data-dir> check
-```
+## Scrimmage và replay
 
-Do not migrate a production volume as part of local feature development.
+Member của Team ACTIVE gửi thách đấu khi cả hai đội có Active Bot hợp lệ. Bot và luật được chốt lúc gửi; trận tiếp tục khi logout. Mỗi đội gửi tối đa 3 yêu cầu pending; chặn cặp có cùng chiều/game đang pending, queue toàn cục tối đa 100. Challenger/Admin hủy khi còn QUEUED; Official được ưu tiên dispatch trong sức chứa chung hai trận.
+
+Scrimmage không cộng điểm giải. Sau restart không chắc chắn, công việc đã claim được đánh dấu INTERRUPTED thay vì tự chạy lại hai lần. Admin và thành viên hiện tại của hai Team xem replay; đội ngoài bị từ chối. URL chia sẻ giữ loại `?official=ID#home` hoặc `?scrimmage=ID#home`; Battlecode có thêm tải `.bc26`.
+
+API dùng namespace `/api/admin/`, `/api/player/`: `team-tournaments`, `official-matches`, `seasons`, `scrimmages`. Mutation yêu cầu cookie đúng audience và CSRF. Chi tiết request nằm trong các module `backend/*_http.py`.

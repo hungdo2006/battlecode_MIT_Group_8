@@ -10,7 +10,8 @@ const app = {
   participant: null, readOnly: false, refreshing: false,
   role: "player", organizerAvailable: false,
   accountOnly: false, accountAuth: false, account: null, accountAudience: null, csrf: null,
-  usernameOnlySignup: false,
+  usernameOnlySignup: false, pendingView: null,
+  supportUrl: "mailto:hungdonxqvbn@gmail.com",
   team: null, activeTeamBot: null, officialMatches: [], officialTeams: [], teamTournaments: [],
   scrimmages: [], practiceRefreshing: false, replayKind: null, replayRequestId: null, replayPath: null,
   seasons: [], seasonsBusy: false,
@@ -159,7 +160,21 @@ async function api(path, options = {}) {
     const detail = Array.isArray(data.detail)
       ? data.detail.map(item => `${item.loc?.join(".")}: ${item.msg}`).join("; ")
       : data.detail;
-    const error = new Error(detail || `HTTP ${response.status}`);
+    let message = detail || `HTTP ${response.status}`;
+    if (requestUrl.pathname.includes("/auth/")) {
+      const authMessages = {
+        "Invalid credentials or session": "Tên đăng nhập, mật khẩu hoặc mã xác minh chưa đúng; hãy kiểm tra và thử lại.",
+        "Invalid or unavailable invitation": "Mã không hợp lệ, đã dùng hoặc đã hết hạn. Liên hệ Admin để nhận mã mới.",
+        "Invalid authentication request": "Thông tin tài khoản chưa hợp lệ. Kiểm tra định dạng và độ dài các trường.",
+        "Account operation conflicts with current state": "Thông tin tài khoản đang xung đột. Kiểm tra tên đăng nhập hoặc liên hệ Admin.",
+        "Authentication service unavailable": "Dịch vụ tài khoản tạm thời không sẵn sàng. Hãy thử lại.",
+        "Password recovery is not enabled": "Máy chủ chưa bật khôi phục mật khẩu. Hãy liên hệ Admin qua địa chỉ hỗ trợ.",
+        "Not authorized": "Tài khoản không có quyền thực hiện thao tác này.",
+        "CSRF verification failed": "Phiên xác minh đã hết hạn. Tải lại trang và thử lại.",
+      };
+      message = response.status === 429 ? "Quá nhiều yêu cầu. Chờ một lát rồi thử lại." : authMessages[detail] || message;
+    }
+    const error = new Error(message);
     error.status = response.status;
     if (app.accountOnly && response.status === 429) {
       // Server-enforced per-session budget; wait rather than repeatedly retry.
@@ -642,7 +657,9 @@ function applyPermissions() {
   $("#competition-close").disabled = !organizer || !app.competition?.competition_locked || app.competitionBusy;
   $("#competition-open").classList.toggle("hidden", app.role !== "organizer" || app.competition?.phase !== "setup");
   $("#competition-close").classList.toggle("hidden", app.role !== "organizer" || !app.competition?.competition_locked);
-  $("#rules-access-note").textContent = app.competition?.competition_locked ? "Luật đã chốt. Đóng cuộc thi và chờ các trận kết thúc để cấu hình lại." : app.competition?.phase === "draining" ? "Cuộc thi đang đóng. Chờ các trận và tác vụ còn lại kết thúc để chỉnh cấu hình." : allowed ? app.rulesDirty ? "Có thay đổi chưa lưu. Lưu cấu hình trước khi mở cuộc thi." : "Chọn game, lưu cấu hình rồi nhấn Lock game & mở cuộc thi." : "Game và luật do Organizer quyết định. Chọn Active Bot để sẵn sàng nhận lời mời.";
+  $("#rules-access-note").textContent = accountPlayer
+    ? "Game và luật do Admin quyết định. Captain chọn Active Bot của đội trước hạn khóa Official Match; trận tự chạy, thành viên không cần online. Khi thách đấu, bot hai đội được chốt ngay lúc gửi yêu cầu."
+    : app.competition?.competition_locked ? "Luật đã chốt. Đóng cuộc thi và chờ các trận kết thúc để cấu hình lại." : app.competition?.phase === "draining" ? "Cuộc thi đang đóng. Chờ các trận và tác vụ còn lại kết thúc để chỉnh cấu hình." : allowed ? app.rulesDirty ? "Có thay đổi chưa lưu. Lưu cấu hình trước khi mở cuộc thi." : "Chọn game, lưu cấu hình rồi nhấn Lock game & mở cuộc thi." : "Game và luật do Organizer quyết định. Chọn Active Bot để sẵn sàng nhận lời mời.";
   $$(".organizer-only").forEach(node => node.classList.toggle("hidden", !organizer));
   $$(".player-only, [data-go=upload], .nav-item[data-view=upload]").forEach(node => node.classList.toggle("hidden", organizer));
   if (app.accountOnly) {
@@ -676,14 +693,42 @@ function applyPermissions() {
       || (app.lobby?.players || []).filter(player => player.status === "READY").length < 2;
     node.title = node.disabled ? app.competition?.phase !== "open" ? "Cuộc thi cần được mở trước khi gửi lời mời" : "Cần hai Player đang online, có Active Bot và sẵn sàng" : "Hai Player sẽ tự xác nhận lời mời";
   });
-  $("#upload-form [type=submit]").disabled = organizer || app.readOnly || app.uploading || !app.selectedGameId;
   $("#seed-samples").disabled = app.accountOnly || organizer || app.readOnly || app.seeding || !app.selectedGameId;
   $("#seed-samples").classList.toggle("hidden", app.accountOnly);
   document.querySelectorAll('[data-sample]').forEach(node => { node.disabled = app.accountOnly || organizer || app.readOnly || app.seeding || app.sampleBusy.has(`${node.dataset.gameId}:${node.dataset.sample}`); });
+  updateUploadEligibility();
   $$(".game-select, .game-card").forEach(node => { node.title = allowed ? "Chọn game của cuộc thi" : app.competition?.competition_locked ? "Game đã khóa; đóng cuộc thi để cấu hình lại" : "Chỉ Organizer được chọn game"; });
   renderCompetitionBanner();
   renderWorkspaceOverview();
 }
+
+function updateUploadEligibility() {
+  const reason = app.role === "organizer" ? "Admin quản lý đội và bot tại Tài khoản & đội."
+    : app.readOnly ? "Phiên này chỉ có quyền xem."
+    : app.accountOnly && !app.team?.team ? "Bạn chưa tham gia đội. Tạo đội hoặc nhận lời mời trước khi nộp bot."
+    : app.accountOnly && app.team.team.status === "ARCHIVED" ? "Đội đã được lưu trữ. Hãy tạo hoặc tham gia đội khác."
+    : !app.selectedGameId ? "Đang tải game để nộp bot."
+    : app.uploading ? "Đang tải lên và biên dịch bot…" : "";
+  $("#upload-form [type=submit]").disabled = !!reason;
+  $("#bot-file").disabled = !!reason;
+  $("#upload-form [name=name]").disabled = !!reason;
+  setText("#upload-eligibility", reason || (app.accountOnly
+    ? "Thành viên được nộp bot cho đội. Captain của đội ACTIVE chọn bot đại diện đã biên dịch thành công."
+    : "Nộp code hoặc bắt đầu từ một bot mẫu bên cạnh."));
+  $("#upload-team-link").classList.toggle("hidden", !app.accountOnly || !!app.team?.team);
+  for (const button of $$('[data-sample]')) {
+    button.disabled = !!reason || app.seeding || app.sampleBusy.has(`${button.dataset.gameId}:${button.dataset.sample}`);
+    button.title = reason || `Nộp mẫu ${button.dataset.sample}${app.accountOnly ? " cho đội" : ""}`;
+  }
+  setText("#bot-library-title", app.accountOnly ? "Bot của đội" : "Submission của tôi");
+  setText("#bot-library-note", app.accountOnly
+    ? "Thành viên dùng chung danh sách bot của đội. Captain của đội ACTIVE chọn bot đã biên dịch hợp lệ làm Active Bot cho từng game."
+    : "Chọn một bot đã biên dịch thành công, thuộc game hiện tại, làm Active Bot.");
+}
+$("#upload-team-link").onclick = () => {
+  $("#account-team-panel").scrollIntoView({ block: "start" });
+  $("#account-team-create input, #account-team-inbox button")?.focus({ preventScroll: true });
+};
 
 function renderCompetitionBanner() {
   const state = app.competition;
@@ -803,6 +848,8 @@ function acceptSession(data) {
 // The public welcome screen is presentation-only. All protected APIs still
 // require a verified Account-Only session and server-enforced role.
 function showAccountLanding(message = "Chọn Đăng nhập hoặc Đăng ký để bắt đầu.") {
+  clearTimeout(toastTimer);
+  $("#toast").classList.add("hidden");
   closeWorkspaceNavigation({ returnFocus: false });
   if ($("#account-dialog").open) $("#account-dialog").close();
   document.body.classList.add("account-landing-active");
@@ -814,6 +861,9 @@ function showAccountLanding(message = "Chọn Đăng nhập hoặc Đăng ký đ
     : "Ban tổ chức hiện chưa mở đăng ký Player.";
   $("#landing-status").textContent = message;
   $("#landing-retry").classList.add("hidden");
+  history.replaceState(null, "", location.pathname + location.search + "#home");
+  document.title = "NEON ARENA · Nền tảng thi đấu bot";
+  document.body.dataset.view = "home";
 }
 
 function hideAccountLanding() {
@@ -830,6 +880,11 @@ function accountEntryTab(tab) {
   $("#account-register-choice").classList.toggle("primary", registration);
   $("#account-register-choice").classList.toggle("ghost", !registration);
   $("#account-title").textContent = registration ? "Đăng ký Player" : "Đăng nhập NEON ARENA";
+  $("#account-description").textContent = registration
+    ? "Tạo tài khoản Player để bắt đầu thi đấu." : "Đăng nhập bằng tài khoản của bạn để tiếp tục vào đấu trường.";
+  $("#account-login-choice").setAttribute("aria-pressed", String(!registration));
+  $("#account-register-choice").setAttribute("aria-pressed", String(registration));
+  feedback("#account-feedback", registration ? "Tạo tài khoản Player để bắt đầu thi đấu." : "Đăng nhập để tiếp tục vào workspace.");
   const first = registration ? $("#account-register-form [name=username]") : $("#account-username");
   first.focus();
 }
@@ -853,7 +908,11 @@ function showAccountDialog(message = "Đăng nhập để tiếp tục vào work
   $("#account-recovery-note").textContent = app.emailVerification
     ? "Có thể nhận email khôi phục, hoặc nhờ Admin cấp mã một lần."
     : "Liên hệ Admin để nhận mã khôi phục dùng một lần, có hạn 30 phút.";
+  $("#account-support-link").href = app.supportUrl;
+  $("#account-support-link").textContent = "Liên hệ Admin: " + app.supportUrl.replace(/^mailto:/, "");
   accountEntryTab(tab);
+  if (message !== "Đăng nhập để tiếp tục vào workspace.") feedback("#account-feedback", message);
+  dialog.scrollTop = 0;
   if (app.resetTokenLoaded) {
     $("#account-password-tools").open = true;
     $("#account-reset-password-form [name=password]").focus();
@@ -867,6 +926,10 @@ function acceptAccount(data, audience) {
   $("#admin-invite-token").value = "";
   $("#admin-invite-token-label").classList.add("hidden");
   app.logoutError = false;
+  if (app.account?.id !== data.account.id) {
+    app.team = null; app.activeTeamBot = null; app.bots = [];
+    app.officialMatches = []; app.officialTeams = []; app.scrimmages = [];
+  }
   app.account = data.account;
   app.pollPauseUntil = 0;
   clearTimeout(app.bootstrapTimer); app.bootstrapTimer = null;
@@ -888,6 +951,7 @@ $("#account-back").addEventListener("click", () => {
   $("#account-dialog").close();
   $("#landing-login").focus();
 });
+$("#account-close").onclick = () => $("#account-dialog").close();
 $("#landing-login").addEventListener("click", () => showAccountDialog(undefined, "login"));
 $("#landing-register").addEventListener("click", () => {
   if (app.selfRegistration) showAccountDialog(undefined, "register");
@@ -898,6 +962,7 @@ $("#account-register-choice").addEventListener("click", () => accountEntryTab("r
 
 function accountExpired() {
   if (!app.accountOnly || !app.account) return;
+  app.pendingView = location.hash.slice(1);
   $("#admin-player-recovery-token").value = "";
   $("#admin-player-recovery-result").classList.add("hidden");
   app.account = null; app.participant = null; app.accountAudience = null; app.csrf = null;
@@ -1049,6 +1114,7 @@ $("#account-activation-form").addEventListener("submit", async event => {
       token: form.elements.token.value, password: form.elements.password.value
     }));
     form.reset();
+    accountEntryTab("login");
     $("#account-login-form [name=username]").focus();
     feedback("#account-feedback", "Kích hoạt thành công. Hãy đăng nhập bằng tài khoản vừa tạo.");
   } catch (error) { feedback("#account-feedback", error.message, true); }
@@ -1078,6 +1144,11 @@ async function accountLogout() {
   // A successfully revoked account must cancel any pending startup retry.
   clearTimeout(app.bootstrapTimer); app.bootstrapTimer = null;
   app.pollPauseUntil = 0;
+  app.pendingView = null;
+  const publicUrl = new URL(location.href);
+  for (const key of ["auth", "returnTo", "match", "official", "scrimmage"]) publicUrl.searchParams.delete(key);
+  publicUrl.hash = "home";
+  history.replaceState(null, "", publicUrl.pathname + publicUrl.search + publicUrl.hash);
   app.account = null; app.participant = null; app.accountAudience = null; app.csrf = null;
   app.role = "player"; app.organizerAvailable = false; app.initialized = false;
   app.competitionSocket?.close(); app.socket?.close();
@@ -1206,6 +1277,12 @@ function navigate() {
   if (!labels[view] || (["official", "scrimmage"].includes(view) && !app.accountOnly)) view = "home";
   if (["profile","administration","system","seasons"].includes(view) && !app.accountOnly) view="home";
   if (["administration","system"].includes(view) && app.accountAudience!=="admin") view="home";
+  if (app.accountOnly && (view === "create" || (view === "upload" && app.accountAudience !== "player"))) view = "home";
+  if (app.initialized && location.hash !== `#${view}`) {
+    const requestedView = location.hash.slice(1) || "home";
+    history.replaceState(null, "", location.pathname + location.search + `#${view}`);
+    if (requestedView !== view) toast("Trang này không khả dụng với vai trò hiện tại. Đã về Tổng quan.");
+  }
   $$(".view").forEach(node => node.classList.toggle("active", node.id === `view-${view}`));
   $$(".nav-item").forEach(node => node.classList.toggle("active", node.dataset.view === view));
   $("#page-label").textContent = labels[view];
@@ -1346,18 +1423,36 @@ async function refreshPracticeOpponents() {
   const ready = app.team?.team?.status === "ACTIVE";
   const select = $("#scrimmage-opponent"), button = $("#scrimmage-create [type=submit]");
   button.disabled = true;
-  select.replaceChildren();
+  emptySelect(select, "Đang tải đối thủ…");
   if (!ready || !game) {
+    emptySelect(select, !app.team?.team ? "Bạn chưa tham gia đội" : !ready ? "Đội chưa ACTIVE" : "Chưa chọn game");
     setText("#scrimmage-eligibility", "Tạo hoặc tham gia Team, kích hoạt Team và chọn Active Bot trước khi thách đấu.");
     return;
   }
-  const response = await api(`/api/player/scrimmage-opponents?game_id=${encodeURIComponent(game)}`);
+  let response, active;
+  try {
+    [response, active] = await Promise.all([
+      api(`/api/player/scrimmage-opponents?game_id=${encodeURIComponent(game)}`),
+      api(`/api/player/active-bot?game_id=${encodeURIComponent(game)}`)
+    ]);
+  } catch (error) {
+    if (app.account === account && game === $("#scrimmage-game").value) {
+      emptySelect(select, "Không tải được đối thủ — bấm Làm mới");
+      setText("#scrimmage-eligibility", "Không tải được dữ liệu. Bấm Làm mới để thử lại.");
+    }
+    throw error;
+  }
   if (app.account !== account || app.accountAudience !== "player" || app.team?.team?.id !== teamId || game !== $("#scrimmage-game").value) return;
+  select.replaceChildren();
   for (const team of response.teams) {
     const option = el("option", "", `${team.display_name} · ${team.bot_name}`); option.value = team.id; select.append(option);
   }
-  button.disabled = !response.teams.length || app.runnerMode !== "sandbox";
-  setText("#scrimmage-eligibility", app.runnerMode !== "sandbox" ? "Máy chủ này đang ở chế độ native. Scrimmage tự động cần Docker Sandbox." : response.teams.length ? "Bot của hai đội sẽ được chốt ngay khi gửi. Tối đa 3 yêu cầu đang chờ cho đội của bạn." : "Chưa có đội đối thủ với Active Bot hợp lệ cho game này.");
+  if (!response.teams.length) emptySelect(select, "Chưa có đối thủ với Active Bot hợp lệ");
+  else select.disabled = false;
+  button.disabled = !response.teams.length || !active.active || app.runnerMode !== "sandbox";
+  button.setAttribute("aria-describedby", "scrimmage-eligibility");
+  setText("#scrimmage-eligibility", !active.active ? "Đội chưa có Active Bot hợp lệ cho game này. Captain chọn bot tại Team & Bot."
+    : app.runnerMode !== "sandbox" ? "Máy chủ này đang ở chế độ native. Scrimmage tự động cần Docker Sandbox." : response.teams.length ? "Bot của hai đội sẽ được chốt ngay khi gửi. Tối đa 3 yêu cầu đang chờ cho đội của bạn." : "Chưa có đội đối thủ với Active Bot hợp lệ cho game này.");
 }
 
 async function refreshScrimmages() {
@@ -1521,7 +1616,7 @@ function renderRules(fillForm = false) {
   const fixed = $("#game-fixed");
   fixed.replaceChildren(...Object.entries(game.fixed_rules || {}).map(([key, value]) => {
     const item = el("span", "fixed-rule");
-    const fixedLabels = { movement: "Di chuyển", attack_range: "Tầm tấn công", board_size: "Bàn chơi", capture: "Ăn quân", pieces: "Quân cờ", goals: "Đích đến" };
+    const fixedLabels = { movement: "Di chuyển", attack_range: "Tầm tấn công", board_size: "Bàn chơi", capture: "Ăn quân", captures: "Quan hệ ăn quân", first_player: "Bên đi trước", pieces: "Quân cờ", goals: "Đích đến" };
     item.append(el("small", "", fixedLabels[key] || key.replaceAll("_", " ")), document.createTextNode(String(value)));
     return item;
   }));
@@ -1541,7 +1636,7 @@ function renderRules(fillForm = false) {
     : "Timeout, crash, JSON hoặc action không hợp lệ: bot bị xử thua. Game state chỉ do server cập nhật.";
   $("#rules-guide").replaceChildren(...[...(game.guide || []), { title: "BOT FAULT", description: faultGuide }].map((item, index) => {
     const row = el("li"), copy = el("div");
-    const guideLabels = { MOVE: "Di chuyển", ATTACK: "Tấn công", WIN: "Điều kiện thắng", "BOT FAULT": "Lỗi bot", MOVEMENT: "Di chuyển", CAPTURE: "Ăn quân", SERIES: "Nhiều ván đấu", GOAL: "Đích đến" };
+    const guideLabels = { MOVE: "Di chuyển", ATTACK: "Tấn công", WIN: "Điều kiện thắng", "BOT FAULT": "Lỗi bot", MOVEMENT: "Di chuyển", CAPTURE: "Ăn quân", SERIES: "Nhiều ván đấu", TOURNAMENT: "Tính kết quả trận", GOAL: "Đích đến" };
     copy.append(el("strong", "", guideLabels[item.title] || item.title), el("p", "", item.description));
     row.append(el("span", "", String(index + 1).padStart(2, "0")), copy);
     return row;
@@ -1629,7 +1724,13 @@ function resultDescription(match) {
 function renderMatchList(target, matches) {
   const restore = preserveListState(target);
   target.replaceChildren();
-  if (!matches.length) target.append(el("div", "empty-state", "Chưa có trận đấu. Organizer mời hai Player READY để thi đấu."));
+  if (!matches.length) {
+    const empty = el("div", "empty-state", app.accountOnly
+      ? "Chưa có trận đấu. Chuẩn bị đội và bot, rồi xếp lịch Official Match hoặc theo dõi hàng đợi Scrimmage."
+      : "Chưa có trận đấu. Organizer mời hai Player READY để thi đấu.");
+    if (app.accountOnly) { const link = el("a", "text-button", "Xem lịch đấu →"); link.href = "#official"; empty.append(document.createElement("br"), link); }
+    target.append(empty);
+  }
   matches.forEach((match, index) => {
     const row = el("div", "match-row");
     row.dataset.matchId = match.id;
@@ -1708,6 +1809,7 @@ function renderStandings() {
   const tbody = $("#standings-body");
   tbody.replaceChildren();
   if (app.accountOnly) {
+    setText("#view-standings .page-intro .eyebrow", "BẢNG ĐIỂM GIẢI ĐẤU TEAM");
     setText("#view-standings .page-intro p", "Bảng điểm theo từng giải đấu. Kết quả được giữ riêng theo game và thể thức.");
     const headers = $$(".standings-table th");
     ["Hạng", "Đội", "Đã đấu", "Thắng", "Hòa", "Thua", "Điểm", "Giải đấu"].forEach((text, i) => { headers[i].textContent = text; });
@@ -2092,7 +2194,11 @@ function updateTeamTournamentPolicy() {
     ? "Trên 64 đội: đấu loại trực tiếp để rút gọn về số đội được chọn, sau đó vào vòng bảng + loại trực tiếp."
     : count > 16
     ? "17–64 đội: tự động áp dụng vòng bảng + loại trực tiếp."
+    : count < 2 ? `Đã chọn ${count} đội. Cần ít nhất 2 đội ACTIVE để tạo giải; quản lý đội tại Tài khoản & đội.`
     : "Từ 2–16 đội: Organizer được chọn thể thức.";
+  const button = form.querySelector('[type="submit"]');
+  button.disabled = count < 2 || !form.elements.game_id.value;
+  button.setAttribute("aria-describedby", "team-tournament-selection-policy");
 }
 function renderTeamTournaments() {
   const legacyVisible = !app.accountOnly;
@@ -2362,7 +2468,7 @@ $("#team-tournament-create").addEventListener("submit", async event => {
     feedback("#team-tournament-feedback", "Đã tạo giải. Bắt đầu giải để tạo lịch hoặc nhánh đấu.");
     await refreshTeamTournaments();
   } catch (error) { feedback("#team-tournament-feedback", error.message, true); }
-  finally { button.disabled = false; }
+  finally { updateTeamTournamentPolicy(); }
 });
 $("#standings-game-select").addEventListener("change", event => {
   app.standingsGameId = event.currentTarget.value || null;
@@ -2482,14 +2588,24 @@ const dropZone = $("#drop-zone");
 ["dragleave", "drop"].forEach(name => dropZone.addEventListener(name, () => dropZone.classList.remove("dragover")));
 dropZone.addEventListener("drop", event => {
   event.preventDefault();
-  if (app.uploading || !event.dataTransfer?.files.length) return;
+  if ($("#bot-file").disabled || app.uploading || !event.dataTransfer?.files.length) return;
   const transfer = new DataTransfer(); transfer.items.add(event.dataTransfer.files[0]);
   $("#bot-file").files = transfer.files;
   updateSelectedFile();
 });
 
 async function addSample(language, gameId = app.selectedGameId) {
-  const bot = await api(`/api/games/${gameId}/samples/${language}/submit`, { method: "POST" });
+  let bot;
+  if (app.accountOnly) {
+    const response = await fetch(scopedApiPath(`/api/games/${encodeURIComponent(gameId)}/samples/${encodeURIComponent(language)}`));
+    if (!response.ok) throw new Error("Không tải được bot mẫu. Hãy thử lại.");
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    const source_base64 = btoa(Array.from(bytes, value => String.fromCharCode(value)).join(""));
+    const filename = language === "java" ? (gameId === "battlecode26" ? "RobotPlayer.java" : "Main.java")
+      : `sample.${language === "python" ? "py" : language}`;
+    const result = await api("/api/player/bots", jsonOptions("POST", { game_id: gameId, filename, name: `Bot mẫu ${language}`, source_base64 }));
+    bot = result.bot;
+  } else bot = await api(`/api/games/${gameId}/samples/${language}/submit`, { method: "POST" });
   if (bot.status !== "ready") throw new Error(bot.logs || "Biên dịch bot mẫu thất bại.");
   return bot;
 }
@@ -2918,6 +3034,7 @@ async function bootstrap() {
     app.emailVerification = health.email_verification === true;
     app.usernameOnlySignup = health.username_only_signup === true;
     app.adminTotpRequired = health.admin_totp_required === true;
+    app.supportUrl = health.support_url || "mailto:hungdonxqvbn@gmail.com";
     $("#account-admin-otp-field").classList.toggle("hidden", !app.adminTotpRequired);
     if (app.accountOnly && app.emailVerification) {
       const reset = /^#reset-password=([A-Za-z0-9_-]{43})$/.exec(location.hash);
@@ -2942,11 +3059,15 @@ async function bootstrap() {
     if (app.accountOnly) {
       $("#account-mode-note").classList.remove("hidden");
       if (!app.account && !await restoreAccount()) {
+        const entryParams = new URLSearchParams(location.search);
+        const requested = location.hash.slice(1);
+        if (labels[requested] && requested !== "home") app.pendingView = requested;
+        if (entryParams.get("returnTo") === "upload") app.pendingView = "upload";
         setConnection(true); renderSession();
-        showAccountLanding(app.emailVerificationNotice || undefined);
+        showAccountLanding(app.emailVerificationNotice || (app.pendingView ? "Đăng nhập để tiếp tục đến trang bạn đã chọn." : undefined));
         // Deep links for password recovery and email verification must
         // still open the relevant form without an extra click.
-        if (app.resetTokenLoaded || app.emailVerificationNotice) {
+        if (app.resetTokenLoaded || app.emailVerificationNotice || entryParams.get("auth") === "login" || app.pendingView) {
           showAccountDialog(app.emailVerificationNotice || undefined);
         }
         app.emailVerificationNotice = null;
@@ -2981,6 +3102,13 @@ async function bootstrap() {
     applyPermissions();
     // Resolve mode-specific deep links once the server's auth mode is known.
     app.initialized = true;
+    const entryUrl = new URL(location.href);
+    const returnToExamples = entryUrl.searchParams.get("returnTo") === "examples";
+    entryUrl.searchParams.delete("auth");
+    entryUrl.searchParams.delete("returnTo");
+    if (app.pendingView && labels[app.pendingView]) entryUrl.hash = app.pendingView;
+    app.pendingView = null;
+    history.replaceState(null, "", entryUrl.pathname + entryUrl.search + entryUrl.hash);
     navigate();
     connectCompetitionSocket();
     updatePlayback();
@@ -2989,6 +3117,7 @@ async function bootstrap() {
     if (practiceId && app.accountOnly) await loadMatch(practiceId, false, true);
     else if (officialId && app.accountOnly) await loadMatch(officialId, true);
     else if (matchId && (!app.accountOnly || app.accountAudience === "admin")) await loadMatch(matchId);
+    if (returnToExamples) location.assign("/static/protocol.html#examples-section");
   } catch (error) {
     // A 429 is a responsive server asking us to slow down, not a disconnect.
     // Unlike the legacy polling loop, an uninitialized Account-Only workspace
@@ -3099,11 +3228,13 @@ async function refreshAccountTeam() {
   app.activeTeamBot = team ? (await api(`/api/player/active-bot?game_id=${encodeURIComponent(app.competition.selected_game_id)}`)).active : null;
   renderBots();
   renderStats();
+  updateUploadEligibility();
+  renderOfficialMatches();
 }
 function renderAccountBotLibrary() {
   const target = $("#bot-library");
   target.replaceChildren();
-  if (!app.bots.length) target.append(el("div","empty-state","Team chưa có submission."));
+  if (!app.bots.length) target.append(el("div","empty-state", app.team?.team ? "Đội chưa có bot. Nộp file hoặc chọn bot mẫu để bắt đầu." : "Bạn chưa tham gia đội. Tạo hoặc tham gia đội trước khi nộp bot."));
   for (const bot of app.bots) {
     const row=el("div","bot-row"), name=el("strong","",`${bot.name} · ${bot.language.toUpperCase()} · ${bot.status}`);
     row.append(name,el("span","tag",bot.game_id));
@@ -3206,6 +3337,25 @@ function officialLocalInput(ms) {
   const date = new Date(ms);
   return new Date(ms - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 }
+function emptySelect(select, message) {
+  const option = el("option", "", message);
+  option.value = "";
+  select.replaceChildren(option);
+  select.disabled = true;
+}
+function updateOfficialEligibility() {
+  const form = $("#official-schedule-form");
+  const reason = app.officialTeams.length < 2 ? "Chưa đủ hai đội ACTIVE. Tạo đội và nhờ Captain kích hoạt đội tại Team & Bot."
+    : !app.games.length ? "Chưa tải được game. Bấm Làm mới để thử lại."
+    : !form.elements.team_a_id.value || form.elements.team_a_id.value === form.elements.team_b_id.value ? "Chọn hai đội khác nhau để xếp lịch."
+    : "";
+  form.querySelector('[type="submit"]').disabled = !!reason;
+  setText("#official-schedule-eligibility", reason || (app.runnerMode !== "sandbox"
+    ? "Có thể lưu lịch. Máy chủ cần Docker Sandbox để tự thực thi trận; Captain chuẩn bị Active Bot trước hạn khóa."
+    : "Sẵn sàng xếp lịch. Captain chọn Active Bot hợp lệ trước hạn khóa; hai đội không cần online khi trận chạy."));
+  $("#official-team-help").classList.toggle("hidden", app.officialTeams.length >= 2);
+}
+$("#official-schedule-form").addEventListener("change", updateOfficialEligibility);
 async function refreshOfficialMatches({includeTeams = true} = {}) {
   if (!app.accountOnly || !app.account) return;
   const account = app.account, audience = app.accountAudience;
@@ -3214,7 +3364,14 @@ async function refreshOfficialMatches({includeTeams = true} = {}) {
   if (app.account !== account || app.accountAudience !== audience) return;
   if (!Array.isArray(response.requests)) throw new Error("Danh sách Official Match không hợp lệ.");
   if (isAdmin && includeTeams) {
-    const teams = await api("/api/admin/teams");
+    let teams;
+    try { teams = await api("/api/admin/teams"); }
+    catch (error) {
+      for (const selector of ["#official-team-a", "#official-team-b"]) emptySelect($(selector), "Lỗi tải đội — bấm Làm mới");
+      $("#official-schedule-form [type=submit]").disabled = true;
+      setText("#official-schedule-eligibility", "Không tải được danh sách đội. Bấm Làm mới để thử lại.");
+      throw error;
+    }
     if (app.account !== account || app.accountAudience !== audience) return;
     app.officialTeams = teams.teams.filter(team => team.status === "ACTIVE");
     for (const [selector, fallback] of [
@@ -3228,6 +3385,8 @@ async function refreshOfficialMatches({includeTeams = true} = {}) {
         return option;
       }));
       input.value = app.officialTeams.some(team => team.id === previous) ? previous : fallback;
+      if (!app.officialTeams.length) emptySelect(input, "Chưa có đội ACTIVE");
+      else input.disabled = false;
     }
     const game = $("#official-game"), previous = game.value;
     game.replaceChildren(...app.games.map(item => {
@@ -3237,7 +3396,7 @@ async function refreshOfficialMatches({includeTeams = true} = {}) {
     }));
     game.value = app.games.some(item => item.game_id === previous)
       ? previous : app.competition?.selected_game_id || "";
-    $("#official-schedule-form [type=submit]").disabled = app.officialTeams.length < 2 || !app.games.length;
+    updateOfficialEligibility();
   }
   app.officialMatches = response.requests;
   $("#official-admin-panel").classList.toggle("hidden", !isAdmin);
@@ -3250,7 +3409,12 @@ function renderOfficialMatches() {
   const target = $("#official-match-list");
   target.replaceChildren();
   if (!app.officialMatches.length) {
-    target.append(el("div", "empty-state", "Chưa có trận đấu chính thức nào."));
+    const noTeam = app.accountAudience === "player" && !app.team?.team;
+    const empty = el("div", "empty-state", noTeam ? "Bạn chưa tham gia đội. Tạo hoặc tham gia đội để có lịch đấu chính thức."
+      : app.accountAudience === "player" ? "Đội chưa có lịch đấu chính thức. Captain chuẩn bị Active Bot và đăng ký mùa thi đấu; Admin sẽ xếp lịch."
+      : "Chưa có trận đấu chính thức nào. Chọn hai đội ACTIVE để xếp lịch ở biểu mẫu phía trên.");
+    if (noTeam) { const link = el("a", "text-button", "Tạo hoặc tham gia đội →"); link.href = "#upload"; empty.append(document.createElement("br"), link); }
+    target.append(empty);
     return;
   }
   for (const item of app.officialMatches) {
@@ -3349,7 +3513,7 @@ $("#official-schedule-form").addEventListener("submit", async event => {
     await refreshOfficialMatches();
   } catch (error) {
     feedback("#official-schedule-feedback", error.message, true);
-  } finally { button.disabled = false; }
+  } finally { updateOfficialEligibility(); }
 });
 {
   const form = $("#official-schedule-form");

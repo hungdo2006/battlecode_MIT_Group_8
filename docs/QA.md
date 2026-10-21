@@ -10,6 +10,9 @@ python -m pytest tests controller_tests -ra
 node scripts/check_account_frontend_routing.cjs
 node --check frontend/app.js
 node --check frontend/renderers.js
+node --check frontend/ui.js
+node --check frontend/protocol.js
+node --check frontend/lan.js
 python scripts/version_frontend.py --check
 git diff --check
 ```
@@ -19,9 +22,12 @@ Browser checker cần thêm package Playwright và Chrome:
 ```sh
 python -m pip install playwright
 python scripts/check_account_ui.py
+python scripts/check_ui_ux_report.py
 ```
 
 Script này dùng server/dữ liệu native tạm; không chứng minh bot chạy Docker. CI baseline hiện chạy Python/Controller/frontend checks trên Windows và Ubuntu, chưa chạy browser hoặc sandbox thật.
+
+Đối chiếu từng phát hiện và phạm vi kiểm tra bổ sung: [Khắc phục báo cáo UI/UX](UI_UX_REVIEW_FIXES.md).
 
 ## Docker và end-to-end
 

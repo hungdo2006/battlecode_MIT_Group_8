@@ -188,7 +188,11 @@ def test_network_configuration_and_origin_validation(monkeypatch):
 
 def test_lan_guide_and_runtime_network_info(tmp_path):
     with TestClient(create_app(tmp_path), base_url="http://192.168.1.20:8000") as client:
-        assert "MULTI-CLIENT" in client.get("/lan").text
+        guide = client.get("/lan")
+        assert guide.status_code == 200
+        assert 'id="account-workflow"' in guide.text
+        assert "Account-Only" in guide.text
+        assert "ARENA_ACCOUNT_ONLY=0" in guide.text
         info = client.get("/api/network").json()
         assert info["origin"] == "http://192.168.1.20:8000"
         assert info["read_only"] is False

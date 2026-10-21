@@ -1,13 +1,13 @@
 <!doctype html>
 <html lang="vi">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#ffffff"><title>NEON ARENA · Hướng dẫn LAN</title><link rel="icon" href="/static/favicon.svg?v=b3f8c3c483b1"><link rel="preload" href="/static/fonts/InterVariable.woff2?v=693b77d4f32e" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/static/styles.css?v=7dfc4981525b"></head>
+  <link rel="stylesheet" href="/static/styles.css?v=816935893f8f"><script src="/static/ui.js?v=1d7310c70c7d" defer></script><script src="/static/lan.js?v=c1b7011a770e" defer></script></head>
 <body><article class="protocol-document lan-guide">
 <a class="text-button" href="/">← Trở về đấu trường</a>
 <p class="eyebrow">LOCAL / LAN</p>
 <h1>Một máy chủ.<br>Kết nối cả nhóm.</h1>
 <p>Máy host chạy FastAPI và Docker Sandbox. Người chơi chỉ cần trình duyệt trên cùng mạng; không cần compiler hoặc Docker trên máy của mình.</p>
-<div class="network-status"><strong id="current-origin">Đang kiểm tra kết nối…</strong><p id="network-mode"></p><div id="lan-links"></div></div>
+<div class="network-status"><strong id="current-origin">Đang kiểm tra kết nối…</strong><p id="network-mode"></p><div id="lan-links"></div><button class="button ghost small" id="lan-retry" type="button" hidden>Thử kiểm tra lại</button></div>
 <h2>01 / Khởi động</h2>
 <pre>py -3 scripts/configure_sandbox.py
 docker compose up -d --build --wait
@@ -21,34 +21,25 @@ Test-NetConnection IP-MAY-CHU -Port 8000</pre>
 <pre>New-NetFirewallRule -DisplayName "NEON ARENA LAN 8000" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 8000 -Profile Private -RemoteAddress LocalSubnet
 # Gỡ khi không còn cần:
 Remove-NetFirewallRule -DisplayName "NEON ARENA LAN 8000"</pre>
-<h2>03 / Chọn đúng luồng thi đấu</h2>
-<ul>
-<li><strong>Account-Only:</strong> Admin/Player đăng nhập; Player vào Team, Captain chọn Active Bot. Admin lên lịch Official, hoặc member gửi Scrimmage. Trận đã gửi hợp lệ tiếp tục chạy khi logout. Origin LAN phải được operator cấu hình chính xác.</li>
-<li><strong>Demo legacy:</strong> Organizer chọn game/luật và mở cuộc thi; hai Player ở các phiên trình duyệt riêng nộp bot, chọn Active Bot và giữ trang mở. Organizer mời hai người READY; cả hai chấp nhận mới bắt đầu trận.</li>
-</ul>
+<h2 id="account-workflow">03 / Thi đấu bằng tài khoản và đội (Account-Only)</h2>
+<ol>
+<li><strong>Admin chuẩn bị:</strong> bật Account-Only theo tài liệu cài đặt, cấu hình origin đúng địa chỉ các máy truy cập, kiểm tra Docker Sandbox tại Giám sát hệ thống. Chọn game và lưu luật tại Game &amp; Luật chơi.</li>
+<li><strong>Player đăng nhập:</strong> mỗi người dùng tài khoản riêng. Nếu đăng ký được mở, chọn Đăng ký Player; nếu được mời, dùng Mã kích hoạt do Admin gửi.</li>
+<li><strong>Tạo hoặc tham gia đội:</strong> vào Team &amp; Bot, tạo Mã đội và Tên đội hoặc nhận lời mời từ Captain. Captain mời thành viên bằng tên đăng nhập. Với trận hai đội, cần ít nhất hai đội riêng biệt.</li>
+<li><strong>Nộp và chọn bot:</strong> thành viên nộp file hoặc bot mẫu. Đọc kết quả biên dịch; Captain kích hoạt đội và chọn một Active Bot hợp lệ cho game của trận.</li>
+<li><strong>Admin xếp lịch:</strong> vào Official Match, chọn hai đội ACTIVE khác nhau, game, hạn khóa bot và giờ đấu. Captain chuẩn bị bot trước hạn khóa. Có thể tạo giải hoặc mùa thi đấu để tổ chức nhiều đội.</li>
+<li><strong>Xem kết quả:</strong> server khóa bot và tự chạy trận bằng Docker Sandbox. Hai đội có thể đăng xuất; mở Official Match để xem live/replay, Giải đấu hoặc Bảng xếp hạng để xem điểm. Muốn thử chiến thuật, dùng Thách đấu với một đội có Active Bot hợp lệ; Scrimmage không tính vào bảng điểm giải.</li>
+</ol>
+<details><summary>Quy trình demo legacy (ARENA_ACCOUNT_ONLY=0)</summary><ol>
+<li>Host chạy server, chia sẻ địa chỉ LAN và mở quyền Organizer.</li>
+<li>Organizer chọn game, lưu luật và mở cuộc thi.</li>
+<li>Hai Player mở các phiên trình duyệt riêng và đặt nickname.</li>
+<li>Mỗi Player nộp bot, chọn Active Bot, giữ trang mở và chờ READY.</li>
+<li>Organizer vào Phòng thi đấu, mời hai Player READY.</li>
+<li>Hai Player chấp nhận; trận bắt đầu. Xem kết quả trong Lịch sử &amp; Replay.</li>
+</ol></details>
 <p>Pause/tua replay chỉ điều khiển trình xem; không dừng trận trên server. Nếu bot lỗi, đọc compiler diagnostics và kiểm tra <code>/api/health</code>; nếu mất live, browser thử reconnect.</p>
 <h2>04 / Public HTTPS</h2>
 <p>Account-Only public dùng Caddy trong <code>compose.public.yaml</code>, HTTPS, cookie/CSRF và origin/host chính xác. Mẫu Nginx trong <code>deploy/nginx.conf.example</code> dành cho legacy read-only. Cấu hình local HTTP không phải cấu hình Internet. Chi tiết: <code>docs/OPERATIONS.md</code>.</p>
 <div class="safety-note">MÔI TRƯỜNG TIN CẬY<br><span>Docker Sandbox giảm rủi ro thực thi bot nhưng không bảo đảm an toàn tuyệt đối. Native runner chỉ dùng code tin cậy. Không chia sẻ .env hoặc port-forward dịch vụ chưa được nghiệm thu.</span></div>
-</article><script>
-(async () => {
-  const health = await fetch('/api/health').then(response => response.json());
-  let path = '/api/network';
-  if (health.account_only) {
-    const account = await fetch('/api/admin/auth/me');
-    if (!account.ok) throw new Error('Admin authentication required');
-    path = '/api/admin/network';
-  }
-  const response = await fetch(path);
-  if (!response.ok) throw new Error('Network information unavailable');
-  return response.json();
-})().then(info => {
-  document.querySelector('#current-origin').textContent = 'WEBSITE / ' + info.origin;
-  document.querySelector('#network-mode').textContent = info.read_only ? 'READ ONLY — chỉ xem live/replay.' : 'TRUSTED LAN — nộp bot và tạo trận trong nhóm.';
-  const target = document.querySelector('#lan-links');
-  if (info.lan_urls.length) {
-    const text = document.createElement('p'); text.textContent = 'Địa chỉ máy chủ gợi ý (chọn IP của card Wi-Fi trong ipconfig):'; target.append(text);
-    for (const url of info.lan_urls) { const row = document.createElement('p'); const link = document.createElement('a'); link.href = url; link.textContent = url; row.append(link); target.append(row); }
-  }
-}).catch(() => { document.querySelector('#current-origin').textContent = 'Mở trang hướng dẫn từ server đang chạy để kiểm tra địa chỉ.'; });
-</script></body></html>
+</article></body></html>

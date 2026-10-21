@@ -14,6 +14,8 @@ def test_logout_requires_confirmed_revocation(outcome):
     harness = r'''
 const assert = require('node:assert/strict');
 const outcome = OUTCOME;
+const location = new URL('https://arena.example.org/?official=qa&auth=login&returnTo=upload#system');
+const history = { replaceState(_state, _title, url) { location.href = new URL(url, location).href; } };
 const app = {accountAudience: 'admin', account: {id: 'admin'}, participant: {},
   role: 'organizer', organizerAvailable: true, csrf: 'csrf', initialized: true};
 let landing = null, errorToast = null, attempts = 0, closes = 0;
@@ -39,11 +41,14 @@ LOGOUT
     assert.equal(app.logoutError, true);
     assert.equal(landing, null);
     assert.equal(closes, 0);
+    assert.equal(location.hash, '#system');
     assert.equal(errorToast.error, true);
     assert.match(errorToast.message, /Chưa xác nhận đăng xuất/);
     await accountLogout(); // The same session can retry after connectivity returns.
     assert.equal(attempts, 2);
     assert.equal(app.account, null);
+    assert.equal(location.hash, '#home');
+    assert.equal(location.search, '');
     assert.equal(landing, 'Đã đăng xuất an toàn. Bạn có thể đăng nhập lại.');
   } else if (outcome === '401') {
     assert.equal(app.account, null);
@@ -51,6 +56,8 @@ LOGOUT
     assert.equal(errorToast, null);
   } else {
     assert.equal(app.account, null);
+    assert.equal(location.hash, '#home');
+    assert.equal(location.search, '');
     assert.equal(app.role, 'player');
     assert.equal(landing, 'Đã đăng xuất an toàn. Bạn có thể đăng nhập lại.');
   }

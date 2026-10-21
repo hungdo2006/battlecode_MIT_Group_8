@@ -26,7 +26,9 @@ Giới hạn đăng ký hiện tại là 5 lần thử/60 giây theo địa ch�
 
 ## Khôi phục và Admin MFA
 
-Player không dùng email recovery có thể xin mã từ Admin tại **Official Match → Hỗ trợ khôi phục tài khoản Player**, rồi nhập ở **Quên mật khẩu Player?**. Admin phải xác minh danh tính ngoài hệ thống. Mã dùng một lần, hạn 30 phút; cấp mã mới vô hiệu mã cũ. Reset thành công thu hồi phiên cũ. Không chụp/chia sẻ mã trong log hoặc ticket.
+Ở public username-only hoặc môi trường bật email recovery, Player có thể xin mã từ Admin tại **Tài khoản & đội → Hỗ trợ khôi phục tài khoản Player**, rồi nhập ở **Quên mật khẩu Player?**. Admin phải xác minh danh tính ngoài hệ thống. Mã dùng một lần, hạn 30 phút; cấp mã mới vô hiệu mã cũ. Reset thành công thu hồi phiên cũ. Không chụp/chia sẻ mã trong log hoặc ticket.
+
+Màn hình khôi phục hiển thị liên hệ `hungdonxqvbn@gmail.com`. Operator đổi kênh hỗ trợ bằng `ARENA_SUPPORT_URL=mailto:dia-chi@example.org` hoặc một URL HTTPS trong `.env`, sau đó tạo lại container arena. Giá trị này là thông tin công khai và được trả trong `/api/health`; không đặt secret vào URL. Khôi phục bằng mã chỉ bật khi backend có email verification hoặc public username signup; local/LAN không bật các chế độ này vẫn giữ chính sách hiện có.
 
 Admin được bootstrap offline, không qua đăng ký Player hoặc recovery Player. Public gateway chấp nhận đúng một cấu hình:
 

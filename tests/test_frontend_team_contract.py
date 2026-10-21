@@ -149,7 +149,7 @@ def test_account_only_background_poll_respects_auth_budget_and_keeps_online_on_4
     assert 'setConnection(false)' not in official.replace(
         'if (error.transport) setConnection(false);', '')
     assert 'if (isAdmin && includeTeams)' in js
-    assert 'const teams = await api("/api/admin/teams");' in js
+    assert re.search(r'(?:const |let |)teams = await api\("/api/admin/teams"\);', js)
     assert 'response.status === 429' in js
     assert 'response.headers.get("Retry-After")' in js
     assert 'app.pollPauseUntil = Math.max(' in js

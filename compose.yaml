@@ -90,6 +90,7 @@ services:
       ARENA_ADMIN_TOTP_REQUIRED: "${ARENA_ADMIN_TOTP_REQUIRED:-0}"
       ARENA_AUTH_ORIGINS: "${ARENA_AUTH_ORIGINS:-}"
       ARENA_AUTH_ALLOW_HTTP: "${ARENA_AUTH_ALLOW_HTTP:-0}"
+      ARENA_SUPPORT_URL: "${ARENA_SUPPORT_URL:-mailto:hungdonxqvbn@gmail.com}"
     volumes:
       - arena_data:/app/data
       - arena_uploads:/app/uploads

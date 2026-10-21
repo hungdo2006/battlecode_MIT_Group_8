@@ -256,6 +256,7 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
                  "self_registration": account_settings.self_registration,
                  "email_verification": account_settings.require_email_verification,
                  "username_only_signup": account_settings.allow_public_username_signup,
+                 "support_url": account_settings.support_url,
                  "admin_totp_required": account_settings.require_admin_totp}
 
     def session_payload(request: Request):

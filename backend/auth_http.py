@@ -181,12 +181,17 @@ class HTTPAuthSettings:
     gateway_secret: str = field(default="", repr=False)
     origins: tuple[str, ...] = ()
     allow_http: bool = False  # Explicit local/LAN QA exception, never HTTPS override.
+    support_url: str = "mailto:hungdonxqvbn@gmail.com"
     policy: AuthPolicy = field(default_factory=AuthPolicy)
     limits: RateLimits = field(default_factory=RateLimits)
     clock: object = field(default=time.time, repr=False)
     rate_clock: object = field(default=time.monotonic, repr=False)
 
     def __post_init__(self):
+        contact = urlsplit(self.support_url)
+        if (contact.scheme not in {"mailto", "https"} or not (contact.path if contact.scheme == "mailto" else contact.netloc)
+                or any(char.isspace() for char in self.support_url)):
+            raise ValueError("ARENA_SUPPORT_URL must be a mailto: address or HTTPS support URL")
         if self.account_only and not self.enabled:
             raise ValueError("ARENA_ACCOUNT_ONLY requires ARENA_ACCOUNT_AUTH=1")
         if self.self_registration and not self.account_only:
@@ -246,6 +251,7 @@ class HTTPAuthSettings:
                    public_https=_env_bool("ARENA_PUBLIC_GATEWAY"),
                    gateway_secret=os.environ.get("ARENA_PROXY_SECRET", ""),
                    origins=origins,
+                   support_url=os.environ.get("ARENA_SUPPORT_URL", "mailto:hungdonxqvbn@gmail.com"),
                    allow_http=_env_bool("ARENA_AUTH_ALLOW_HTTP"))
 
 

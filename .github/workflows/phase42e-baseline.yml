@@ -46,6 +46,9 @@ jobs:
         run: |
           node --check frontend/app.js
           node --check frontend/renderers.js
+          node --check frontend/ui.js
+          node --check frontend/protocol.js
+          node --check frontend/lan.js
           node scripts/check_account_frontend_routing.cjs
           python scripts/version_frontend.py --check
       - name: Full Python and controller regression

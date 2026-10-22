@@ -664,6 +664,27 @@ class AuthService:
                 self._db.execute("UPDATE auth_sessions SET last_seen_at = ? WHERE id = ?", (now, session["id"]))
             return Principal(_account(user), audience, session["id"], _PRINCIPAL_PROOF)
 
+    def session_activity(self, actor, *, touch=False):
+        """Bound activity renewal by the session's immutable absolute expiry.
+
+        Read-only polling does not count as activity. Heartbeat writes are
+        coalesced to at most once per 30s (or a third of a short test policy).
+        This always validates revocation, MFA proof and both TTLs first.
+        """
+        self._ready()
+        with transaction(self._db):
+            now = self._now()
+            self._require_actor(actor, now, touch=False)
+            row = self._db.execute('SELECT * FROM auth_sessions WHERE id=?',(actor.session_id,)).fetchone()
+            seen = row['last_seen_at'] if row['last_seen_at'] is not None else row['created_at']
+            minimum = max(1,min(30,row['idle_timeout_seconds']//3))
+            if touch and now-seen >= minimum:
+                self._db.execute('UPDATE auth_sessions SET last_seen_at=? WHERE id=?',(now,actor.session_id))
+                seen = now
+            return {'server_time':now,'expires_at':row['expires_at'],
+                    'idle_expires_at':min(row['expires_at'],seen+row['idle_timeout_seconds']),
+                    'heartbeat_after':max(1,min(45,row['idle_timeout_seconds']//3))}
+
     def change_own_password(self, actor, current_password, new_password):
         """Change an authenticated user's password and revoke all sessions.
 

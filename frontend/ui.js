@@ -112,7 +112,7 @@
           ? "Mã đội chỉ gồm chữ cái không dấu, chữ số và dấu gạch ngang (-)."
           : input.name === "username" ? "Tên đăng nhập chỉ gồm chữ cái không dấu, chữ số và các dấu . _ - ." : "Thông tin chưa đúng định dạng yêu cầu.";
         else if (!input.validity.valid) message = "Giá trị chưa hợp lệ hoặc nằm ngoài giới hạn cho phép.";
-        if (!message && input.name === "confirm_password" && value !== form.elements.password?.value) message = "Hai mật khẩu chưa trùng nhau.";
+        if (!message && input.name === "confirm_password" && value !== (form.elements.password || form.elements.new_password)?.value) message = "Hai mật khẩu chưa trùng nhau.";
         const errorId = input.getAttribute("aria-describedby").split(" ").find(id => id.startsWith("field-error-"));
         const error = document.getElementById(errorId);
         error.textContent = message;

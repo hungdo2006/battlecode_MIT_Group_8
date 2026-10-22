@@ -495,7 +495,9 @@ class AccountAuthBoundary:
                 token = strict_cookie(request.headers, account_cookie_name(audience))
                 if mutation:
                     require_csrf(request, runtime, audience, token)
-                touch = mutation or scope["path"].endswith(("/auth/me", "/auth/csrf"))
+                # Read-only background feeds and revocation probes must not
+                # extend idle lifetime. Heartbeat coalesces its own writes.
+                touch = mutation and not scope["path"].endswith('/auth/heartbeat')
                 principal = await runtime.run(
                     lambda auth, _: auth.validate_session(token, audience=audience, touch=touch))
                 scope.setdefault("state", {})["account_auth"] = {
@@ -754,8 +756,9 @@ def install_auth_http(app, settings, network):
             body.username, body.password.get_secret_value(), source_key=trusted_client_address(request.scope, request.headers, settings),
             otp=body.otp.get_secret_value() if body.otp else None))
         audience = grant.principal.audience
+        activity = await runtime.run(lambda auth,_:auth.session_activity(grant.principal))
         response = JSONResponse(account_response(grant.principal.account,
-            expires_at=grant.expires_at, account_only=True, audience=audience.lower()))
+            expires_at=grant.expires_at, account_only=True, audience=audience.lower(), session=activity))
         response.set_cookie(account_cookie_name(audience), grant.token,
             max_age=max(0, grant.expires_at - int(settings.clock())), httponly=True,
             secure=secure_account_cookie(request, settings), samesite="strict",
@@ -791,8 +794,9 @@ def install_auth_http(app, settings, network):
                 body.username, body.password.get_secret_value(), audience=audience,
                 source_key=trusted_client_address(request.scope, request.headers, settings),
                 otp=body.otp.get_secret_value() if body.otp else None))
+            activity = await runtime.run(lambda auth,_:auth.session_activity(grant.principal))
             response = JSONResponse(account_response(
-                grant.principal.account, expires_at=grant.expires_at, account_only=settings.account_only))
+                grant.principal.account, expires_at=grant.expires_at, account_only=settings.account_only, session=activity))
             response.set_cookie(account_cookie_name(audience), grant.token,
                 max_age=max(0, grant.expires_at - int(settings.clock())), httponly=True,
                 secure=secure_account_cookie(request, settings), samesite="strict",
@@ -805,7 +809,13 @@ def install_auth_http(app, settings, network):
         @target.get("/me")
         async def account_me(request: Request):
             principal, _ = await authenticate_account(request, audience)
-            return account_response(principal.account, account_only=settings.account_only)
+            activity = await runtime_for(request).run(lambda auth,_:auth.session_activity(principal))
+            return account_response(principal.account, account_only=settings.account_only, session=activity)
+
+        @target.post('/heartbeat')
+        async def account_heartbeat(body: StrictBody, request: Request):
+            principal, _ = await authenticate_account(request,audience,csrf=True,touch=False)
+            return await runtime_for(request).run(lambda auth,_:auth.session_activity(principal,touch=True))
 
         @target.get("/csrf")
         async def account_csrf(request: Request):

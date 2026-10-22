@@ -215,6 +215,10 @@ summary { width: fit-content; cursor: pointer; }
 #replay-heading, #bot-library-title, #official-list-panel, #upload-workflow-details { scroll-margin-top: 90px; }
 #replay-heading { overflow-wrap: anywhere; }
 #official-list-panel { margin-bottom: 24px; }
+.team-policy-panel { margin-bottom: 24px; }
+#team-policy-form { max-width: 680px; }
+#matchmaking-clock { font-variant-numeric: tabular-nums; }
+#session-notice { flex-wrap: wrap; }
 .team-tournament-details { border: 1px solid var(--border); margin-bottom: 16px; }
 .team-tournament-details > summary { padding: 20px 24px; cursor: pointer; }
 .team-tournament-details .tournament-card { border: 0; }

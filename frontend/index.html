@@ -9,10 +9,10 @@
   <title>NEON ARENA · Tournament workspace</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=b78a50b1c80f">
   <link rel="preload" href="/static/fonts/InterVariable.woff2?v=693b77d4f32e" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/static/styles.css?v=4ad5fae884f6">
+  <link rel="stylesheet" href="/static/styles.css?v=260d06541f1c">
   <script src="/static/renderers.js?v=d3bb0dd1cd7c" defer></script>
-  <script src="/static/ui.js?v=ec5370824a8c" defer></script>
-  <script src="/static/app.js?v=3d3d9db05613" defer></script>
+  <script src="/static/ui.js?v=01d6bafd6c85" defer></script>
+  <script src="/static/app.js?v=5619f6aa9cdf" defer></script>
 </head>
 <body class="account-landing-active">
   <!-- Public welcome screen; workspace visibility is never an authorization boundary. -->
@@ -134,6 +134,7 @@
     <main id="main-content" tabindex="-1">
       <div class="feedback hidden" id="readonly-notice">Chế độ chỉ xem · Bạn có thể xem live và replay.</div>
       <div class="network-notice hidden" id="network-notice" role="status"><span id="network-message">Đang kết nối lại. Dữ liệu đã nhận vẫn được giữ trên màn hình.</span><button type="button" class="text-button" id="retry-connection">Thử lại</button></div>
+      <div class="network-notice hidden" id="session-notice" role="status"><span id="session-message"></span><button type="button" class="text-button" id="session-continue">Tiếp tục phiên</button></div>
       <div class="workspace-context" aria-label="Cuộc thi hiện tại">
         <span class="context-label">Game hiện tại</span><strong id="workspace-game-name">Đang tải game…</strong><span class="tag" id="competition-status" role="status">Đang tải cuộc thi…</span>
       </div>
@@ -218,7 +219,7 @@
               <p id="account-team-members" class="form-note"></p>
               <button id="account-team-activate" class="button primary hidden" type="button">Kích hoạt đội</button>
               <details class="team-management"><summary>Quản lý thành viên và đội</summary>
-              <form id="account-team-invite" class="hidden"><label>Mời Player theo username<input name="username" required minlength="3" maxlength="32"></label><button class="button ghost" type="submit">Mời thành viên</button></form>
+              <p id="account-team-capacity" class="form-note" role="status"></p><form id="account-team-invite" class="hidden"><label>Mời Player theo username<input name="username" required minlength="3" maxlength="32"></label><button class="button ghost" type="submit">Mời thành viên</button></form>
               <div id="account-team-member-actions" class="match-list"></div>
               <form id="account-team-rename" class="hidden"><label>Tên Team mới<input name="display_name" required maxlength="64"></label><button class="button ghost" type="submit">Đổi tên Team</button></form>
               <button id="account-team-leave" class="button ghost hidden" type="button">Rời Team</button>
@@ -298,10 +299,10 @@
         </details>
       </section>
 
-      <section class="view" id="view-scrimmage" aria-label="Thách đấu và hàng đợi">
-        <div class="page-intro"><h1 id="scrimmage-title">Thách đấu</h1><p>Chọn đối thủ và gửi bot vào hàng đợi. Hai đội không cần online; bot đại diện được chốt tại thời điểm gửi yêu cầu. Trận thử không ảnh hưởng bảng điểm giải.</p></div>
-        <section class="panel hidden" id="scrimmage-create-panel"><div class="panel-heading"><h2>Trận thử mới</h2><span class="tag">Team vs Team</span></div>
-          <form id="scrimmage-create" class="padded-form account-form"><label>Game<select name="game_id" id="scrimmage-game" required></select></label><label>Đội đối thủ<select name="opponent_team_id" id="scrimmage-opponent" required disabled><option value="">Đang tải dữ liệu…</option></select></label><p class="form-note" id="scrimmage-eligibility"></p><a class="text-button hidden" id="scrimmage-bot-link" href="?focus=bots#upload">Chọn Active Bot →</a><button class="button primary" type="submit">Gửi thách đấu <span aria-hidden="true">↗</span></button><div id="scrimmage-feedback" class="feedback hidden" role="status"></div></form>
+      <section class="view" id="view-scrimmage" aria-label="Đấu luyện và tìm trận">
+        <div class="page-intro"><h1 id="scrimmage-title">Đấu luyện</h1><p>Chủ động tìm một đội khác đang chờ cùng game. Bot được chốt khi ghép; trận không cộng điểm giải đấu và tiếp tục chạy khi bạn rời website.</p></div>
+        <section class="panel hidden" id="scrimmage-create-panel"><div class="panel-heading"><h2>Tìm trận đấu luyện</h2><span class="tag" id="matchmaking-state">Chưa sẵn sàng</span></div>
+          <form id="scrimmage-create" class="padded-form account-form"><label>Game<select name="game_id" id="scrimmage-game" required></select></label><p class="form-note" id="scrimmage-eligibility"></p><a class="text-button hidden" id="scrimmage-bot-link" href="?focus=bots#upload">Chọn Active Bot →</a><p class="form-note" id="matchmaking-detail"></p><span class="form-note" id="matchmaking-clock"></span><div class="form-buttons"><button class="button primary" type="submit">Tìm trận <span aria-hidden="true">↗</span></button><button class="button ghost hidden" id="matchmaking-cancel" type="button">Hủy tìm trận</button><button class="button ghost hidden" id="matchmaking-watch" type="button">Xem diễn biến / Replay ↗</button></div><p class="form-note">Tìm tối đa 5 phút, ưu tiên đội chờ lâu. Reload hoặc mất mạng vẫn giữ lượt tìm tới hạn; khi máy chủ khởi động lại, bạn cần tìm lại.</p><div id="scrimmage-feedback" class="feedback hidden" role="status"></div></form>
         </section>
         <section class="panel"><div class="panel-heading"><h2>Hàng đợi &amp; kết quả</h2><button class="button ghost small" id="refresh-scrimmages" type="button">Làm mới</button></div><div id="scrimmage-list" class="match-list"><div class="empty-state">Đang tải trận thử…</div></div></section>
       </section>
@@ -353,7 +354,12 @@
         </section>
         <div id="admin-recovery-host"></div>
         </section>
-        <section id="admin-pane-teams" role="tabpanel" aria-labelledby="admin-tab-teams" tabindex="0" hidden><section class="panel"><div class="panel-heading"><h2>Các đội thi đấu</h2><label class="inline-search">Tìm đội<input id="admin-team-query" placeholder="Tên hoặc mã đội" maxlength="128"></label><button class="button ghost small" id="admin-refresh-teams" type="button">Làm mới</button></div><div id="admin-teams-list" class="match-list"></div></section></section>
+        <section id="admin-pane-teams" role="tabpanel" aria-labelledby="admin-tab-teams" tabindex="0" hidden>
+          <section class="panel team-policy-panel"><div class="panel-heading"><h2>Giới hạn thành viên đội</h2></div>
+            <form id="team-policy-form" class="padded-form account-form"><label>Số thành viên tối đa, tính cả Captain<input name="max_members" type="number" min="2" max="20" step="1" required value="5"></label><p class="form-note">Áp dụng cho mọi đội. Giảm giới hạn không xóa thành viên hiện tại; đội vượt giới hạn sẽ không nhận thêm người.</p><button class="button primary" type="submit">Lưu giới hạn</button><div id="team-policy-feedback" class="feedback hidden" role="status"></div></form>
+          </section>
+          <section class="panel"><div class="panel-heading"><h2>Các đội thi đấu</h2><label class="inline-search">Tìm đội<input id="admin-team-query" placeholder="Tên hoặc mã đội" maxlength="128"></label><button class="button ghost small" id="admin-refresh-teams" type="button">Làm mới</button></div><div id="admin-teams-list" class="match-list"></div></section>
+        </section>
         <section id="admin-pane-bots" role="tabpanel" aria-labelledby="admin-tab-bots" tabindex="0" hidden><section class="panel"><div class="panel-heading"><h2>Bot &amp; biên dịch</h2><label class="inline-search">Tìm bot<input id="admin-bot-query" placeholder="Tên, game hoặc trạng thái" maxlength="128"></label><button class="button ghost small" id="admin-refresh-bots" type="button">Làm mới</button></div><div id="admin-submissions-list" class="match-list"></div></section></section>
       </section>
       <section class="view" id="view-system" aria-label="Giám sát hệ thống">

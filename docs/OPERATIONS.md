@@ -4,7 +4,7 @@
 
 ## Migration và Admin
 
-Schema hiện tại: **17**, xác định bởi `backend/account_schema.py` và `SCHEMA_VERSION`. DB cũ phải migrate offline; không tự sửa `PRAGMA user_version`. Trước cập nhật: đóng admission, đợi/hủy công việc hợp lệ, dừng writer và sao lưu. Rehearse trên bản sao trước dữ liệu thật.
+Schema hiện tại: **19**, xác định bởi `backend/account_schema.py` và `SCHEMA_VERSION`. Migration 18 thêm giới hạn đội và tombstone bot; migration 19 thêm lượt tìm trận. Không sửa các migration 1–17. DB cũ phải migrate offline; không tự sửa `PRAGMA user_version`. Trước cập nhật: đóng admission, đợi/hủy công việc hợp lệ, dừng writer và sao lưu. Rehearse trên bản sao trước dữ liệu thật.
 
 Với image đã build cho phiên bản đích và Arena đã dừng:
 
@@ -14,6 +14,14 @@ docker compose run --rm --no-deps arena python -m backend.admin_cli --data-dir /
 ```
 
 Tạo Admin bằng `create-admin --username organizer`; enroll/rotate MFA bằng `enroll-admin-totp --username organizer` với cùng prefix CLI. Hai lệnh cần terminal riêng tư tương tác; không pipe mật khẩu hoặc lưu TOTP secret vào log. Enroll/rotate MFA thu hồi phiên cũ. Quản lý Player qua UI Admin, không sửa trực tiếp bảng users.
+
+Giới hạn đội mặc định 5, tính cả Captain; Admin chỉnh 2–20 ở **Tài khoản & đội → Đội**. Giảm giới hạn giữ nguyên thành viên, chỉ chặn mời/nhận thêm. Xóa bot là ẩn bằng tombstone: giữ nguyên ownership, source, artifact và snapshot để trận/replay cũ tiếp tục đọc được. Không chạy thao tác dọn uploads/artifacts chỉ vì bot bị ẩn; chưa bổ sung garbage collector.
+
+Đấu luyện ghép FIFO giữa các đội chủ động tìm, cùng game, có bot hợp lệ. Một đội chỉ có một lượt tìm hoặc trận đấu luyện đang xử lý. Reload/mất mạng giữ lượt tìm tối đa 5 phút; restart hủy các lượt chưa ghép với lý do rõ ràng. Trận đã tạo dùng dispatcher hiện tại, giới hạn tổng hai trận và ưu tiên Official. Recovery của trận đã claim giữ cơ chế không tự chạy lại khi không chắc đã thực thi.
+
+Phiên Admin/Player mới mặc định tối đa 8 giờ, idle 1 giờ theo PR #17. Các phiên đã phát hành giữ TTL được lưu trong DB; cập nhật code không thay TTL của phiên cũ. Heartbeat frontend chỉ chạy khi có tương tác trong trang đang hiển thị, thường không quá một lần/45 giây; backend gộp cập nhật last_seen trong 30 giây và không thay expires_at/cookie. Feed chỉ đọc, WebSocket và GET me/csrf không thay thế heartbeat. 429 và lỗi mạng được giữ phiên; chỉ bằng chứng xác thực hết hạn/thu hồi mới chuyển về đăng nhập.
+
+Trước deploy AWS, thực hiện quy trình cold backup/restore bên dưới và checklist riêng tại [báo cáo Team/Bot/Đấu luyện/Session](TEAM_MATCHMAKING_SESSION.md). Không downgrade bằng cách hạ user_version hoặc xóa bảng mới; rollback dùng bộ snapshot trước migration và đúng image IDs đã sao lưu.
 
 ## Cold backup
 

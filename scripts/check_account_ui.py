@@ -72,7 +72,8 @@ def run():
             errors = []
             with sync_playwright() as playwright:
                 browser = playwright.chromium.launch(channel="chrome", headless=True)
-                page = browser.new_page(viewport={"width": 1440, "height": 900})
+                context = browser.new_context(viewport={"width": 1440, "height": 900})
+                page = context.new_page()
                 page.on("pageerror", lambda error: errors.append(str(error)))
                 auth_posts = []
                 def record_auth_post(request):
@@ -257,6 +258,29 @@ def run():
                 assert not dialog.is_visible()
                 assert page.locator(".shell").is_hidden()
                 assert page.locator("#workspace-game-select").is_disabled()
+                # PR #17's password field is named new_password, while signup
+                # uses password. Shared confirmation validation must support
+                # both and still reject a mismatched confirmation.
+                page.click("#landing-login")
+                page.fill("#account-username", "qa.player")
+                page.fill("#account-login-form [name=password]", PASSWORD)
+                page.click("#account-login-form [type=submit]")
+                page.wait_for_function("app.initialized && !app.initializing")
+                other = page.context.new_page()
+                other.goto(origin)
+                other.wait_for_function("app.initialized && !app.initializing")
+                page.evaluate("visitWorkspace(workspaceLink('profile'))")
+                page.fill("#profile-password-form [name=current_password]", PASSWORD)
+                changed = "QA changed profile password test-only 2026"
+                page.fill("#profile-password-form [name=new_password]", changed)
+                page.fill("#profile-password-form [name=confirm_password]", changed + " mismatch")
+                page.click("#profile-password-form [type=submit]")
+                assert "Hai mật khẩu chưa trùng" in page.locator("#profile-password-form .field-error:visible").inner_text()
+                page.fill("#profile-password-form [name=confirm_password]", changed)
+                page.click("#profile-password-form [type=submit]")
+                landing.wait_for(state="visible")
+                other.locator("#account-landing").wait_for(state="visible", timeout=16000)
+                assert not other.evaluate("!!app.account || !!app.match || app.frames.length > 0")
                 assert not errors, errors
                 browser.close()
         finally:
@@ -264,7 +288,7 @@ def run():
             thread.join(timeout=20)
             if thread.is_alive():
                 raise RuntimeError("Temporary Account-Only server did not stop cleanly")
-    print("PASS Account-Only browser UI: landing, signup/login, session restore, logout/retry, mobile navigation/focus/layout, revocation, legacy 410")
+    print("PASS Account-Only browser UI: landing, signup/login, session restore, logout/retry, mobile navigation/focus/layout, revocation, profile password confirmation and multi-tab logout, legacy 410")
 
 
 if __name__ == "__main__":

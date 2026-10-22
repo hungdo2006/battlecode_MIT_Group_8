@@ -12,7 +12,7 @@
   <link rel="stylesheet" href="/static/styles.css?v=4ad5fae884f6">
   <script src="/static/renderers.js?v=d3bb0dd1cd7c" defer></script>
   <script src="/static/ui.js?v=ec5370824a8c" defer></script>
-  <script src="/static/app.js?v=161230fedbf3" defer></script>
+  <script src="/static/app.js?v=3d3d9db05613" defer></script>
 </head>
 <body class="account-landing-active">
   <!-- Public welcome screen; workspace visibility is never an authorization boundary. -->
@@ -72,6 +72,15 @@
     <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M7 3h10v7a5 5 0 0 1-10 0V3Zm0 2H3v3a4 4 0 0 0 4 4m10-7h4v3a4 4 0 0 1-4 4m-5 3v6m-4 0h8"/></symbol>
     <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></symbol>
     <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="12" rx="3"/><path d="M8 10V6a4 4 0 0 1 8 0v4m-4 5v3"/></symbol>
+    <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4m10-4v4M3 10h18M7 15h3m4 0h3"/></symbol>
+    <symbol id="i-ranking" viewBox="0 0 24 24"><path d="M3 20h18M4 20v-7h5v7m1-11h5v11m1-4h5v4M10 6l2-3 2 3-2 2z"/></symbol>
+    <symbol id="i-bracket" viewBox="0 0 24 24"><path d="M3 3h5v4H3zm0 14h5v4H3zm13-7h5v4h-5zM8 5h4v7h4M8 19h4v-7"/></symbol>
+    <symbol id="i-calendar-play" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M7 2v4m10-4v4M3 9h18m-11 3 5 3-5 3z"/></symbol>
+    <symbol id="i-swords" viewBox="0 0 24 24"><path d="m3 3 15 15m-9-9-3 3m11 6 3 3m1-18L6 18m9-9 3 3M3 21l3-3"/></symbol>
+    <symbol id="i-replay" viewBox="0 0 24 24"><path d="M4 7v5h5M5 12a8 8 0 1 1 2 6m5-10 5 4-5 4z"/></symbol>
+    <symbol id="i-robot" viewBox="0 0 24 24"><rect x="4" y="7" width="16" height="13" rx="2"/><path d="M12 3v4M9 3h6M8 12h1m6 0h1m-8 4h8M2 11v6m20-6v6"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 2 21 6v6c0 5-4 8-9 10-5-2-9-5-9-10V6zM9 12l2 2 4-4"/></symbol>
+    <symbol id="i-activity" viewBox="0 0 24 24"><path d="M2 12h4l3-7 5 14 3-7h5"/></symbol>
   </svg>
 
   <div class="nav-backdrop" id="nav-backdrop" hidden></div>
@@ -83,24 +92,23 @@
     <nav aria-label="Điều hướng chính">
       <div class="nav-group"><span class="nav-group-label">Workspace</span>
         <a class="nav-item active" href="#home" data-view="home"><svg class="nav-icon" aria-hidden="true"><use href="#i-home"/></svg>Tổng quan</a>
-        <a class="nav-item" href="#upload" data-view="upload"><svg class="nav-icon" aria-hidden="true"><use href="#i-upload"/></svg>Team &amp; Bot</a>
+        <a class="nav-item" href="#upload" data-view="upload"><svg class="nav-icon" aria-hidden="true"><use href="#i-robot"/></svg>Team &amp; Bot</a>
       </div>
       <div class="nav-group"><span class="nav-group-label">Thi đấu</span>
-        <a class="nav-item hidden" href="#seasons" data-view="seasons"><svg class="nav-icon" aria-hidden="true"><use href="#i-trophy"/></svg>Mùa thi đấu</a>
-        <a class="nav-item" href="#standings" data-view="standings"><svg class="nav-icon" aria-hidden="true"><use href="#i-trophy"/></svg>Bảng xếp hạng</a>
-        <a class="nav-item" href="#tournaments" data-view="tournaments"><svg class="nav-icon" aria-hidden="true"><use href="#i-trophy"/></svg>Giải đấu</a>
-        <a class="nav-item hidden" href="#official" data-view="official"><svg class="nav-icon" aria-hidden="true"><use href="#i-play"/></svg>Official Match</a>
-        <a class="nav-item hidden" href="#scrimmage" data-view="scrimmage"><svg class="nav-icon" aria-hidden="true"><use href="#i-players"/></svg><span id="scrimmage-nav-label">Thách đấu</span></a>
+        <a class="nav-item hidden" href="#seasons" data-view="seasons"><svg class="nav-icon" aria-hidden="true"><use href="#i-calendar"/></svg>Mùa thi đấu</a>
+        <a class="nav-item" href="#standings" data-view="standings"><svg class="nav-icon" aria-hidden="true"><use href="#i-ranking"/></svg>Bảng xếp hạng</a>
+        <a class="nav-item" href="#tournaments" data-view="tournaments"><svg class="nav-icon" aria-hidden="true"><use href="#i-bracket"/></svg>Giải đấu</a>
+        <a class="nav-item hidden" href="#official" data-view="official"><svg class="nav-icon" aria-hidden="true"><use href="#i-calendar-play"/></svg>Official Match</a>
+        <a class="nav-item hidden" href="#scrimmage" data-view="scrimmage"><svg class="nav-icon" aria-hidden="true"><use href="#i-swords"/></svg><span id="scrimmage-nav-label">Thách đấu</span></a>
         <a class="nav-item" href="#create" data-view="create"><svg class="nav-icon" aria-hidden="true"><use href="#i-players"/></svg>Phòng thi đấu</a>
-        <a class="nav-item" href="#watch" data-view="watch"><svg class="nav-icon" aria-hidden="true"><use href="#i-play"/></svg>Lịch sử &amp; Replay</a>
+        <a class="nav-item" href="#watch" data-view="watch"><svg class="nav-icon" aria-hidden="true"><use href="#i-replay"/></svg>Lịch sử &amp; Replay</a>
       </div>
       <div class="nav-group"><span class="nav-group-label">Tài liệu</span>
         <a class="nav-item" href="#rules" data-view="rules"><svg class="nav-icon" aria-hidden="true"><use href="#i-sliders"/></svg>Game &amp; Luật chơi</a>
-        <a class="nav-item" href="/lan"><svg class="nav-icon" aria-hidden="true"><use href="#i-network"/></svg>Hướng dẫn LAN</a>
       </div>
       <div class="nav-group"><span class="nav-group-label">Tài khoản &amp; vận hành</span>
-        <a class="nav-item hidden" href="#administration" data-view="administration"><svg class="nav-icon" aria-hidden="true"><use href="#i-lock"/></svg>Tài khoản &amp; đội</a>
-        <a class="nav-item hidden" href="#system" data-view="system"><svg class="nav-icon" aria-hidden="true"><use href="#i-network"/></svg>Giám sát hệ thống</a>
+        <a class="nav-item hidden" href="#administration" data-view="administration"><svg class="nav-icon" aria-hidden="true"><use href="#i-shield"/></svg>Tài khoản &amp; đội</a>
+        <a class="nav-item hidden" href="#system" data-view="system"><svg class="nav-icon" aria-hidden="true"><use href="#i-activity"/></svg>Giám sát hệ thống</a>
       </div>
     </nav>
     <div class="sidebar-bottom">
@@ -320,7 +328,16 @@
       <section class="view" id="view-profile" aria-label="Hồ sơ cá nhân">
         <div class="page-intro"><h1>Hồ sơ cá nhân</h1><p>Cập nhật tên hiển thị của bạn trong đội và workspace.</p></div>
         <section class="panel profile-panel"><div class="panel-heading"><h2>Thông tin tài khoản</h2><span class="tag" id="profile-role"></span></div><form id="profile-form" class="padded-form"><label>Tên đăng nhập<input id="profile-username" readonly autocomplete="username"></label><label>Tên hiển thị<input name="display_name" id="profile-display-name" required maxlength="64" autocomplete="nickname"></label><p class="form-note">Vai trò được quản trị theo tài khoản. Nếu quên mật khẩu, liên hệ Admin để nhận mã khôi phục.</p><button class="button primary" type="submit">Lưu hồ sơ</button><div id="profile-feedback" class="feedback hidden" role="status"></div></form></section>
-      </section>
+        <section class="panel profile-panel"><div class="panel-heading"><h2>Đổi mật khẩu</h2></div>
+          <form id="profile-password-form" class="padded-form account-form">
+            <label>Mật khẩu hiện tại<input name="current_password" type="password" autocomplete="current-password" required></label>
+            <label>Mật khẩu mới<input name="new_password" type="password" autocomplete="new-password" minlength="8" maxlength="1024" required></label>
+            <label>Xác nhận mật khẩu mới<input name="confirm_password" type="password" autocomplete="new-password" minlength="8" maxlength="1024" required></label>
+            <p class="form-note">Player: từ 8 ký tự. Admin: từ 15 ký tự. Khi đổi thành công, tất cả các phiên sẽ bị đăng xuất.</p>
+            <button class="button primary" type="submit">Đổi mật khẩu</button>
+            <div id="profile-password-feedback" class="feedback hidden" role="status"></div>
+          </form></section>
+        </section>
       <section class="view" id="view-administration" aria-label="Quản lý tài khoản và đội">
         <div class="page-intro"><h1>Tài khoản &amp; đội</h1><p>Kiểm tra vai trò, thành viên và trạng thái tham gia. Thay đổi quyền có hiệu lực trên máy chủ.</p></div>
         <div class="workspace-tabs" role="tablist" aria-label="Quản lý tài khoản, đội và bot" data-tabs="administration">

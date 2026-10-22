@@ -1,7 +1,7 @@
 """Profile, Admin account controls and factual runtime monitoring."""
 import asyncio
 from fastapi import APIRouter, HTTPException, Request, Query
-from pydantic import Field
+from pydantic import Field, SecretStr
 
 from .account_database import transaction
 from .account_identity import display_name
@@ -11,6 +11,11 @@ from .auth_service import PermissionDenied, AccountConflict
 
 class ProfileBody(StrictBody):
     display_name: str = Field(min_length=1,max_length=64)
+
+
+class ChangePasswordBody(StrictBody):
+    current_password: SecretStr = Field(min_length=1,max_length=1024)
+    new_password: SecretStr = Field(min_length=8,max_length=1024)
 
 
 def install_workspace_http(app):
@@ -42,6 +47,19 @@ def install_workspace_http(app):
                         VALUES (?,?,'PROFILE_UPDATED','user',?,'{}')""",(auth._now(),user['id'],user['id']))
                 return {'account':{**{key:user[key] for key in ('id','username','system_role','status')},'display_name':name}}
             return await execute(request,audience,update,mutation=True)
+        @router.post('/api/'+audience.lower()+'/profile/password')
+        async def change_profile_password(body:ChangePasswordBody,request:Request):
+            def update(auth,db,actor,user):
+                sessions=[row[0] for row in db.execute(
+                    'SELECT id FROM auth_sessions WHERE user_id=? AND revoked_at IS NULL',(user['id'],))]
+                auth.change_own_password(actor,body.current_password.get_secret_value(),
+                                         body.new_password.get_secret_value())
+                return sessions
+            sessions=await execute(request,audience,update,mutation=True)
+            for session in sessions:
+                runtime_for(request).notify_revoked(session)
+            return {'changed':True}
+
     install_profile('PLAYER')
     install_profile('ADMIN')
 

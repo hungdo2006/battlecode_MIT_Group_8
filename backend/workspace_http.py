@@ -104,7 +104,23 @@ def install_workspace_http(app):
     @router.get('/api/admin/submissions')
     async def submissions(request:Request):
         from .bot_service import bot_public
-        return await execute(request,'ADMIN',lambda auth,db,actor,user:{'bots':[bot_public(bot) for bot in app.state.store.get_bots()][:200]})
+        def listing(auth,db,actor,user):
+            bots = [bot_public(bot) for bot in app.state.store.get_bots()][:200]
+            if bots:
+                # Metadata only, bounded by the existing Admin list limit. Keep
+                # ownership authoritative; never infer it from a bot name.
+                placeholders = ','.join('?' for _ in bots)
+                records = db.execute(f'''SELECT s.bot_id,s.team_id,t.display_name AS team_name,
+                    u.display_name AS uploader_name FROM submission_ownership s
+                    JOIN teams t ON t.id=s.team_id JOIN users u ON u.id=s.uploaded_by
+                    WHERE s.bot_id IN ({placeholders})''', [bot['id'] for bot in bots]).fetchall()
+                metadata = {row['bot_id']: dict(row) for row in records}
+                for bot in bots:
+                    record = metadata.get(bot['id'])
+                    if record:
+                        bot.update({key: record[key] for key in ('team_id','team_name','uploader_name')})
+            return {'bots': bots}
+        return await execute(request,'ADMIN',listing)
 
     @router.get('/api/admin/submissions/{bot_id}')
     async def diagnostics(bot_id:str,request:Request):

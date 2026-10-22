@@ -14,7 +14,8 @@ const sourceHelpers = source.slice(start, end);
 const origin = "https://arena-qa.example.org";
 const calls = [];
 let forbiddenMode = "none", expiredCalls = 0;
-const app = { accountOnly: true, accountAudience: null, account: null, csrf: null, pollPauseUntil: 0 };
+const app = { accountOnly: true, accountAudience: null, account: null, csrf: null, pollPauseUntil: 0,
+  sessionEpoch: 0, accountRequests: new Set() };
 async function fakeFetch(url, options = {}) {
   const pathname = new URL(url, origin).pathname;
   calls.push({ pathname, method: (options.method || "GET").toUpperCase(), headers: options.headers || {} });
@@ -34,7 +35,7 @@ async function fakeFetch(url, options = {}) {
   }
   return { ok: true, status: 200, text: async () => '{"ok":true}', headers: { get: () => null } };
 }
-const context = vm.createContext({ app, window: { location: { origin } }, URL, fetch: fakeFetch,
+const context = vm.createContext({ app, window: { location: { origin } }, URL, AbortController, AbortSignal, fetch: fakeFetch,
   accountExpired: () => { expiredCalls++; app.account = null; app.accountAudience = null; app.csrf = null; } });
 const { api, scopedApiPath } = vm.runInContext(sourceHelpers + "\n({api,scopedApiPath})", context);
 

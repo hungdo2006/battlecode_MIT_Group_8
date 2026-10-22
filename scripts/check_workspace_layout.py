@@ -136,6 +136,7 @@ def run():
                 admin.click("#team-tournament-admin-panel > summary")
                 expect(admin.locator("#team-tournament-create [type=submit]")).to_be_disabled()
                 view(admin, "official")
+                admin.click("#official-admin-panel > summary")
                 expect(admin.locator("#official-schedule-form [type=submit]")).to_be_disabled()
                 expect(admin.locator("#official-schedule-eligibility")).to_contain_text("Chưa đủ hai đội")
 
@@ -195,6 +196,9 @@ def run():
                 view(member, "home")
                 expect(member.locator("#overview-primary")).to_have_text("Xem bot của đội ↗")
                 expect(member.locator("#overview-note")).to_contain_text("Captain cần chọn")
+                view(member, "scrimmage")
+                expect(member.locator("#scrimmage-eligibility")).to_contain_text("Liên hệ Captain")
+                expect(member.locator("#scrimmage-bot-link")).to_be_hidden()
                 view(member, "upload")
                 assert member.get_by_role("button", name="Chọn Active Bot", exact=True).count() == 0
                 player.locator("#bot-library").get_by_role("button", name="Chọn Active Bot", exact=True).click()
@@ -231,7 +235,7 @@ def run():
                   form.elements.scheduled_at.value=officialLocalInput(Date.now()+14400000);
                 }""")
                 admin.click("#official-schedule-form [type=submit]")
-                expect(admin.locator("#official-match-list")).to_contain_text("SCHEDULED")
+                expect(admin.locator("#official-match-list")).to_contain_text("Đã lên lịch")
                 view(admin, "tournaments")
                 admin.click("#refresh-team-tournaments")
                 expect(admin.locator('#team-tournament-team-options input')).to_have_count(2)

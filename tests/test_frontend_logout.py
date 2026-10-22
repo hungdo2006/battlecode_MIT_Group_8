@@ -21,6 +21,7 @@ const app = {accountAudience: 'admin', account: {id: 'admin'}, participant: {},
 let landing = null, errorToast = null, attempts = 0, closes = 0;
 app.competitionSocket = app.socket = {close() { closes++; }};
 function renderSession() {}
+function resetAccountWorkspace() {}
 function showAccountLanding(message) { landing = message; }
 function toast(message, error) { errorToast = {message, error}; }
 function jsonOptions() { return {}; }

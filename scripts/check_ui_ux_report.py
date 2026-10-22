@@ -189,6 +189,7 @@ def run():
                 expect(page.locator("#team-tournament-create")).to_be_visible()
                 page.screenshot(path=str(evidence / "admin-tournaments.png"), full_page=True, animations="disabled")
                 view("official")
+                page.click("#official-admin-panel > summary")
                 expect(page.locator("#official-team-a")).to_be_disabled()
                 expect(page.locator("#official-team-a")).to_contain_text("Chưa có đội ACTIVE")
                 expect(page.locator("#official-schedule-eligibility")).to_contain_text("Chưa đủ hai đội")

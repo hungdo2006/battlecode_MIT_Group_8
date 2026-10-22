@@ -17,6 +17,8 @@ const app = {
   seasons: [], seasonsBusy: false,
   officialRefreshing: false, pollPauseUntil: 0, bootstrapTimer: null,
   logoutBusy: false, logoutError: false,
+  sessionEpoch: 0, accountRequests: new Set(), replayController: null, replayLoadingKey: null,
+  officialTimesDirty: false,
   competition: null, competitionSocket: null, competitionTimer: null, competitionRetryMs: 5000,
   competitionGeneration: 0, competitionBusy: false, shuttingDown: false,
   lobby: null, invitationBusy: false, seenStarts: new Set(), seenFinishes: new Set(), heartbeatTimer: null,
@@ -71,9 +73,10 @@ function statusBadge(status) {
 function preserveListState(target) {
   const focused = target.contains(document.activeElement) ? document.activeElement : null;
   const key = focused?.dataset.focusKey;
-  const open = new Set([...target.querySelectorAll("details[open]")].map(node => node.dataset.botId));
+  const detailKey = node => node.dataset.botId || node.dataset.tournamentId || node.dataset.stateKey;
+  const open = new Set([...target.querySelectorAll("details[open]")].map(detailKey).filter(Boolean));
   return () => {
-    target.querySelectorAll("details").forEach(node => { node.open = open.has(node.dataset.botId); });
+    target.querySelectorAll("details").forEach(node => { const id = detailKey(node); if (id) node.open = open.has(id); });
     if (key && document.activeElement === document.body) target.querySelector(`[data-focus-key="${CSS.escape(key)}"]`)?.focus({ preventScroll: true });
   };
 }
@@ -132,24 +135,42 @@ async function api(path, options = {}) {
     throw new Error("Đường dẫn API không hợp lệ.");
   }
   const accountAtRequest = app.account, audienceAtRequest = app.accountAudience;
+  const epoch = app.sessionEpoch;
+  const assertSession = () => {
+    if (app.accountOnly && epoch !== app.sessionEpoch) {
+      throw Object.assign(new Error("Yêu cầu thuộc phiên đã kết thúc."), { staleSession: true });
+    }
+  };
   const method = (options.method || "GET").toUpperCase();
   if (app.accountOnly && !["GET", "HEAD", "OPTIONS"].includes(method)
       && !PUBLIC_ACCOUNT_ENTRY_PATHS.has(requestUrl.pathname)) {
     const token = await accountCsrf();
+    assertSession();
     options = { ...options, headers: { ...(options.headers || {}), "X-CSRF-Token": token } };
     if (options.body === undefined) {
       options.body = "{}";
       options.headers["Content-Type"] = "application/json";
     }
   }
-  let response;
-  try { response = await fetch(requestUrl.toString(), options); }
-  catch {
+  let response, raw;
+  const controller = app.accountOnly && accountAtRequest ? new AbortController() : null;
+  if (controller) {
+    app.accountRequests.add(controller);
+    options = { ...options, signal: options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal };
+  }
+  try {
+    response = await fetch(requestUrl.toString(), options);
+    raw = await response.text();
+    assertSession();
+  } catch (cause) {
+    assertSession();
+    if (cause.staleSession || cause.name === "AbortError") throw cause;
     const error = new Error("Mất kết nối với máy chủ. Kiểm tra mạng và thử lại.");
     error.transport = true;
     throw error;
+  } finally {
+    if (controller) app.accountRequests.delete(controller);
   }
-  const raw = await response.text();
   let data;
   try { data = raw ? JSON.parse(raw) : {}; }
   catch {
@@ -202,8 +223,10 @@ function scopedApiPath(path) {
 async function accountCsrf() {
   if (app.csrf) return app.csrf;
   if (!app.accountAudience) throw new Error("Phiên tài khoản chưa sẵn sàng.");
+  const epoch = app.sessionEpoch;
   const response = await fetch(`/api/${app.accountAudience}/auth/csrf`);
   const data = await response.json().catch(() => ({}));
+  if (epoch !== app.sessionEpoch) throw Object.assign(new Error("Phiên đã thay đổi."), { staleSession: true });
   if (!response.ok) {
     if (response.status === 401) accountExpired();
     throw Object.assign(new Error(data.detail || "Phiên đăng nhập đã hết hạn."), { status: response.status });
@@ -287,10 +310,12 @@ async function refreshAdministration() {
 function renderAdminSubmissions() {
     const bots=$("#admin-submissions-list");bots.replaceChildren();
     const query = $("#admin-bot-query").value.trim().toLocaleLowerCase("vi");
-    const filtered = adminBotsCache.filter(bot => [bot.name, bot.game_id, bot.status, bot.language].join(" ").toLocaleLowerCase("vi").includes(query));
+    const filtered = adminBotsCache.filter(bot => [bot.name, bot.game_id, bot.status, bot.language, bot.team_name, bot.uploader_name, bot.id].join(" ").toLocaleLowerCase("vi").includes(query));
     if(!filtered.length)bots.append(el("div","empty-state",query ? "Không tìm thấy bot phù hợp." : "Chưa có bot được nộp. Thành viên có thể nộp bot tại Team & Bot."));
     for(const bot of filtered){
       const row=el("article","bot-row"),copy=el("div","bot-description");copy.append(el("strong","",bot.name),el("small","",`${bot.game_id} · ${bot.language} · ${bot.status}`));
+      copy.append(el("small", "", `${bot.team_name || "Chưa có liên kết đội"}${bot.uploader_name ? " · Người nộp: " + bot.uploader_name : ""}`),
+        el("small", "", `ID ${bot.id.slice(0, 8)}${bot.created_at ? " · " + officialDateTime(bot.created_at) : ""}`));
       const details=el("details"),summary=el("summary","","Xem chẩn đoán biên dịch"),log=el("pre","compiler-log");details.append(summary,log);let loaded=false;
       details.addEventListener("toggle",async()=>{if(!details.open||loaded)return;loaded=true;
         try{const response=await api(`/api/admin/submissions/${encodeURIComponent(bot.id)}`);log.textContent=response.bot.logs||"Không có lỗi biên dịch.";}
@@ -761,11 +786,12 @@ function updateUploadEligibility() {
     workflow.open = hasTeam;
     workflow.dataset.hasTeam = String(hasTeam);
   }
-  workflow.querySelector("summary").textContent = hasTeam ? "Bot của đội · Nộp bot và bot mẫu" : "Sau khi tham gia đội · Nộp bot và bot mẫu";
+  workflow.querySelector("summary").textContent = hasTeam ? "Nộp bot và bot mẫu" : "Sau khi tham gia đội · Nộp bot và bot mẫu";
   $("#view-upload .library-panel").classList.toggle("hidden", !hasTeam || app.role === "organizer");
   setText("#account-team-heading", team ? "Đội của bạn" : "Tạo hoặc tham gia đội");
   setText("#team-readiness", !team ? "Bước 1 · Tham gia đội" : team.status !== "ACTIVE" ? "Chưa kích hoạt" : app.activeTeamBot?.bot ? "Đã chọn Active Bot" : "Chưa chọn Active Bot");
-  setText("#team-next-help", hasTeam ? "Bot của đội, biểu mẫu nộp code và bot mẫu ở ngay bên dưới." : "Nhận lời mời từ Captain hoặc tạo đội để bắt đầu nộp bot.");
+  $(".onboarding-resources").hidden = hasTeam;
+  setText("#team-next-help", hasTeam ? "" : "Nhận lời mời từ Captain hoặc tạo đội để bắt đầu nộp bot.");
 }
 $("#upload-team-link").onclick = () => {
   $("#account-team-panel").scrollIntoView({ block: "start" });
@@ -961,15 +987,77 @@ function showAccountDialog(message = "Đăng nhập để tiếp tục vào work
   }
 }
 
+function resetReplay() {
+  app.generation++;
+  app.replayController?.abort(); app.replayController = null;
+  app.replayLoadingKey = null;
+  clearTimeout(app.reconnectTimer); app.reconnectTimer = null;
+  const socket = app.socket; app.socket = null; socket?.close();
+  app.match = null; app.frames = []; app.cursor = 0; app.paused = true;
+  app.speed = 1; app.transition = null; app.nextFrameAt = 0;
+  app.replayKind = null; app.replayRequestId = null; app.replayPath = null;
+  app.arenaOnline = false; app.displayedResult = false; app.victoryDismissed = false;
+  document.body.classList.remove("has-match");
+  $("#combat-log").replaceChildren();
+  setText("#replay-rule-limit", "");
+  setText("#arena-phase", "Chưa chọn trận");
+  $("#victory-overlay").classList.add("hidden");
+  $("#standby-overlay").classList.remove("hidden");
+  for (const side of ["a", "b"]) {
+    setText(`#fighter-${side}-name`, "Chưa có bot thi đấu");
+    setText(`#hp-${side}-text`, "—");
+    $(`#hp-${side}-fill`).style.width = "0%";
+  }
+  setText("#victory-winner", ""); setText("#victory-reason", "");
+  setText("#replay-heading", "Diễn biến trận đấu"); setText("#replay-meta", "");
+  setText("#turn-counter", "000"); setText("#turn-max", "—");
+  $("#play-speed").value = "1";
+  const board = $("#arena"); board.getContext("2d").clearRect(0, 0, board.width, board.height);
+  updatePlayback();
+}
+
+function resetAccountWorkspace() {
+  app.sessionEpoch++;
+  for (const controller of app.accountRequests) controller.abort();
+  app.accountRequests.clear();
+  clearTimeout(toastTimer); $("#toast").classList.add("hidden"); $("#toast").textContent = "";
+  resetReplay();
+  app.competitionGeneration++;
+  const socket = app.competitionSocket; app.competitionSocket = null; socket?.close();
+  clearTimeout(app.competitionTimer); clearTimeout(app.bootstrapTimer);
+  app.competitionTimer = null; app.bootstrapTimer = null;
+  app.team = null; app.activeTeamBot = null; app.lobby = null; app.currentInvitation = null;
+  app.bots = []; app.matches = []; app.standings = []; app.tournaments = [];
+  app.officialMatches = []; app.officialTeams = []; app.scrimmages = []; app.teamTournaments = []; app.seasons = [];
+  app.competition = null; app.csrf = null;
+  app.initialized = false;
+  app.seenStarts.clear(); app.seenFinishes.clear();
+  adminTeamsCache = []; adminBotsCache = []; adminAccountOffset = 0; adminAccountTotal = 0;
+  app.officialTimesDirty = false;
+  $("#official-schedule-form").reset();
+  $("#official-admin-panel").open = false;
+  for (const selector of ["#bot-library", "#recent-matches", "#all-matches", "#combat-log", "#admin-accounts-body",
+    "#admin-submissions-list", "#admin-teams-list", "#official-match-list", "#scrimmage-list", "#team-tournaments-list",
+    "#standings-body", "#season-list", "#account-team-inbox", "#account-team-member-actions"]) $(selector).replaceChildren();
+  for (const selector of ["#profile-form", "#upload-form", "#account-team-create", "#account-team-invite", "#account-team-rename"]) $(selector).reset();
+  for (const selector of ["#account-team-status", "#account-team-members", "#compiler-log", "#upload-feedback"]) setText(selector, "");
+  if ($("#invitation-dialog").open) $("#invitation-dialog").close();
+  if ($("#confirm-dialog").open) $("#confirm-dialog").close("cancel");
+}
+
 function acceptAccount(data, audience) {
   $("#admin-player-recovery-token").value = "";
   $("#admin-player-recovery-result").classList.add("hidden");
   $("#admin-invite-token").value = "";
   $("#admin-invite-token-label").classList.add("hidden");
   app.logoutError = false;
-  if (app.account?.id !== data.account.id) {
-    app.team = null; app.activeTeamBot = null; app.bots = [];
-    app.officialMatches = []; app.officialTeams = []; app.scrimmages = [];
+  if (app.account?.id !== data.account.id || app.accountAudience !== audience) {
+    if (app.account) {
+      const url = new URL(location.href);
+      for (const key of ["match", "official", "scrimmage", "focus", "status"]) url.searchParams.delete(key);
+      url.hash = "home"; history.replaceState(null, "", url);
+    }
+    resetAccountWorkspace();
   }
   app.account = data.account;
   app.pollPauseUntil = 0;
@@ -1004,6 +1092,11 @@ $("#account-register-choice").addEventListener("click", () => accountEntryTab("r
 function accountExpired() {
   if (!app.accountOnly || !app.account) return;
   app.pendingView = location.hash.slice(1);
+  resetAccountWorkspace();
+  const url = new URL(location.href);
+  for (const key of ["match", "official", "scrimmage", "focus", "status"]) url.searchParams.delete(key);
+  if (url.hash === "#replay") { url.hash = "home"; app.pendingView = "home"; }
+  history.replaceState(null, "", url);
   $("#admin-player-recovery-token").value = "";
   $("#admin-player-recovery-result").classList.add("hidden");
   app.account = null; app.participant = null; app.accountAudience = null; app.csrf = null;
@@ -1018,8 +1111,10 @@ function accountExpired() {
 }
 
 async function restoreAccount() {
+  const epoch = app.sessionEpoch;
   for (const audience of ["admin", "player"]) {
     const response = await fetch(`/api/${audience}/auth/me`, { headers: { "Accept": "application/json" } });
+    if (epoch !== app.sessionEpoch) throw Object.assign(new Error("Phiên đã thay đổi."), { staleSession: true });
     if (response.status === 429) {
       // Restore is a direct fetch, not api(); still honor a limited session.
       const retryAfter = Number(response.headers.get("Retry-After"));
@@ -1029,7 +1124,9 @@ async function restoreAccount() {
       throw Object.assign(new Error("Authentication temporarily rate-limited"), { status: 429 });
     }
     if (response.ok) {
-      acceptAccount(await response.json(), audience);
+      const data = await response.json();
+      if (epoch !== app.sessionEpoch) throw Object.assign(new Error("Phiên đã thay đổi."), { staleSession: true });
+      acceptAccount(data, audience);
       return true;
     }
   }
@@ -1183,11 +1280,12 @@ async function accountLogout() {
     app.logoutBusy = false; renderSession();
   }
   // A successfully revoked account must cancel any pending startup retry.
+  resetAccountWorkspace();
   clearTimeout(app.bootstrapTimer); app.bootstrapTimer = null;
   app.pollPauseUntil = 0;
   app.pendingView = null;
   const publicUrl = new URL(location.href);
-  for (const key of ["auth", "returnTo", "match", "official", "scrimmage"]) publicUrl.searchParams.delete(key);
+  for (const key of ["auth", "returnTo", "match", "official", "scrimmage", "focus", "status"]) publicUrl.searchParams.delete(key);
   publicUrl.hash = "home";
   history.replaceState(null, "", publicUrl.pathname + publicUrl.search + publicUrl.hash);
   app.account = null; app.participant = null; app.accountAudience = null; app.csrf = null;
@@ -1230,6 +1328,7 @@ $("#organizer-form").addEventListener("submit", async event => {
 
 const labels = {
   home: "Tổng quan",
+  replay: "Diễn biến trận đấu",
   standings: "Bảng xếp hạng",
   upload: "Team & Bot",
   create: "Phòng thi đấu",
@@ -1312,18 +1411,64 @@ document.addEventListener("keydown", event => {
 }, true);
 closeWorkspaceNavigation({ returnFocus: false });
 
-function navigate() {
+function replayRoute(url = new URL(location.href)) {
+  for (const kind of ["scrimmage", "official", "match"]) {
+    const id = url.searchParams.get(kind);
+    if (id) return { kind, id, key: `${kind}:${id}` };
+  }
+  return null;
+}
+
+function workspaceLink(view, params = {}) {
+  const url = new URL(location.href);
+  for (const key of ["match", "official", "scrimmage", "focus", "status"]) url.searchParams.delete(key);
+  for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
+  url.hash = view;
+  return url.pathname + url.search + url.hash;
+}
+
+function visitWorkspace(href) {
+  const url = new URL(href, location.href);
+  if (url.hash !== "#replay") for (const key of ["match", "official", "scrimmage"]) url.searchParams.delete(key);
+  if (url.href !== location.href) history.pushState(null, "", url);
+  navigate();
+}
+
+function focusWorkspaceTarget(node) {
+  requestAnimationFrame(() => {
+    if (!node?.getClientRects().length) return;
+    node.focus({ preventScroll: true });
+    node.scrollIntoView({ block: "start", behavior: "instant" });
+  });
+}
+
+let lastNavigatedUrl = "";
+function navigate(event) {
+  // A hash history entry dispatches both popstate and hashchange. Render and
+  // refresh once, while allowing explicit navigation/bootstrap to rerender.
+  if (event && lastNavigatedUrl === location.href) return;
   closeWorkspaceNavigation({ returnFocus: false });
   $("#user-menu").open = false;
   let view = location.hash.slice(1) || "home";
+  let route = replayRoute();
+  if (view === "home" && route) view = "replay"; // Existing shared links use #home.
+  if (view === "replay" && !route) view = "home";
   if (!labels[view] || (["official", "scrimmage"].includes(view) && !app.accountOnly)) view = "home";
   if (["profile","administration","system","seasons"].includes(view) && !app.accountOnly) view="home";
   if (["administration","system"].includes(view) && app.accountAudience!=="admin") view="home";
   if (app.accountOnly && (view === "create" || (view === "upload" && app.accountAudience !== "player"))) view = "home";
+  if (view !== "replay") {
+    if (app.match || app.replayLoadingKey) resetReplay();
+    if (route) {
+      const url = new URL(location.href);
+      for (const key of ["match", "official", "scrimmage"]) url.searchParams.delete(key);
+      history.replaceState(null, "", url); route = null;
+    }
+  }
   if (app.initialized && location.hash !== `#${view}`) {
     const requestedView = location.hash.slice(1) || "home";
     history.replaceState(null, "", location.pathname + location.search + `#${view}`);
-    if (requestedView !== view) toast("Trang này không khả dụng với vai trò hiện tại. Đã về Tổng quan.");
+    if (requestedView !== view && !(view === "replay" && requestedView === "home")) toast("Trang này không khả dụng với vai trò hiện tại. Đã về Tổng quan.");
   }
   $$(".view").forEach(node => node.classList.toggle("active", node.id === `view-${view}`));
   $$(".nav-item").forEach(node => node.classList.toggle("active", node.dataset.view === view));
@@ -1333,7 +1478,23 @@ function navigate() {
   $(".workspace-context").hidden = ["profile", "administration", "system"].includes(view);
   $$(".nav-item[data-view]").forEach(node => node.setAttribute("aria-current", node.dataset.view === view ? "page" : "false"));
   document.title = `${labels[view]} · NEON ARENA`;
+  if (view === "home") renderWorkspaceOverview();
   window.scrollTo({ top: 0, behavior: "instant" });
+  const params = new URL(location.href).searchParams;
+  if (view === "upload") {
+    if (params.get("focus") === "upload") $("#upload-workflow-details").open = true;
+    if (params.get("focus") === "bots") focusWorkspaceTarget($("#bot-library-title"));
+    if (params.get("focus") === "upload") focusWorkspaceTarget($("#upload-workflow-details > summary"));
+  }
+  if (view === "official") {
+    $("#official-status-filter").value = params.get("status") || "all";
+    renderOfficialMatches();
+    if (params.get("focus") === "official-list") focusWorkspaceTarget($("#official-list-panel"));
+  }
+  if (app.initialized && view === "replay" && route && route.key !== `${app.replayKind}:${app.replayRequestId}` && route.key !== app.replayLoadingKey) {
+    loadMatch(route.id, route.kind === "official", route.kind === "scrimmage", { historyMode: "none" })
+      .catch(error => { if (!error.staleSession && error.name !== "AbortError") { toast(error.message, true); visitWorkspace(workspaceLink("watch")); } });
+  }
   if (app.initialized && app.accountOnly && ["scrimmage", "watch"].includes(view)) refreshScrimmages().catch(error => toast(error.message, true));
   if (app.initialized && app.accountOnly && view === "official") refreshOfficialMatches().catch(error => toast(error.message, true));
   if (app.initialized && app.accountOnly && view === "tournaments") refreshOfficialMatches().then(() => refreshTeamTournaments()).catch(error => toast(error.message, true));
@@ -1345,14 +1506,25 @@ function navigate() {
   if (app.initialized && view==="administration") refreshAdministration().catch(error=>toast(error.message,true));
   if (app.initialized && view==="system") refreshSystem().catch(error=>feedback("#system-feedback",error.message,true));
   if (app.initialized && view==="seasons") refreshSeasons().catch(error=>toast(error.message,true));
+  lastNavigatedUrl = location.href;
 }
 window.addEventListener("hashchange", navigate);
+window.addEventListener("popstate", navigate);
+document.addEventListener("click", event => {
+  if (event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+  const link = event.target.closest("a[href]");
+  if (!link || link.target || link.hasAttribute("download")) return;
+  const url = new URL(link.href, location.href);
+  if (url.origin !== location.origin || url.pathname !== location.pathname || !labels[url.hash.slice(1)]) return;
+  event.preventDefault();
+  visitWorkspace(link.getAttribute("href").startsWith("#") ? workspaceLink(url.hash.slice(1)) : url.href);
+});
 $(".skip-link").addEventListener("click", event => {
   event.preventDefault();
   $("#main-content").focus({ preventScroll: true });
   $("#main-content").scrollIntoView({ block: "start", behavior: "instant" });
 });
-$$("[data-go]").forEach(button => button.addEventListener("click", () => { location.hash = button.dataset.go; }));
+$$("[data-go]").forEach(button => button.addEventListener("click", () => visitWorkspace(workspaceLink(button.dataset.go))));
 navigate();
 
 function setConnection(online) {
@@ -1390,12 +1562,12 @@ function renderWorkspaceOverview() {
   const admin = app.accountAudience === "admin";
   const team = app.team?.team, captain = app.team?.my_role === "CAPTAIN";
   const readyBots = app.bots.filter(bot => bot.status === "ready" && bot.game_id === app.selectedGameId);
-  const next = [...app.officialMatches].filter(item => ["SCHEDULED", "LOCKED", "QUEUED", "RUNNING", "BLOCKED"].includes(item.status))
-    .sort((a, b) => (["RUNNING", "BLOCKED"].includes(b.status) ? 1 : 0) - (["RUNNING", "BLOCKED"].includes(a.status) ? 1 : 0) || a.scheduled_at - b.scheduled_at)[0];
-  const blocked = app.officialMatches.filter(item => ["BLOCKED", "INTERRUPTED"].includes(item.status));
+  const next = app.officialMatches.filter(item => officialUpcoming(item)).sort((a, b) => a.scheduled_at - b.scheduled_at)[0];
+  const live = app.officialMatches.find(item => ["RUNNING", "DISPATCHING"].includes(item.status));
+  const blocked = app.officialMatches.filter(item => officialNeedsAttention(item));
   let action;
   if (admin) {
-    action = blocked.length ? ["official", "Kiểm tra trận cần xử lý", `${blocked.length} trận đang bị chặn hoặc gián đoạn. Kiểm tra lý do trước khi xếp lịch tiếp.`, "Xử lý lịch đấu"]
+    action = blocked.length ? ["official", "Kiểm tra trận cần xử lý", `${blocked.length} trận bị chặn, gián đoạn hoặc quá hạn. Kiểm tra lý do trước khi xếp lịch tiếp.`, "Xử lý lịch đấu"]
       : !app.competition?.competition_locked ? ["rules", "Chốt game và luật thi đấu", "Kiểm tra cấu hình, lưu luật rồi mở cuộc thi khi đã sẵn sàng.", "Thiết lập game & luật"]
       : app.officialTeams.length < 2 ? ["administration", "Chuẩn bị đội thi đấu", `Hiện có ${app.officialTeams.length} đội ACTIVE. Cần ít nhất hai đội để xếp lịch hoặc tạo giải.`, "Quản lý tài khoản & đội"]
       : !readyBots.length ? ["administration", "Kiểm tra bot của các đội", "Chưa có bot biên dịch thành công cho game hiện tại. Kiểm tra bot và hướng dẫn các đội chuẩn bị.", "Xem đội & bot"]
@@ -1412,7 +1584,9 @@ function renderWorkspaceOverview() {
   setText("#overview-title", title);
   setText("#overview-note", note);
   const primary = $("#overview-primary");
-  primary.href = `#${primaryView}`;
+  primary.href = primaryView === "upload" && team ? workspaceLink("upload", { focus: readyBots.length ? "bots" : "upload" })
+    : primaryView === "official" && admin && blocked.length ? workspaceLink("official", { status: "attention", focus: "official-list" })
+    : `#${primaryView}`;
   if (primary.textContent !== `${label} ↗`) primary.textContent = `${label} ↗`;
   setText("#overview-role", admin ? "Admin" : app.team?.my_role === "CAPTAIN" ? "Captain" : "Player");
   setText("#view-home .hero h1", admin ? "Tổng quan cuộc thi" : "Không gian của bạn");
@@ -1443,10 +1617,13 @@ function renderWorkspaceOverview() {
       if (link.querySelector(selector).textContent !== value) link.querySelector(selector).textContent = value;
     }
   });
-  $(".overview-next").classList.toggle("hidden", !next);
-  $("#overview-schedule-link").hidden = primaryView === "official";
-  setText("#overview-next-title", next ? `${next.game_id} · ${officialDateTime(next.scheduled_at)}` : "Chưa có lịch thi đấu sắp tới");
-  setText("#overview-next-note", next ? `Trạng thái: ${next.status} · Khóa bot: ${officialDateTime(next.bot_lock_at)}` : admin ? "Tạo một lịch đấu hoặc xếp lịch từ giải đấu đã bắt đầu." : "Lịch mới sẽ xuất hiện khi Admin xếp trận cho đội của bạn.");
+  $(".overview-next").classList.remove("hidden");
+  const featured = live || next;
+  setText(".overview-next .eyebrow", live ? "TRẬN ĐANG DIỄN RA" : "TRẬN SẮP DIỄN RA");
+  $("#overview-schedule-link").hidden = !featured;
+  $("#overview-schedule-link").href = workspaceLink("official", { status: live ? "live" : "upcoming", focus: "official-list" });
+  setText("#overview-next-title", featured ? `${featured.game_id} · ${officialDateTime(featured.scheduled_at)}` : "Chưa có lịch thi đấu sắp tới");
+  setText("#overview-next-note", featured ? `Trạng thái: ${officialStatus(featured.status)} · Khóa bot: ${officialDateTime(featured.bot_lock_at)}` : blocked.length ? `${blocked.length} trận cần xử lý / quá hạn trong lịch đấu.` : admin ? "Tạo một lịch đấu hoặc xếp lịch từ giải đấu đã bắt đầu." : "Lịch mới sẽ xuất hiện khi Admin xếp trận cho đội của bạn.");
   $(".history-panel").classList.toggle("hidden", !(admin ? app.matches.length : app.scrimmages.some(item => ["COMPLETED", "INTERRUPTED", "CANCELLED"].includes(item.status))));
   $(".arena-layout").hidden = !app.match;
   $(".arena-section-title").hidden = !app.match;
@@ -1500,6 +1677,7 @@ async function refreshPracticeOpponents() {
   const ready = app.team?.team?.status === "ACTIVE";
   const select = $("#scrimmage-opponent"), button = $("#scrimmage-create [type=submit]");
   button.disabled = true;
+  $("#scrimmage-bot-link").classList.add("hidden");
   emptySelect(select, "Đang tải đối thủ…");
   if (!ready || !game) {
     emptySelect(select, !app.team?.team ? "Bạn chưa tham gia đội" : !ready ? "Đội chưa ACTIVE" : "Chưa chọn game");
@@ -1528,7 +1706,8 @@ async function refreshPracticeOpponents() {
   else select.disabled = false;
   button.disabled = !response.teams.length || !active.active || app.runnerMode !== "sandbox";
   button.setAttribute("aria-describedby", "scrimmage-eligibility");
-  setText("#scrimmage-eligibility", !active.active ? "Đội chưa có Active Bot hợp lệ cho game này. Captain chọn bot tại Team & Bot."
+  $("#scrimmage-bot-link").classList.toggle("hidden", !!active.active || app.team?.my_role !== "CAPTAIN");
+  setText("#scrimmage-eligibility", !active.active ? app.team?.my_role === "CAPTAIN" ? "Đội chưa có Active Bot hợp lệ cho game này. Chọn bot của đội trước khi thách đấu." : "Đội chưa có Active Bot hợp lệ cho game này. Liên hệ Captain để chọn bot đại diện."
     : app.runnerMode !== "sandbox" ? "Máy chủ này đang ở chế độ native. Scrimmage tự động cần Docker Sandbox." : response.teams.length ? "Bot của hai đội sẽ được chốt ngay khi gửi. Tối đa 3 yêu cầu đang chờ cho đội của bạn." : "Chưa có đội đối thủ với Active Bot hợp lệ cho game này.");
 }
 
@@ -1920,7 +2099,7 @@ function renderStandings() {
     }
     if (!tbody.childElementCount) {
       const row = el("tr"), cell = el("td", "empty-state"); cell.colSpan = 8;
-      cell.append(el("p", "", "Chưa có bảng điểm cho game này. Giải loại trực tiếp được theo dõi theo nhánh đấu."));
+      cell.append(el("p", "", app.accountAudience === "player" ? "Chưa có bảng điểm cho game này trong các giải đội bạn tham gia. Giải loại trực tiếp được theo dõi theo nhánh đấu." : "Chưa có bảng điểm cho game này. Giải loại trực tiếp được theo dõi theo nhánh đấu."));
       const link = el("a", "text-button", "Xem các giải đấu ↗"); link.href = "#tournaments";
       cell.append(link); row.append(cell); tbody.append(row);
     }
@@ -2318,9 +2497,12 @@ function renderTeamTournaments() {
     if (!app.officialTeams.length) teamOptions.append(el("div", "empty-state", "Chưa có Team ACTIVE."));
     updateTeamTournamentPolicy();
   }
-  const target = $("#team-tournaments-list"); target.replaceChildren();
+  const target = $("#team-tournaments-list");
+  const expanded = new Set([...target.querySelectorAll("details[open][data-tournament-id]")].map(node => node.dataset.tournamentId));
+  const restore = preserveListState(target);
+  target.replaceChildren();
   if (!app.teamTournaments.length) {
-    target.append(el("div", "empty-state", "Chưa có giải đấu Team nào.")); return;
+    target.append(el("div", "empty-state", app.accountAudience === "player" ? "Chưa có giải đấu của đội bạn. Chỉ các giải có đội bạn tham gia được hiển thị." : "Chưa có giải đấu nào.")); return;
   }
   const statusNames = { REGISTRATION: "ĐANG ĐĂNG KÝ", ACTIVE: "ĐANG DIỄN RA", COMPLETED: "ĐÃ KẾT THÚC", CANCELLED: "ĐÃ HỦY" };
   for (const tournament of app.teamTournaments) {
@@ -2466,7 +2648,9 @@ function renderTeamTournaments() {
       const groupRound = fixture.round_number - (tournament.qualifier_rounds_total || 0);
       const stageName = qualifierSlot && tournament.qualifier_target ? `Vòng loại · Vòng ${qualifierSlot.round_number}` : fixture.stage === "GROUP" ? (tournament.format === "swiss_single_elimination" ? `Swiss · Vòng ${fixture.round_number}` : `${groupName || "Vòng bảng"} · Vòng ${groupRound}`) : ["group_knockout", "swiss_single_elimination"].includes(tournament.format) ? `Loại trực tiếp · Vòng ${playoffRound}` : `Vòng ${fixture.round_number}`;
       fixtureCard.append(el("span", "", `${stageName} · ${teamA} VS ${teamB}`));
-      fixtureCard.append(el("small", `tournament-match-state ${(fixture.match_status || "pending").toLowerCase()}`, fixture.match_status || "CHƯA XẾP LỊCH"));
+      fixtureCard.append(el("small", `tournament-match-state ${(fixture.match_status || "pending").toLowerCase()}`, fixture.match_status ? officialStatus(fixture.match_status) : "CHƯA XẾP LỊCH"));
+      const request = app.officialMatches.find(item => item.id === fixture.official_request_id);
+      appendOfficialReason(fixtureCard, request || { id: fixture.official_request_id || fixture.id, status: fixture.match_status });
       if (app.accountAudience === "admin" && tournament.status === "ACTIVE" && !fixture.official_request_id) {
         const controls = el("div", "form-buttons");
         const lockInput = document.createElement("input"); lockInput.type = "datetime-local"; lockInput.setAttribute("aria-label", "Thời điểm khóa bot"); lockInput.value = officialLocalInput(Date.now() + 120000);
@@ -2492,8 +2676,16 @@ function renderTeamTournaments() {
       fixtureList.append(fixtureCard);
     });
     if (tournament.fixtures.length) card.append(fixtureList);
-    target.append(card);
+    const details = el("details", "team-tournament-details");
+    details.dataset.tournamentId = tournament.id;
+    details.open = expanded.has(tournament.id);
+    const summary = el("summary");
+    summary.append(heading, meta);
+    // Keep the complete bracket, standings and schedule available on demand.
+    details.append(summary, card);
+    target.append(details);
   }
+  restore();
 }
 
 async function refreshTeamTournaments() {
@@ -2790,15 +2982,25 @@ async function launch(event) {
 $("#quick-match").addEventListener("submit", launch);
 $("#create-match").addEventListener("submit", launch);
 
-async function loadMatch(id, official = false, practice = false) {
+async function loadMatch(id, official = false, practice = false, { historyMode = "push" } = {}) {
   const generation = ++app.generation;
+  app.replayController?.abort();
+  app.replayController = new AbortController();
+  app.replayLoadingKey = `${practice ? "scrimmage" : official ? "official" : "match"}:${id}`;
   app.socket?.close();
   clearTimeout(app.reconnectTimer);
   const replayPath = practice ? "/api/" + app.accountAudience + "/scrimmages/" + encodeURIComponent(id) + "/replay" : official
     ? "/api/" + app.accountAudience + "/official-matches/" + encodeURIComponent(id) + "/replay"
     : "/api/matches/" + encodeURIComponent(id) + "/replay";
-  const payload = await api(replayPath);
+  let payload;
+  try { payload = await api(replayPath, { signal: app.replayController.signal }); }
+  catch (error) {
+    if (generation !== app.generation || error.staleSession || error.name === "AbortError") return;
+    app.replayLoadingKey = null;
+    throw error;
+  }
   if (generation !== app.generation) return;
+  app.replayLoadingKey = null;
   app.match = payload.match;
   app.replayKind = practice ? "scrimmage" : official ? "official" : "match";
   app.replayRequestId = id;
@@ -2815,13 +3017,19 @@ async function loadMatch(id, official = false, practice = false) {
   $(".arena-section-title").hidden = false;
   $("#standby-overlay").classList.add("hidden");
   $("#victory-overlay").classList.add("hidden");
-  location.hash = "home";
   const link = new URL(location.href);
-  for (const key of ["match", "official", "scrimmage"]) link.searchParams.delete(key);
+  for (const key of ["match", "official", "scrimmage", "focus", "status"]) link.searchParams.delete(key);
   link.searchParams.set(app.replayKind, id);
-  history.replaceState(null, "", link);
+  link.hash = "replay";
+  if (historyMode === "push" && link.href !== location.href) history.pushState(null, "", link);
+  else history.replaceState(null, "", link);
+  setText("#replay-heading", `${["running", "queued"].includes(app.match.status) ? "Trực tiếp" : "Replay"} · ${app.match.player_a_name_snapshot || app.match.bots?.A?.name || "Đội A"} vs ${app.match.player_b_name_snapshot || app.match.bots?.B?.name || "Đội B"}`);
+  setText("#replay-meta", `Mã trận ${id.slice(0, 8)} · ${app.match.game_id}${app.match.created_at ? " · " + officialDateTime(app.match.created_at) : ""}`);
+  $("#replay-back").href = workspaceLink(official ? "official" : practice ? "scrimmage" : "watch");
+  navigate();
   if (app.frames.length) setFrame(0, false);
   updatePlayback();
+  focusWorkspaceTarget($("#replay-heading"));
   if (["running", "queued"].includes(app.match.status)) {
     if (official || practice) pollOfficialReplay(id, generation);
     else connectSocket(id, generation);
@@ -2882,6 +3090,7 @@ function connectSocket(id, generation) {
     updatePlayback();
   };
   socket.onclose = event => {
+    if (generation !== app.generation) return;
     if (app.accountOnly && [1008, 4401].includes(event.code)) {
       accountExpired();
       return;
@@ -2943,7 +3152,10 @@ function updateHud(frame) {
   $("#arena-map-label").textContent = hud.grid;
   $("#arena-phase").textContent = hud.phase;
   $("#turn-counter").textContent = String(frame.turn).padStart(3, "0");
-  $("#turn-max").textContent = hud.turnMax;
+  const lastTurn = app.frames.at(-1)?.turn ?? 0;
+  const live = ["running", "queued"].includes(app.match?.status);
+  $("#turn-max").textContent = app.match ? `${lastTurn}${live ? " đã nhận" : ""}` : "—";
+  setText("#replay-rule-limit", `Giới hạn ${gameId === "ott_v2" ? "ván" : "trận"}: ${gameId === "ott_v2" ? frame.rules.max_turns : hud.turnMax} lượt${live ? " · Đang nhận thêm diễn biến" : ""}`);
   for (const player of ["A", "B"]) {
     const key = player.toLowerCase();
     $("#fighter-" + key + "-name").textContent = app.match ? fighterLabel(app.match, player) : "Chưa có bot thi đấu";
@@ -3055,7 +3267,7 @@ $("#share-match").addEventListener("click", async () => {
   if (!app.match) { toast("Chọn một trận trước khi chia sẻ."); return; }
   const url = new URL(location.href);
   for (const key of ["match", "official", "scrimmage"]) url.searchParams.delete(key);
-  url.searchParams.set(app.replayKind || "match", app.replayRequestId || app.match.id); url.hash = "home";
+  url.searchParams.set(app.replayKind || "match", app.replayRequestId || app.match.id); url.hash = "replay";
   try {
     if (navigator.clipboard) await navigator.clipboard.writeText(url.href);
     else {
@@ -3096,7 +3308,7 @@ function draw(time) {
 
 function animate(time) {
   if (!app.paused && app.frames.length && time >= app.nextFrameAt && app.cursor < app.frames.length - 1) setFrame(app.cursor + 1);
-  if ($("#view-home").classList.contains("active") && !document.hidden) draw(time);
+  if ($("#view-replay").classList.contains("active") && app.match && !document.hidden) draw(time);
   requestAnimationFrame(animate);
 }
 requestAnimationFrame(animate);
@@ -3117,6 +3329,7 @@ function scheduleAccountBootstrapRetry() {
 
 async function bootstrap() {
   if (app.initializing) return;
+  let staleStartup = false;
   clearTimeout(app.bootstrapTimer); app.bootstrapTimer = null;
   app.initializing = true;
   try {
@@ -3208,13 +3421,9 @@ async function bootstrap() {
     navigate();
     connectCompetitionSocket();
     updatePlayback();
-    const params = new URL(location.href).searchParams;
-    const officialId = params.get("official"), matchId = params.get("match"), practiceId = params.get("scrimmage");
-    if (practiceId && app.accountOnly) await loadMatch(practiceId, false, true);
-    else if (officialId && app.accountOnly) await loadMatch(officialId, true);
-    else if (matchId && (!app.accountOnly || app.accountAudience === "admin")) await loadMatch(matchId);
     if (returnToExamples) location.assign("/static/protocol.html#examples-section");
   } catch (error) {
+    if (error.staleSession || error.name === "AbortError") { staleStartup = true; return; }
     // A 429 is a responsive server asking us to slow down, not a disconnect.
     // Unlike the legacy polling loop, an uninitialized Account-Only workspace
     // needs its own timed retry after Retry-After elapses.
@@ -3228,7 +3437,10 @@ async function bootstrap() {
     }
     toast(`Chưa kết nối được workspace: ${error.message}`, true);
   }
-  finally { app.initializing = false; renderConnection(); }
+  finally {
+    app.initializing = false; renderConnection();
+    if (staleStartup && app.account && !app.initialized && !app.shuttingDown) queueMicrotask(() => bootstrap());
+  }
 }
 bootstrap();
 $("#retry-connection").addEventListener("click", async event => {
@@ -3297,7 +3509,7 @@ async function refreshAccountTeam() {
     }
     inbox.append(row);
   }
-  if (!inbox.childElementCount) inbox.append(el("p", "form-note", "Không có lời mời Team đang chờ."));
+  inbox.hidden = !inbox.childElementCount;
   if (team) {
     const members = await api(`/api/player/teams/${encodeURIComponent(team.id)}/members`);
     const target = $("#account-team-members");
@@ -3442,19 +3654,83 @@ function emptySelect(select, message) {
   select.replaceChildren(option);
   select.disabled = true;
 }
+function officialStatus(status) {
+  return ({ SCHEDULED: "Đã lên lịch", LOCKED: "Đã khóa bot", QUEUED: "Đang chờ", DISPATCHING: "Đang chuẩn bị",
+    RUNNING: "Đang thi đấu", BLOCKED: "Bị chặn", INTERRUPTED: "Gián đoạn", COMPLETED: "Hoàn thành", CANCELLED: "Đã hủy" })[status] || status;
+}
+function officialNeedsAttention(item, now = Date.now() / 1000) {
+  return ["BLOCKED", "INTERRUPTED"].includes(item.status) ||
+    (["SCHEDULED", "LOCKED", "QUEUED"].includes(item.status) && item.scheduled_at < now);
+}
+function officialUpcoming(item, now = Date.now() / 1000) {
+  return ["SCHEDULED", "LOCKED", "QUEUED"].includes(item.status) && item.scheduled_at >= now;
+}
+function appendOfficialReason(target, item) {
+  const reason = item.status_reason;
+  if (!reason && !officialNeedsAttention(item)) return;
+  const messages = {
+    ACTIVE_BOT_MISSING: "Một đội chưa chọn Active Bot tại hạn khóa.",
+    TEAM_INACTIVE: "Một đội không còn hoạt động tại hạn khóa.",
+    BOT_UNAVAILABLE: "Bot đại diện không còn hợp lệ hoặc chưa biên dịch thành công.",
+    SOURCE_UNVERIFIED: "Bot chưa có xác nhận mã nguồn để thi đấu chính thức. Đội cần nộp lại bot.",
+    SOURCE_UNAVAILABLE: "Không đọc được mã nguồn bot đã nộp.",
+    SOURCE_CHANGED: "Mã nguồn bot đã thay đổi so với bản được biên dịch. Đội cần nộp lại bot.",
+    RUNNER_UNAVAILABLE: "Máy chủ thực thi trận hiện không khả dụng.",
+  };
+  const fallback = item.status === "BLOCKED" ? "Lịch bị chặn. Kiểm tra lý do trong lịch đấu chính thức."
+    : item.status === "INTERRUPTED" ? "Trận đã bị gián đoạn. Admin cần kiểm tra kết quả và máy chủ thực thi."
+    : "Đã quá giờ thi đấu nhưng trận chưa bắt đầu. Admin cần kiểm tra lịch và máy chủ thực thi.";
+  target.append(el("p", "form-note", reason ? messages[reason] || "Trận chưa thể hoàn thành. Kiểm tra chi tiết và liên hệ Admin." : fallback));
+  target.append(el("p", "form-note", app.accountAudience === "admin"
+    ? "Kiểm tra đội và bot. Lịch bị chặn không tự chạy lại sau khi chọn bot; hủy lịch bị chặn rồi xếp lịch mới khi đã sẵn sàng. Trận gián đoạn cần kiểm tra kết quả trước khi xếp lại."
+    : "Liên hệ Captain để chuẩn bị bot và Admin để xử lý lịch. Chọn bot không tự khởi động lại lịch bị chặn."));
+  const link = el("a", "text-button", app.accountAudience === "admin" ? "Kiểm tra đội & bot →" : app.team?.my_role === "CAPTAIN" ? "Kiểm tra bot của đội →" : "Xem bot của đội →");
+  link.href = app.accountAudience === "admin" ? "#administration" : workspaceLink("upload", { focus: "bots" });
+  target.append(link);
+  if (reason) { const details = el("details"); details.dataset.stateKey = item.id; details.append(el("summary", "", "Chi tiết kỹ thuật"), el("code", "", reason)); target.append(details); }
+}
+
+function officialTimeErrors(lock, scheduled, now = Math.floor(Date.now() / 1000)) {
+  return {
+    lock: !Number.isFinite(lock) ? "Chọn hạn khóa bot hợp lệ." : lock < now ? "Hạn khóa bot đã qua. Chọn thời điểm từ hiện tại trở đi." : "",
+    scheduled: !Number.isFinite(scheduled) ? "Chọn giờ thi đấu hợp lệ." : scheduled < lock ? "Giờ thi đấu phải từ hạn khóa bot trở đi." : scheduled > now + 365 * 86400 ? "Giờ thi đấu phải trong vòng 365 ngày." : "",
+  };
+}
+function initializeOfficialTimes() {
+  if (app.officialTimesDirty) return;
+  const form = $("#official-schedule-form");
+  form.elements.bot_lock_at.value = officialLocalInput(Date.now() + 180000);
+  form.elements.scheduled_at.value = officialLocalInput(Date.now() + 360000);
+}
 function updateOfficialEligibility() {
   const form = $("#official-schedule-form");
+  const times = officialTimeErrors(Math.floor(new Date(form.elements.bot_lock_at.value).getTime() / 1000), Math.floor(new Date(form.elements.scheduled_at.value).getTime() / 1000));
+  for (const [name, key, selector] of [["bot_lock_at", "lock", "#official-lock-error"], ["scheduled_at", "scheduled", "#official-time-error"]]) {
+    form.elements[name].setCustomValidity(times[key]);
+    form.elements[name].setAttribute("aria-invalid", String(!!times[key]));
+    const error = $(selector); error.textContent = times[key]; error.hidden = !times[key];
+  }
   const reason = app.officialTeams.length < 2 ? "Chưa đủ hai đội ACTIVE. Tạo đội và nhờ Captain kích hoạt đội tại Team & Bot."
-    : !app.games.length ? "Chưa tải được game. Bấm Làm mới để thử lại."
-    : !form.elements.team_a_id.value || form.elements.team_a_id.value === form.elements.team_b_id.value ? "Chọn hai đội khác nhau để xếp lịch."
-    : "";
-  form.querySelector('[type="submit"]').disabled = !!reason;
+    : !app.games.length || !form.elements.game_id.value ? "Chưa tải được game. Bấm Làm mới để thử lại."
+    : !form.elements.team_a_id.value || !form.elements.team_b_id.value || form.elements.team_a_id.value === form.elements.team_b_id.value ? "Chọn hai đội khác nhau để xếp lịch."
+    : times.lock || times.scheduled;
+  form.querySelector('[type="submit"]').disabled = !!reason || form.dataset.submitting === "true";
   setText("#official-schedule-eligibility", reason || (app.runnerMode !== "sandbox"
     ? "Có thể lưu lịch. Máy chủ cần Docker Sandbox để tự thực thi trận; Captain chuẩn bị Active Bot trước hạn khóa."
     : "Sẵn sàng xếp lịch. Captain chọn Active Bot hợp lệ trước hạn khóa; hai đội không cần online khi trận chạy."));
   $("#official-team-help").classList.toggle("hidden", app.officialTeams.length >= 2);
 }
 $("#official-schedule-form").addEventListener("change", updateOfficialEligibility);
+$("#official-schedule-form").addEventListener("input", event => {
+  if (["bot_lock_at", "scheduled_at"].includes(event.target.name)) app.officialTimesDirty = true;
+  updateOfficialEligibility();
+});
+$("#official-admin-panel").addEventListener("toggle", () => {
+  if ($("#official-admin-panel").open) { initializeOfficialTimes(); updateOfficialEligibility(); }
+});
+setInterval(() => {
+  if (app.accountAudience === "admin" && $("#official-admin-panel").open) updateOfficialEligibility();
+}, 1000);
 async function refreshOfficialMatches({includeTeams = true} = {}) {
   if (!app.accountOnly || !app.account) return;
   const account = app.account, audience = app.accountAudience;
@@ -3506,40 +3782,51 @@ async function refreshOfficialMatches({includeTeams = true} = {}) {
 }
 function renderOfficialMatches() {
   const target = $("#official-match-list");
+  const restore = preserveListState(target);
   target.replaceChildren();
   if (!app.officialMatches.length) {
     const noTeam = app.accountAudience === "player" && !app.team?.team;
     const empty = el("div", "empty-state", noTeam ? "Bạn chưa tham gia đội. Tạo hoặc tham gia đội để có lịch đấu chính thức."
       : app.accountAudience === "player" ? "Đội chưa có lịch đấu chính thức. Captain chuẩn bị Active Bot và đăng ký mùa thi đấu; Admin sẽ xếp lịch."
-      : "Chưa có trận đấu chính thức nào. Chọn hai đội ACTIVE để xếp lịch ở biểu mẫu phía trên.");
+      : "Chưa có trận đấu chính thức nào. Mở biểu mẫu bên dưới để lên lịch trận mới.");
     if (noTeam) { const link = el("a", "text-button", "Tạo hoặc tham gia đội →"); link.href = "#upload"; empty.append(document.createElement("br"), link); }
+    else if (app.accountAudience === "player") { const link = el("a", "text-button", app.team?.my_role === "CAPTAIN" ? "Chuẩn bị Active Bot →" : "Xem bot của đội →"); link.href = workspaceLink("upload", { focus: "bots" }); empty.append(document.createElement("br"), link); }
     target.append(empty);
     return;
   }
-  for (const item of app.officialMatches) {
+  const filter = $("#official-status-filter").value;
+  const requests = app.officialMatches.filter(item => filter === "attention" ? officialNeedsAttention(item)
+    : filter === "upcoming" ? officialUpcoming(item) : filter === "live" ? ["RUNNING", "DISPATCHING"].includes(item.status)
+    : filter === "completed" ? item.status === "COMPLETED" : true)
+    .sort((a, b) => Number(officialNeedsAttention(b)) - Number(officialNeedsAttention(a)) || a.scheduled_at - b.scheduled_at);
+  if (!requests.length) target.append(el("div", "empty-state", "Không có trận phù hợp với bộ lọc này."));
+  for (const item of requests) {
     const row = el("article", "official-match-row");
+    row.dataset.requestId = item.id;
     const copy = el("div", "official-match-copy");
     const slots = Object.fromEntries((item.slots || []).map(slot => [slot.side, slot]));
     const label = side => slots[side]?.team_name_snapshot ||
       app.officialTeams.find(team => team.id === (side === "A" ? item.team_a_id : item.team_b_id))?.display_name ||
       (side === "A" ? "Team A" : "Team B");
-    copy.append(el("strong", "", label("A") + " vs " + label("B")));
+    copy.append(el("strong", "", label("A") + " vs " + label("B")), el("small", "form-note", `Mã lịch ${item.id.slice(0, 8)}`));
     copy.append(el("div", "form-note", item.game_id + " · Khóa: " + officialDateTime(item.bot_lock_at) +
       " · Đấu: " + officialDateTime(item.scheduled_at)));
-    copy.append(el("span", "tag official-match-status", "Trạng thái: " + item.status));
-    if (item.status_reason) copy.append(el("div", "form-note", item.status_reason));
+    copy.append(el("span", "tag official-match-status", "Trạng thái: " + officialStatus(item.status)));
+    appendOfficialReason(copy, item);
     if (item.outcome) copy.append(el("div", "form-note", "Kết quả: " +
       (item.outcome.winner_side || "Hòa") + " · " + (item.outcome.turn ?? 0) + " lượt"));
     row.append(copy);
     if (item.match_id) {
       const watch = el("button", "button ghost small", "Xem Live / Replay ↗");
       watch.type = "button";
+      watch.dataset.focusKey = item.id + "-watch";
       watch.onclick = () => loadMatch(item.id, true).catch(error => toast(error.message, true));
       row.append(watch);
     }
     if (app.accountAudience === "admin" && ["SCHEDULED","LOCKED","BLOCKED"].includes(item.status)) {
       const cancel = el("button", "button ghost small", "Hủy lịch");
       cancel.type = "button";
+      cancel.dataset.focusKey = item.id + "-cancel";
       cancel.onclick = async () => {
         if (!window.confirm("Hủy lịch thi đấu này?")) return;
         cancel.disabled = true;
@@ -3553,7 +3840,14 @@ function renderOfficialMatches() {
     }
     target.append(row);
   }
+  restore();
 }
+$("#official-status-filter").addEventListener("change", () => {
+  const url = new URL(location.href);
+  url.searchParams.set("status", $("#official-status-filter").value);
+  history.replaceState(null, "", url);
+  renderOfficialMatches();
+});
 $("#official-refresh").addEventListener("click", () =>
   refreshOfficialMatches().catch(error => toast(error.message, true)));
 
@@ -3597,25 +3891,25 @@ $("#official-schedule-form").addEventListener("submit", async event => {
   const form = event.currentTarget, button = form.querySelector("[type=submit]");
   const lock = Math.floor(new Date(form.elements.bot_lock_at.value).getTime() / 1000);
   const scheduled = Math.floor(new Date(form.elements.scheduled_at.value).getTime() / 1000);
-  if (!Number.isFinite(lock) || !Number.isFinite(scheduled) || lock > scheduled ||
-      lock < Math.floor(Date.now() / 1000)) {
-    feedback("#official-schedule-feedback", "Giờ khóa bot và giờ thi đấu không hợp lệ.", true);
+  updateOfficialEligibility();
+  const errors = officialTimeErrors(lock, scheduled);
+  if (errors.lock || errors.scheduled || button.disabled) {
+    feedback("#official-schedule-feedback", errors.lock || errors.scheduled || "Kiểm tra đội và game trước khi xếp lịch.", true);
+    form.elements[errors.lock ? "bot_lock_at" : "scheduled_at"].focus();
     return;
   }
   button.disabled = true;
+  form.dataset.submitting = "true";
   try {
     await api("/api/admin/official-matches", jsonOptions("POST", {
       team_a_id: form.elements.team_a_id.value, team_b_id: form.elements.team_b_id.value,
       game_id: form.elements.game_id.value, bot_lock_at: lock, scheduled_at: scheduled
     }));
     feedback("#official-schedule-feedback", "Đã xếp lịch Official Match.");
+    app.officialTimesDirty = false; initializeOfficialTimes();
     await refreshOfficialMatches();
   } catch (error) {
     feedback("#official-schedule-feedback", error.message, true);
-  } finally { updateOfficialEligibility(); }
+  } finally { delete form.dataset.submitting; updateOfficialEligibility(); }
 });
-{
-  const form = $("#official-schedule-form");
-  form.elements.bot_lock_at.value = officialLocalInput(Date.now() + 120000);
-  form.elements.scheduled_at.value = officialLocalInput(Date.now() + 300000);
-}
+initializeOfficialTimes();

@@ -9,10 +9,10 @@
   <title>NEON ARENA · Tournament workspace</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=b78a50b1c80f">
   <link rel="preload" href="/static/fonts/InterVariable.woff2?v=693b77d4f32e" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/static/styles.css?v=730c2514b41d">
-  <script src="/static/renderers.js?v=d5b2a8346841" defer></script>
+  <link rel="stylesheet" href="/static/styles.css?v=4ad5fae884f6">
+  <script src="/static/renderers.js?v=d3bb0dd1cd7c" defer></script>
   <script src="/static/ui.js?v=ec5370824a8c" defer></script>
-  <script src="/static/app.js?v=7ffbd35e3b30" defer></script>
+  <script src="/static/app.js?v=161230fedbf3" defer></script>
 </head>
 <body class="account-landing-active">
   <!-- Public welcome screen; workspace visibility is never an authorization boundary. -->
@@ -149,10 +149,13 @@
           <div class="stat-card"><div><span class="stat-label">Đang thi đấu</span><strong id="stat-live">—</strong></div><svg class="stat-icon nav-icon" aria-hidden="true"><use href="#i-play"/></svg><span class="stat-note" id="live-note">Đang tải…</span></div>
         </div>
 
-        <div class="arena-section-title"><div><span class="eyebrow">THE MAIN STAGE</span><h2>Live Arena</h2></div><span class="section-caption">Mỗi bước đi. Cùng theo dõi.</span></div>
+        <section class="panel history-panel"><div class="panel-heading"><h2>Trận gần đây <span class="tag" id="history-count">Đang tải…</span></h2><button class="text-button" data-go="watch">Xem tất cả <span>↗</span></button></div><div id="recent-matches" class="match-list"><div class="empty-state">Đang tải lịch sử trận đấu…</div></div></section>
+      </section>
+      <section class="view" id="view-replay" aria-labelledby="replay-heading">
+        <div class="arena-section-title page-intro"><div><h1 id="replay-heading" tabindex="-1">Diễn biến trận đấu</h1><p id="replay-meta"></p></div><div class="form-buttons"><a class="text-button" href="#home">Về Tổng quan</a><a class="text-button" id="replay-back" href="#watch">Về danh sách trận</a></div></div>
         <div class="arena-layout">
           <section class="panel arena-panel" aria-label="Đấu trường trực tiếp và replay">
-            <div class="panel-heading"><h2>LIVE ARENA <span class="tag" id="arena-game">Game</span></h2><span class="live-tag" id="arena-status"><i></i>Chờ trận đấu</span></div>
+            <div class="panel-heading"><h2>Bàn đấu <span class="tag" id="arena-game">Game</span></h2><span class="live-tag" id="arena-status"><i></i>Chờ trận đấu</span></div>
             <div class="combatants">
               <div class="fighter fighter-a"><span class="fighter-icon">A</span><div><small>PLAYER A</small><strong id="fighter-a-name">Chưa có bot thi đấu</strong><div class="hp-track"><span id="hp-a-fill"></span></div><span class="hp-text" id="hp-a-text">—</span></div></div>
               <div class="vs">vs<span>HEAD TO HEAD</span></div>
@@ -165,6 +168,7 @@
               <div class="victory-overlay hidden" id="victory-overlay"><div class="victory-icon"><svg><use href="#i-trophy"/></svg></div><div class="eyebrow">MATCH COMPLETE</div><h3 id="victory-title">Kết thúc trận đấu</h3><strong id="victory-winner"></strong><p id="victory-reason"></p><button class="button ghost small" id="dismiss-victory">Xem lại bàn chơi <span>↗</span></button></div>
               <div class="canvas-bottom"><span><i class="status-dot"></i><span id="feed-label">Chưa chọn trận</span></span><span>Lượt <strong id="turn-counter">000</strong> / <span id="turn-max">—</span></span></div>
             </div>
+            <p class="shared-hint" id="replay-rule-limit"></p>
             <div class="playback-bar" aria-label="Điều khiển playback">
               <div class="playback-buttons"><button class="icon-button" id="play-start" title="Phát playback" aria-label="Phát playback">▶</button><button class="icon-button" id="play-pause" title="Tạm dừng playback" aria-label="Tạm dừng playback">Ⅱ</button><button class="icon-button" id="play-reset" title="Xem lại từ đầu" aria-label="Xem lại từ đầu">↺</button></div>
               <input type="range" id="timeline" min="0" max="0" value="0" aria-label="Chọn lượt replay"><select id="play-speed" aria-label="Tốc độ playback"><option value="1">1×</option><option value="2">2×</option><option value="0.5">0.5×</option><option value="4">4×</option></select><button class="icon-button" id="share-match" title="Sao chép liên kết trận" aria-label="Sao chép liên kết trận">↗</button><button class="icon-button" id="download-replay" title="Tải replay JSON" aria-label="Tải replay JSON">⇩</button>
@@ -176,7 +180,6 @@
             <section class="panel event-panel"><div class="panel-heading"><h2>Nhật ký trận</h2><span class="tag">Events</span></div><div class="combat-log" id="combat-log" tabindex="0" aria-label="Nhật ký diễn biến trận"><div class="log-line"><span>SYS</span> Chưa chọn trận đấu.</div></div><div class="log-footer">Quan sát chiến thuật qua từng lượt.</div></section>
           </aside>
         </div>
-        <section class="panel history-panel"><div class="panel-heading"><h2>Trận gần đây <span class="tag" id="history-count">Đang tải…</span></h2><button class="text-button" data-go="watch">Xem tất cả <span>↗</span></button></div><div id="recent-matches" class="match-list"><div class="empty-state">Đang tải lịch sử trận đấu…</div></div></section>
       </section>
 
         <section class="view" id="view-standings" aria-label="Bảng xếp hạng"><div class="page-intro"><h1>Bảng xếp hạng</h1><p>Kết quả được tổng hợp từ các trận free-play đã hoàn tất.</p></div><section class="panel standings-panel"><div class="panel-heading"><h2>Bảng xếp hạng</h2><label class="standings-game-filter">Game<select id="standings-game-select" aria-label="Chọn game để xem bảng xếp hạng"></select></label></div><div class="standings-table-wrap"><table class="standings-table"><thead><tr><th>Hạng</th><th>Người chơi</th><th>Đã đấu</th><th>Thắng</th><th>Hòa</th><th>Thua</th><th>Tỷ lệ thắng</th><th>Phong độ 5 trận gần nhất</th></tr></thead><tbody id="standings-body"><tr><td colspan="8" class="empty-state">Đang tải bảng xếp hạng…</td></tr></tbody></table></div></section></section>
@@ -219,11 +222,11 @@
         </section>
 
         <div class="onboarding-resources"><a class="text-button" href="/static/protocol.html#examples-section">Tài liệu và bot mẫu ↗</a><span class="form-note" id="team-next-help">Sau khi tham gia đội, bạn có thể nộp code và kiểm tra biên dịch.</span></div>
-        <details class="workflow-disclosure" id="upload-workflow-details"><summary>Sau khi tham gia đội · Nộp bot và bot mẫu</summary>
-        <section class="panel library-panel player-only"><div class="panel-heading"><h2 id="bot-library-title">Submission của tôi</h2><button class="text-button" id="refresh-bots">Làm mới ↻</button></div><p class="shared-hint" id="bot-library-note">Chọn một bot đã biên dịch thành công, thuộc game hiện tại, làm Active Bot.</p><div id="bot-library"></div></section>
+        <section class="panel library-panel player-only"><div class="panel-heading"><h2 id="bot-library-title" tabindex="-1">Bot của tôi</h2><button class="text-button" id="refresh-bots">Làm mới ↻</button></div><p class="shared-hint" id="bot-library-note">Chọn một bot đã biên dịch thành công, thuộc game hiện tại, làm Active Bot.</p><div id="bot-library"></div></section>
+        <details class="workflow-disclosure" id="upload-workflow-details"><summary>Nộp bot và bot mẫu</summary>
         <h2 class="upload-section-heading player-only">Nộp bot</h2>
         <div class="two-column player-only">
-          <section class="panel"><div class="panel-heading"><h2>Submission mới</h2><span class="tag">Tối đa 256 KiB</span></div><form id="upload-form" class="padded-form">
+          <section class="panel"><div class="panel-heading"><h2>Nộp bot mới</h2><span class="tag">Tối đa 256 KiB</span></div><form id="upload-form" class="padded-form">
             <p class="form-note" id="upload-eligibility" role="status"></p><button class="text-button hidden" type="button" id="upload-team-link">Tạo hoặc tham gia đội ở đầu trang ↑</button>
             <label>Game của bot<select name="game_id" class="game-select" id="upload-game" required></select></label><label>Tên bot<input name="name" maxlength="48" placeholder="Ví dụ: Atlas" autocomplete="off"></label>
             <label class="drop-zone" id="drop-zone"><input type="file" name="file" id="bot-file" accept=".py,.cpp,.java" required aria-describedby="file-help"><span class="upload-glyph"><svg><use href="#i-upload"/></svg></span><strong id="file-label">Thả code vào đây</strong><span>hoặc nhấn để chọn file</span><small id="file-help">.py · .cpp · .java — tối đa 256 KiB</small><span class="file-language hidden" id="file-language"></span></label>
@@ -251,20 +254,26 @@
 
       <section class="view" id="view-official" aria-label="Official Match">
         <div class="page-intro"><h1>Lịch đấu chính thức</h1><p>Captain chọn Active Bot trước giờ khóa. Trận được thực thi tự động, không cần Player online. Kết quả và replay chỉ dành cho Admin và hai Team tham gia.</p></div>
-        <section class="panel hidden" id="official-admin-panel">
+        <section class="panel" id="official-list-panel" aria-label="Danh sách trận chính thức" tabindex="-1">
+          <div class="panel-heading"><h2 id="official-list-heading">Lịch đấu</h2><button class="text-button" type="button" id="official-refresh">Làm mới ↻</button></div>
+          <div class="padded-form"><label>Lọc trạng thái<select id="official-status-filter"><option value="all">Tất cả</option><option value="attention">Cần xử lý / quá hạn</option><option value="upcoming">Sắp diễn ra</option><option value="live">Đang thi đấu</option><option value="completed">Hoàn thành</option></select></label></div>
+          <div class="match-list" id="official-match-list"><div class="empty-state">Đang tải lịch đấu…</div></div>
+        </section>
+        <details class="panel workflow-disclosure hidden" id="official-admin-panel">
+          <summary>Lên lịch trận mới</summary>
           <div class="panel-heading"><h2>Lên lịch Team vs Team</h2><span class="tag">ADMIN</span></div>
           <form class="padded-form account-form" id="official-schedule-form">
             <label>Team A<select name="team_a_id" id="official-team-a" required disabled><option value="">Đang tải dữ liệu…</option></select></label>
             <label>Team B<select name="team_b_id" id="official-team-b" required disabled><option value="">Đang tải dữ liệu…</option></select></label>
             <label>Game<select name="game_id" id="official-game" required></select></label>
-            <label>Thời hạn khóa bot<input type="datetime-local" name="bot_lock_at" required></label>
-            <label>Giờ thi đấu<input type="datetime-local" name="scheduled_at" required></label>
-            <p class="form-note">Tất cả thời điểm được hiểu theo múi giờ máy của bạn rồi gửi cho server dưới dạng Unix seconds. Chỉ các Team ACTIVE và bot biên dịch hợp lệ mới được khóa. Official Match yêu cầu Docker Sandbox.</p>
+            <label>Thời hạn khóa bot<input type="datetime-local" name="bot_lock_at" required aria-describedby="official-lock-error"><small class="field-error" id="official-lock-error" hidden></small></label>
+            <label>Giờ thi đấu<input type="datetime-local" name="scheduled_at" required aria-describedby="official-time-error"><small class="field-error" id="official-time-error" hidden></small></label>
+            <p class="form-note">Thời gian theo múi giờ máy của bạn. Hạn khóa bot phải ở tương lai; giờ đấu từ hạn khóa trở đi, trong vòng 365 ngày. Captain chọn bot hợp lệ trước hạn khóa.</p>
             <p class="form-note" id="official-schedule-eligibility" role="status">Đang tải điều kiện xếp lịch…</p><a class="text-button hidden" id="official-team-help" href="#administration">Quản lý tài khoản, đội và bot →</a>
             <button class="button primary" type="submit" disabled aria-describedby="official-schedule-eligibility">Xếp lịch Official Match →</button>
             <div id="official-schedule-feedback" class="feedback hidden" role="status"></div>
           </form>
-        </section>
+        </details>
         <details class="panel workflow-disclosure hidden" id="admin-player-recovery-panel">
           <summary>Hỗ trợ khôi phục tài khoản Player</summary>
           <form id="admin-player-recovery-form" class="padded-form account-form">
@@ -279,16 +288,12 @@
           </div>
           <div id="admin-player-recovery-feedback" class="feedback hidden" role="status"></div>
         </details>
-        <section class="panel" aria-label="Danh sách trận chính thức">
-          <div class="panel-heading"><h2 id="official-list-heading">Lịch đấu</h2><button class="text-button" type="button" id="official-refresh">Làm mới ↻</button></div>
-          <div class="match-list" id="official-match-list"><div class="empty-state">Đang tải lịch đấu…</div></div>
-        </section>
       </section>
 
       <section class="view" id="view-scrimmage" aria-label="Thách đấu và hàng đợi">
         <div class="page-intro"><h1 id="scrimmage-title">Thách đấu</h1><p>Chọn đối thủ và gửi bot vào hàng đợi. Hai đội không cần online; bot đại diện được chốt tại thời điểm gửi yêu cầu. Trận thử không ảnh hưởng bảng điểm giải.</p></div>
         <section class="panel hidden" id="scrimmage-create-panel"><div class="panel-heading"><h2>Trận thử mới</h2><span class="tag">Team vs Team</span></div>
-          <form id="scrimmage-create" class="padded-form account-form"><label>Game<select name="game_id" id="scrimmage-game" required></select></label><label>Đội đối thủ<select name="opponent_team_id" id="scrimmage-opponent" required disabled><option value="">Đang tải dữ liệu…</option></select></label><p class="form-note" id="scrimmage-eligibility"></p><button class="button primary" type="submit">Gửi thách đấu <span aria-hidden="true">↗</span></button><div id="scrimmage-feedback" class="feedback hidden" role="status"></div></form>
+          <form id="scrimmage-create" class="padded-form account-form"><label>Game<select name="game_id" id="scrimmage-game" required></select></label><label>Đội đối thủ<select name="opponent_team_id" id="scrimmage-opponent" required disabled><option value="">Đang tải dữ liệu…</option></select></label><p class="form-note" id="scrimmage-eligibility"></p><a class="text-button hidden" id="scrimmage-bot-link" href="?focus=bots#upload">Chọn Active Bot →</a><button class="button primary" type="submit">Gửi thách đấu <span aria-hidden="true">↗</span></button><div id="scrimmage-feedback" class="feedback hidden" role="status"></div></form>
         </section>
         <section class="panel"><div class="panel-heading"><h2>Hàng đợi &amp; kết quả</h2><button class="button ghost small" id="refresh-scrimmages" type="button">Làm mới</button></div><div id="scrimmage-list" class="match-list"><div class="empty-state">Đang tải trận thử…</div></div></section>
       </section>

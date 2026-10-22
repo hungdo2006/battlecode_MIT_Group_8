@@ -30,6 +30,8 @@ Script này dùng server/dữ liệu native tạm; không chứng minh bot chạ
 
 Kiểm tra bố cục theo vai trò, tab, menu avatar, Team/bot, mùa/giải và bằng chứng ngày 22/10/2026: [Cải tổ workspace](WORKSPACE_LAYOUT_REVIEW.md). Checker mới chạy ma trận 120 tổ hợp trên server local tạm và không thực thi lịch Official.
 
+Sửa và kiểm thử lại R01–R12 (reset phiên/replay, history, CTA bot, lịch quá hạn và metadata): [Khắc phục kiểm thử lại](RETEST_FIXES.md), chạy thêm `python scripts/check_retest_regressions.py`.
+
 Đối chiếu từng phát hiện và phạm vi kiểm tra bổ sung: [Khắc phục báo cáo UI/UX](UI_UX_REVIEW_FIXES.md).
 
 ## Docker và end-to-end

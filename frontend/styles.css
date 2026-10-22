@@ -212,6 +212,18 @@ summary { width: fit-content; cursor: pointer; }
 .arena-section-title { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
 .arena-section-title h2 { margin-top: 4px; font-size: 18px; font-weight: 600; letter-spacing: -.4px; }
 .arena-section-title .eyebrow { display: none; }
+#replay-heading, #bot-library-title, #official-list-panel, #upload-workflow-details { scroll-margin-top: 90px; }
+#replay-heading { overflow-wrap: anywhere; }
+#official-list-panel { margin-bottom: 24px; }
+.team-tournament-details { border: 1px solid var(--border); margin-bottom: 16px; }
+.team-tournament-details > summary { padding: 20px 24px; cursor: pointer; }
+.team-tournament-details .tournament-card { border: 0; }
+.team-tournament-details summary .tournament-card-heading { display: inline-flex; width: 95%; vertical-align: top; }
+.canvas-bottom { flex-wrap: wrap; }
+@media (max-width: 600px) {
+  #view-replay .arena-section-title { flex-direction: column; align-items: stretch; }
+  #view-replay .arena-section-title .form-buttons { justify-content: flex-start; }
+}
 .section-caption { color: var(--muted); font-size: 12px; }
 .arena-layout { display: grid; grid-template-columns: minmax(0,1fr) 256px; align-items: start; gap: 24px; }
 .arena-side { display: flex; flex-direction: column; gap: 24px; min-width: 0; }

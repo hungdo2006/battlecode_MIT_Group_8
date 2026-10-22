@@ -184,7 +184,7 @@ def run():
                 page.wait_for_function("window.location.hash === '#upload'")
                 page.locator("#account-team-panel").wait_for(state="visible")
                 assert page.locator("#account-team-create").is_visible()
-                assert page.locator("#account-team-inbox").is_visible()
+                assert page.locator("#account-team-inbox").is_hidden()  # No pending invitations.
                 assert page.locator("#workspace-game-select").is_disabled()
                 assert page.evaluate("fetch('/api/session').then(r => r.status)") == 410
 

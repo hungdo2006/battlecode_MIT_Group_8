@@ -113,5 +113,5 @@ def test_rules_are_frozen_for_running_match(client, open_competition):
 
 def test_static_frontend_is_served_by_same_app(client):
     assert client.get("/").status_code == 200
-    assert "LIVE ARENA" in client.get("/").text
+    assert 'id="view-replay"' in client.get("/").text
     assert client.get("/static/app.js").status_code == 200

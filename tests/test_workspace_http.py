@@ -46,3 +46,31 @@ def test_system_status_is_admin_only_and_omits_runtime_secrets(room):
     assert payload['capacity']==2 and payload['active_matches']==[]
     assert all(isinstance(available,bool) for available in payload['runner']['toolchains'].values())
     assert 'command' not in response.text and 'token' not in response.text and 'password' not in response.text
+
+
+def test_admin_duplicate_bot_metadata_is_authoritative_and_admin_only(room, monkeypatch):
+    import base64
+    from test_team_bots import team
+
+    monkeypatch.setattr(room.app.state.runner, 'prepare',
+                        lambda *_: {'status': 'ready', 'logs': '', 'command': [], 'execution_backend': 'legacy'})
+    ids = []
+    for username, slug in [('alice', 'metadata-alpha'), ('bob', 'metadata-beta')]:
+        team_id, headers = team(room, username, slug)
+        response = room.client.post('/api/player/bots', headers=headers, json={
+            'filename': 'bot.py', 'name': 'Same name', 'game_id': 'robot_battle',
+            'source_base64': base64.b64encode(b"print('fixture')").decode(),
+        })
+        assert response.status_code == 201, response.text
+        ids.append((response.json()['bot']['id'], team_id, slug, username.title()))
+    assert room.client.get('/api/admin/submissions').status_code in (401, 403)
+    login(room, 'admin', 'admin')
+    response = room.client.get('/api/admin/submissions')
+    assert response.status_code == 200, response.text
+    bots = {bot['id']: bot for bot in response.json()['bots']}
+    for bot_id, team_id, slug, uploader in ids:
+        assert bots[bot_id]['team_id'] == team_id
+        assert bots[bot_id]['team_name'] == slug
+        assert bots[bot_id]['uploader_name'] == uploader
+        assert 'created_at' in bots[bot_id]
+        assert not {'source', 'command', 'logs', 'password_hash'} & bots[bot_id].keys()

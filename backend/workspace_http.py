@@ -123,7 +123,8 @@ def install_workspace_http(app):
     async def submissions(request:Request):
         from .bot_service import bot_public
         def listing(auth,db,actor,user):
-            bots = [bot_public(bot) for bot in app.state.store.get_bots()][:200]
+            archived = {row[0] for row in db.execute('SELECT bot_id FROM submission_archives')}
+            bots = [bot_public(bot) for bot in app.state.store.get_bots() if bot['id'] not in archived][:200]
             if bots:
                 # Metadata only, bounded by the existing Admin list limit. Keep
                 # ownership authoritative; never infer it from a bot name.

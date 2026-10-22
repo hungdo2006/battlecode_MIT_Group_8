@@ -31,6 +31,8 @@ def test_new_database_creates_current_schema_with_team_official_email_and_totp(t
             (15, "team_tournament_large_fields"),
             (16, "asynchronous_team_scrimmages"),
             (17, "competition_season_registration"),
+            (18, "team_capacity_and_submission_archive"),
+            (19, "opt_in_practice_matchmaking"),
         ]
         indexes = {row[0] for row in connection.execute("SELECT name FROM sqlite_schema WHERE type='index'")}
         assert "membership_active_user_global" in indexes
@@ -47,6 +49,46 @@ def test_new_database_creates_current_schema_with_team_official_email_and_totp(t
         assert connection.execute("SELECT 1 FROM sqlite_schema WHERE name='admin_totp'").fetchone()
         assert connection.execute("SELECT 1 FROM sqlite_schema WHERE name='email_verification_tokens'").fetchone()
         check_integrity(connection)
+
+
+def test_v17_upgrade_atomic_failure_recovery_and_data_preservation(tmp_path,monkeypatch):
+    db = AccountDatabase(tmp_path/'data')
+    old = MIGRATIONS[:17]
+    with monkeypatch.context() as patch:
+        patch.setattr(account_database,'MIGRATIONS',old)
+        patch.setattr(account_database,'SCHEMA_VERSION',17)
+        db.migrate()
+        with db.maintenance() as conn, transaction(conn):
+            conn.execute("INSERT INTO users(id,username,display_name,system_role,status,password_hash,created_at,updated_at) VALUES ('captain','captain','Captain','PLAYER','ACTIVE','$argon2id$migration-fixture-not-a-real-hash',1,1)")
+            conn.execute("INSERT INTO teams(id,slug,display_name,created_by,created_at,updated_at) VALUES ('old-team','old-team','Existing Team','captain',1,1)")
+            conn.execute("INSERT INTO teams(id,slug,display_name,created_by,created_at,updated_at) VALUES ('other-team','other-team','Other Team','captain',1,1)")
+            conn.execute("INSERT INTO team_memberships VALUES ('membership','old-team','captain','CAPTAIN',1,NULL)")
+            conn.execute("INSERT INTO submission_ownership VALUES ('old-bot','old-team','robot_battle','captain','NEW',1)")
+            conn.execute("INSERT INTO team_game_bots VALUES ('old-team','robot_battle','old-bot','captain',1,1)")
+            conn.execute("INSERT INTO official_match_requests(id,team_a_id,team_b_id,game_id,status,rules_json,bot_lock_at,scheduled_at,created_at,created_by) VALUES ('old-official','old-team','other-team','robot_battle','SCHEDULED','{}',2,3,1,'captain')")
+            conn.execute("INSERT INTO team_tournaments(id,name,game_id,format,status,created_by,created_at) VALUES ('old-tournament','Existing','robot_battle','round_robin','REGISTRATION','captain',1)")
+            conn.execute("INSERT INTO competition_seasons(id,name,game_id,registration_opens_at,registration_closes_at,starts_at,ends_at,max_teams,created_by,created_at) VALUES ('old-season','Existing season','robot_battle',1,2,3,4,10,'captain',1)")
+            tables = [row[0] for row in conn.execute("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
+            before = {table:[tuple(row) for row in conn.execute(f'SELECT * FROM "{table}"')] for table in tables}
+    replay = tmp_path/'data'/'old-replay.jsonl'
+    replay.write_bytes(b'{"fixture":"unchanged replay"}\n')
+    number,name,statements = MIGRATIONS[-1]
+    with monkeypatch.context() as patch:
+        patch.setattr(account_database,'MIGRATIONS',MIGRATIONS[:-1]+((number,name,statements+('INVALID SQL',)),))
+        with pytest.raises(sqlite3.OperationalError):
+            db.migrate()
+    with sqlite3.connect(db.path) as conn:
+        assert conn.execute('PRAGMA user_version').fetchone()[0] == 17
+        assert conn.execute("SELECT count(*) FROM sqlite_schema WHERE name='team_policy'").fetchone()[0] == 0
+    db.migrate()
+    db.migrate()  # Recovery and restart are idempotent.
+    with db.read() as conn:
+        for table,rows in before.items():
+            result = [tuple(row) for row in conn.execute(f'SELECT * FROM "{table}"')]
+            assert result[:len(rows)] == rows
+        assert conn.execute('SELECT max_members FROM team_policy').fetchone()[0] == 5
+        check_integrity(conn)
+    assert replay.read_bytes() == b'{"fixture":"unchanged replay"}\n'
 
 
 def test_v2_to_current_upgrade_preserves_existing_data(tmp_path, monkeypatch):

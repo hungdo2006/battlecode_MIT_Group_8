@@ -40,8 +40,8 @@ def install_bot_http(app):
                 raise HTTPException(404, "Team bot not found") from None
             except TeamPermissionDenied:
                 raise HTTPException(403, "Team permission denied") from None
-            except TeamConflict:
-                raise HTTPException(409, "Team bot operation conflicts with current state") from None
+            except TeamConflict as error:
+                raise HTTPException(409, str(error)) from None
             except TeamValidationError:
                 raise HTTPException(422, "Invalid Team bot request") from None
         return await runtime.run(call)
@@ -57,6 +57,10 @@ def install_bot_http(app):
     @router.get("/api/player/bots/{bot_id}/source")
     async def source(bot_id: str, request: Request):
         return await work(request, lambda b,p:b.source(p,bot_id))
+
+    @router.delete('/api/player/bots/{bot_id}')
+    async def archive(bot_id: str, body: StrictBody, request: Request):
+        return await work(request, lambda b,p:b.archive(p,bot_id), mutation=True)
 
     @router.post("/api/player/bots", status_code=201)
     async def upload(body: BotUpload, request: Request):

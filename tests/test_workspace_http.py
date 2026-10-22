@@ -74,3 +74,30 @@ def test_admin_duplicate_bot_metadata_is_authoritative_and_admin_only(room, monk
         assert bots[bot_id]['uploader_name'] == uploader
         assert 'created_at' in bots[bot_id]
         assert not {'source', 'command', 'logs', 'password_hash'} & bots[bot_id].keys()
+
+
+def test_player_and_admin_change_own_password_via_profile(room):
+    from test_team_http import PASSWORD
+    for audience, username, new_password in [
+        ('player', 'alice', 'new-player-password-2026'),
+        ('admin', 'admin', 'new-admin-password-2026'),
+    ]:
+        login(room, audience, username)
+        url = f'/api/{audience}/profile/password'
+        data = {'current_password': PASSWORD, 'new_password': new_password}
+        assert room.client.post(url, json=data).status_code == 403  # CSRF
+        headers = csrf(room, audience)
+        bad = room.client.post(url, headers=headers, json={
+            'current_password': 'wrong password', 'new_password': new_password})
+        assert bad.status_code == 409
+        assert room.client.get(f'/api/{audience}/auth/me').status_code == 200
+        result = room.client.post(url, headers=headers, json=data)
+        assert result.status_code == 200, result.text
+        assert result.json() == {'changed': True}
+        assert room.client.get(f'/api/{audience}/auth/me').status_code == 401
+        old = room.client.post(f'/api/{audience}/auth/login',
+                               json={'username': username, 'password': PASSWORD})
+        assert old.status_code == 401
+        fresh = room.client.post(f'/api/{audience}/auth/login',
+                                 json={'username': username, 'password': new_password})
+        assert fresh.status_code == 200, fresh.text

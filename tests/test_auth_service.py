@@ -223,9 +223,9 @@ def test_sessions_are_opaque_and_audience_bound(env):
     with pytest.raises(AuthenticationFailed):
         env.service.login("admin", PASSWORD, audience="PLAYER", source_key="peer")
     admin = env.service.login("admin", PASSWORD, audience="ADMIN", source_key="peer")
-    assert admin.expires_at == env.clock.now + 4 * 3600
+    assert admin.expires_at == env.clock.now + 8 * 3600
     assert env.service.validate_session(admin.token, audience="ADMIN").account.id == env.admin_id
-    assert env.connection.execute("SELECT idle_timeout_seconds FROM auth_sessions WHERE id=?", (admin.principal.session_id,)).fetchone()[0] == 900
+    assert env.connection.execute("SELECT idle_timeout_seconds FROM auth_sessions WHERE id=?", (admin.principal.session_id,)).fetchone()[0] == 3600
 
 
 @pytest.mark.parametrize("case", ["idle", "absolute", "revoked", "version", "disabled", "role", "clock_rewind"])
@@ -611,3 +611,30 @@ def test_player_eight_character_policy_does_not_weaken_admin_passwords(env):
         env.service.login("alice", valid, audience="PLAYER", source_key="test-peer")
     assert env.service.login("alice", "newpass8", audience="PLAYER",
                              source_key="test-peer").principal.account.id == account.id
+
+
+def test_self_password_change_requires_current_password_and_revokes_all_sessions(env):
+    player(env)
+    first = login_player(env)
+    second = login_player(env)
+    with pytest.raises(AccountConflict, match="Mật khẩu hiện tại"):
+        env.service.change_own_password(first.principal, "wrong current password", "new-player-password-24")
+    assert env.service.validate_session(first.token, audience="PLAYER")
+    assert env.service.change_own_password(first.principal, PASSWORD, "new-player-password-24")
+    for grant in (first, second):
+        with pytest.raises(InvalidSession):
+            env.service.validate_session(grant.token, audience="PLAYER")
+    with pytest.raises(AuthenticationFailed):
+        env.service.login("alice", PASSWORD, audience="PLAYER", source_key="test-server-peer")
+    assert env.service.login("alice", "new-player-password-24", audience="PLAYER",
+                             source_key="test-server-peer").principal.account.username == "alice"
+
+
+def test_admin_self_password_change_requires_strong_new_password(env):
+    with pytest.raises(ValueError, match="at least 15"):
+        env.service.change_own_password(env.admin, PASSWORD, "shortpass")
+    assert env.service.change_own_password(env.admin, PASSWORD, "admin-new-secret-password-24")
+    with pytest.raises(PermissionDenied):
+        env.service.require_actor(env.admin)
+    assert env.service.login("admin", "admin-new-secret-password-24", audience="ADMIN",
+                             source_key="test-server-peer").principal.account.system_role == "ADMIN"

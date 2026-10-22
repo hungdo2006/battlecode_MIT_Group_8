@@ -257,7 +257,12 @@ def test_account_websocket_auth_logout_and_idle_expiry(account_room):
     with room.client.websocket_connect("wss://testserver/api/admin/ws/competition",
                                        headers={"Origin": ORIGIN}) as ws:
         assert ws.receive_json()["type"] == "competition"
-        room.clock.now += 15 * 60
+        # PR #17 raised the default Admin idle TTL to one hour. Derive the
+        # boundary from the issued session instead of waiting forever at 15m.
+        runtime = room.app.state.account_http
+        with runtime.database.read() as connection:
+            idle = connection.execute("SELECT idle_timeout_seconds FROM auth_sessions WHERE audience='ADMIN' AND revoked_at IS NULL").fetchone()[0]
+        room.clock.now += idle
         with pytest.raises(WebSocketDisconnect) as closed:
             while True:
                 ws.receive_json()

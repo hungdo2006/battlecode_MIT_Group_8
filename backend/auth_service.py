@@ -73,7 +73,7 @@ class SessionTTL:
 class AuthPolicy:
     # Review defaults, not a production configuration approved for Internet use.
     player: SessionTTL = SessionTTL(8 * 3600, 3600)
-    admin: SessionTTL = SessionTTL(4 * 3600, 15 * 60)
+    admin: SessionTTL = SessionTTL(8 * 3600, 60 * 60)
     invitation_seconds: int = 24 * 3600
 
     def __post_init__(self):
@@ -663,6 +663,34 @@ class AuthService:
             if touch:
                 self._db.execute("UPDATE auth_sessions SET last_seen_at = ? WHERE id = ?", (now, session["id"]))
             return Principal(_account(user), audience, session["id"], _PRINCIPAL_PROOF)
+
+    def change_own_password(self, actor, current_password, new_password):
+        """Change an authenticated user's password and revoke all sessions.
+
+        Verify the existing password before mutation, then re-check the account
+        and auth version inside the writer transaction to reject concurrent edits.
+        """
+        self._ready()
+        now = self._now()
+        user = self._require_actor(actor, now, touch=False)
+        previous_hash = user["password_hash"]
+        minimum = passwords.MIN_PASSWORD_LENGTH if user["system_role"] == "ADMIN" else passwords.MIN_PLAYER_PASSWORD_LENGTH
+        with self._work.slot():
+            if not passwords.verify_password(previous_hash, current_password):
+                raise AccountConflict("Mật khẩu hiện tại không chính xác")
+            encoded = passwords.hash_password(new_password, min_length=minimum)
+        with transaction(self._db):
+            now = self._now()
+            current = self._require_actor(actor, now)
+            if current["password_hash"] != previous_hash:
+                raise AccountConflict("Mật khẩu đã thay đổi; vui lòng đăng nhập lại")
+            self._db.execute("""UPDATE users SET password_hash=?,auth_version=auth_version+1,
+                password_changed_at=?,updated_at=? WHERE id=?""",
+                (encoded,now,now,current["id"]))
+            self._db.execute("""UPDATE auth_sessions SET revoked_at=?
+                WHERE user_id=? AND revoked_at IS NULL""",(now,current["id"]))
+            self._audit(now,current["id"],"PASSWORD_CHANGED_SELF","user",current["id"])
+            return True
 
     def logout(self, token, *, audience):
         self._ready()

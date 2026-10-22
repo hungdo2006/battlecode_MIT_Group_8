@@ -23,9 +23,12 @@ Browser checker cần thêm package Playwright và Chrome:
 python -m pip install playwright
 python scripts/check_account_ui.py
 python scripts/check_ui_ux_report.py
+python scripts/check_workspace_layout.py
 ```
 
 Script này dùng server/dữ liệu native tạm; không chứng minh bot chạy Docker. CI baseline hiện chạy Python/Controller/frontend checks trên Windows và Ubuntu, chưa chạy browser hoặc sandbox thật.
+
+Kiểm tra bố cục theo vai trò, tab, menu avatar, Team/bot, mùa/giải và bằng chứng ngày 22/10/2026: [Cải tổ workspace](WORKSPACE_LAYOUT_REVIEW.md). Checker mới chạy ma trận 120 tổ hợp trên server local tạm và không thực thi lịch Official.
 
 Đối chiếu từng phát hiện và phạm vi kiểm tra bổ sung: [Khắc phục báo cáo UI/UX](UI_UX_REVIEW_FIXES.md).
 

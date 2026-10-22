@@ -2,6 +2,54 @@
 
 // Shared progressive enhancements for the workspace and standalone documents.
 (() => {
+  for (const tablist of document.querySelectorAll("[data-tabs]")) {
+    const tabs = [...tablist.querySelectorAll('[role="tab"]')];
+    const select = tab => {
+      for (const item of tabs) {
+        const active = item === tab;
+        item.setAttribute("aria-selected", String(active));
+        item.tabIndex = active ? 0 : -1;
+        document.getElementById(item.getAttribute("aria-controls")).hidden = !active;
+      }
+    };
+    for (const tab of tabs) {
+      tab.addEventListener("click", () => select(tab));
+      tab.addEventListener("keydown", event => {
+        const index = tabs.indexOf(tab);
+        const next = event.key === "Home" ? tabs[0] : event.key === "End" ? tabs.at(-1)
+          : event.key === "ArrowRight" ? tabs[(index + 1) % tabs.length]
+          : event.key === "ArrowLeft" ? tabs[(index + tabs.length - 1) % tabs.length] : null;
+        if (next) { event.preventDefault(); select(next); next.focus(); }
+      });
+    }
+  }
+  const accountMenu = document.getElementById("user-menu");
+  accountMenu?.addEventListener("toggle", () => {
+    accountMenu.querySelector("summary").setAttribute("aria-expanded", String(accountMenu.open));
+  });
+  document.addEventListener("click", event => {
+    if (accountMenu?.open && (!accountMenu.contains(event.target) || event.target.closest("a, #organizer-toggle"))) accountMenu.open = false;
+  });
+  document.addEventListener("keydown", event => {
+    if (event.key !== "Escape") return;
+    const details = accountMenu?.open ? accountMenu : event.target.closest("details[open]");
+    if (!details) return;
+    event.preventDefault();
+    details.open = false;
+    details.querySelector("summary").focus();
+  });
+  for (const details of document.querySelectorAll(".workflow-disclosure")) {
+    if (!details.querySelector("form")) continue;
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "button ghost small disclosure-close";
+    close.textContent = "Đóng biểu mẫu";
+    close.addEventListener("click", () => {
+      details.open = false;
+      details.querySelector("summary").focus();
+    });
+    details.append(close);
+  }
   let sequence = 0;
   for (const form of document.querySelectorAll(".account-form, #account-team-create, #admin-invite-form")) {
     form.noValidate = true;

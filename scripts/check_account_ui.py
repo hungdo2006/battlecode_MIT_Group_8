@@ -107,12 +107,14 @@ def run():
                 page.fill("#account-login-form [name=password]", PASSWORD)
                 page.click("#account-login-form [type=submit]")
                 page.wait_for_function("document.querySelector('#participant-role').textContent === 'PLAYER'")
+                page.wait_for_function("app.initialized && !app.initializing")
                 assert ("/api/account/auth/login", False) in auth_posts, auth_posts
                 assert not any("/account/auth/" in path and path != "/api/account/auth/register"
                                and path != "/api/account/auth/login" for path, _ in auth_posts), auth_posts
                 assert not dialog.is_visible()
                 assert not landing.is_visible()
-                assert page.locator("#account-mode-note").is_visible()
+                assert page.locator(".workspace-context").is_visible()
+                page.click("#user-menu > summary")
                 page.click("#organizer-toggle")
                 landing.wait_for(state="visible")
                 assert not dialog.is_visible()
@@ -123,8 +125,9 @@ def run():
                 page.fill("#account-login-form [name=password]", PASSWORD)
                 page.click("#account-login-form [type=submit]")
                 page.wait_for_function("document.querySelector('#participant-role').textContent === 'ADMIN'")
-                assert page.locator("#participant-role").inner_text() == "ADMIN"
-                assert not dialog.is_visible() and page.locator("#organizer-toggle").inner_text() == "Đăng xuất"
+                page.wait_for_function("app.initialized && !app.initializing")
+                assert page.locator("#participant-role").text_content() == "ADMIN"
+                assert not dialog.is_visible() and page.locator("#organizer-toggle").text_content() == "Đăng xuất"
                 assert page.locator('.nav-item[data-view="upload"]').is_hidden()
                 assert page.locator('.nav-item[data-view="create"]').is_hidden()
                 assert page.locator('.nav-item[data-view="watch"]').is_visible()
@@ -144,14 +147,16 @@ def run():
                                           content_type="application/json",
                                           body='{"detail":"QA unavailable"}' if failure == "unavailable" else '{}')
                     page.route(logout_url, fail_logout)
+                    page.click("#user-menu > summary")
                     page.click("#organizer-toggle")
                     page.wait_for_function("document.querySelector('#organizer-toggle').textContent === 'Thử lại đăng xuất'")
                     assert not dialog.is_visible()
-                    assert page.locator("#participant-role").inner_text() == "ADMIN"
+                    assert page.locator("#participant-role").text_content() == "ADMIN"
                     assert "Chưa xác nhận đăng xuất" in page.locator("#toast").inner_text()
                     assert page.evaluate("fetch('/api/admin/auth/me').then(r => r.status)") == 200
                     page.unroute(logout_url, fail_logout)
 
+                page.click("#user-menu > summary")
                 page.click("#organizer-toggle")
                 landing.wait_for(state="visible")
                 assert not dialog.is_visible()
@@ -162,6 +167,7 @@ def run():
                 page.fill("#account-login-form [name=password]", PASSWORD)
                 page.click("#account-login-form [type=submit]")
                 page.wait_for_function("document.querySelector('#participant-role').textContent === 'PLAYER'")
+                page.wait_for_function("app.initialized && !app.initializing")
                 assert page.locator('.nav-item[data-view="upload"]').is_visible()
                 # A returning authenticated Player must skip the welcome screen.
                 page.goto(origin + "/#official", wait_until="domcontentloaded")
@@ -214,6 +220,12 @@ def run():
                 for width, height in ((360, 800), (390, 844), (768, 1024)):
                     page.set_viewport_size({"width": width, "height": height})
                     for view in ("home", "upload", "standings", "tournaments", "official", "scrimmage", "watch", "seasons", "profile", "rules"):
+                        if view == "profile":
+                            page.click("#user-menu > summary")
+                            page.locator('#user-menu [data-view="profile"]').click()
+                            assert page.locator("#view-profile").is_visible()
+                            assert not page.locator(".workspace-context").is_visible()
+                            continue
                         toggle.click()
                         navigation.locator(f'[data-view="{view}"]').click()
                         assert page.locator(f"#view-{view}").is_visible()

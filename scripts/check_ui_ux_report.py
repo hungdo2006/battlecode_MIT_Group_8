@@ -65,6 +65,7 @@ def run():
                     expect(page.locator(f"#view-{name}")).to_be_visible()
 
                 def logout():
+                    page.click("#user-menu > summary")
                     page.click("#organizer-toggle")
                     expect(page.locator("#account-landing")).to_be_visible()
                     assert page.url.endswith("#home"), page.url
@@ -144,7 +145,7 @@ def run():
                 page.click("#protocol-back")
                 workspace()
                 expect(page.locator("#view-upload")).to_be_visible()
-                aligned("#workspace-game-select", ".workspace-game button")
+                assert page.locator("#workspace-game-select").is_hidden()
 
                 # UI-19/22..25: a new Player gets clear Team prerequisites.
                 expect(page.locator("#bot-file")).to_be_disabled()
@@ -161,9 +162,10 @@ def run():
                 expect(page.locator("#scrimmage-opponent")).to_contain_text("chưa tham gia đội")
                 view("rules")
                 expect(page.locator("#rules-access-note")).to_contain_text("không cần online")
+                page.click(".rules-documentation > summary")
                 assert "TOURNAMENT" not in page.locator("#rules-guide").inner_text()
                 view("standings")
-                expect(page.locator("#view-standings .eyebrow")).to_have_text("BẢNG ĐIỂM GIẢI ĐẤU TEAM")
+                expect(page.locator("#view-standings h1")).to_have_text("Bảng xếp hạng")
                 page.goto(origin + "/#system")
                 workspace()
                 assert page.url.endswith("#home")
@@ -176,12 +178,15 @@ def run():
                 # creation without two teams, and mode-specific empty guidance.
                 login("qa.admin")
                 workspace()
-                aligned("#workspace-game-select", ".workspace-game button")
+                assert page.locator("#workspace-game-select").is_hidden()
                 expect(page.locator("#recent-matches")).not_to_contain_text("Player READY")
                 view("tournaments")
                 expect(page.locator("#view-tournaments > .tournament-create-panel")).to_be_hidden()
                 expect(page.locator("#team-tournament-create [type=submit]")).to_be_disabled()
-                aligned("#team-tournament-admin-panel h2", "#account-team-tournaments > .tournament-list-panel h2")
+                expect(page.locator("#account-team-tournaments > .tournament-list-panel")).to_be_visible()
+                expect(page.locator("#team-tournament-create")).to_be_hidden()
+                page.click("#team-tournament-admin-panel > summary")
+                expect(page.locator("#team-tournament-create")).to_be_visible()
                 page.screenshot(path=str(evidence / "admin-tournaments.png"), full_page=True, animations="disabled")
                 view("official")
                 expect(page.locator("#official-team-a")).to_be_disabled()

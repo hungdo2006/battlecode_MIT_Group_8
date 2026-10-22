@@ -34,10 +34,13 @@ def check(url, code, games=('robot_battle', 'ott_v2'), output_dir=None):
             page.on('websocket', lambda ws, i=index: ws_urls[i].append(ws.url))
             page.goto(url)
             page.wait_for_function('app.participant && app.lobby')
+            page.locator('#user-menu > summary').click()
             page.locator('#session-name').fill(['Organizer', 'Hoang', 'Minh'][index])
             page.locator('#session-form button').click()
             page.wait_for_function('name => app.participant.name === name', arg=['Organizer', 'Hoang', 'Minh'][index])
+            page.locator('#user-menu > summary').click()
         org, a, b = pages
+        org.locator('#user-menu > summary').click()
         org.locator('#organizer-toggle').click()
         org.locator('#organizer-code').fill(code)
         org.locator('#organizer-form [type=submit]').click()
@@ -53,6 +56,7 @@ def check(url, code, games=('robot_battle', 'ott_v2'), output_dir=None):
         baseline_count = len(org.request.get(url + '/api/matches').json())
 
         def close_competition():
+            org.locator('.nav-item[data-view=rules]').click()
             org.locator('#competition-close').click()
             org.locator('#confirm-dialog').wait_for(state='visible')
             org.locator('#confirm-accept').click()

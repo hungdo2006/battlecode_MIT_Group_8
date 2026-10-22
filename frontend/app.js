@@ -253,6 +253,37 @@ $("#profile-form").addEventListener("submit",async event=>{
   finally{busyButton(button,false);button.disabled=false;}
 });
 
+$("#profile-password-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const oldPassword = form.elements.current_password.value;
+  const newPassword = form.elements.new_password.value;
+  const confirmPassword = form.elements.confirm_password.value;
+  if (newPassword !== confirmPassword) {
+    feedback("#profile-password-feedback", "Hai mật khẩu mới chưa trùng nhau.", true);
+    return;
+  }
+  const minLength = app.accountAudience === "admin" ? 15 : 8;
+  if (newPassword.length < minLength) {
+    feedback("#profile-password-feedback", `Mật khẩu mới cần ít nhất ${minLength} ký tự.`, true);
+    return;
+  }
+  const button = form.querySelector("[type=submit]");
+  busyButton(button, true);
+  try {
+    await api(`/api/${app.accountAudience}/profile/password`,
+      jsonOptions("POST", { current_password: oldPassword, new_password: newPassword }));
+    form.reset();
+    accountExpired();
+    showAccountLanding("Đã đổi mật khẩu. Vui lòng đăng nhập lại bằng mật khẩu mới.");
+  } catch (error) {
+    feedback("#profile-password-feedback", error.message, true);
+  } finally {
+    busyButton(button, false);
+    button.disabled = false;
+  }
+});
+
 async function refreshAdministration() {
   if (administrationBusy || app.accountAudience!=="admin" || !app.account) return;
   administrationBusy=true;
@@ -2651,6 +2682,22 @@ function renderTeamTournaments() {
       fixtureCard.append(el("small", `tournament-match-state ${(fixture.match_status || "pending").toLowerCase()}`, fixture.match_status ? officialStatus(fixture.match_status) : "CHƯA XẾP LỊCH"));
       const request = app.officialMatches.find(item => item.id === fixture.official_request_id);
       appendOfficialReason(fixtureCard, request || { id: fixture.official_request_id || fixture.id, status: fixture.match_status });
+      if (app.accountAudience === "admin" && fixture.official_request_id
+          && ["SCHEDULED", "LOCKED", "BLOCKED"].includes(request?.status || fixture.match_status)) {
+        const cancelFixture = el("button", "button ghost small", "Hủy lịch trận này");
+        cancelFixture.type = "button";
+        cancelFixture.onclick = async () => {
+          if (!await confirmAction("Hủy lịch trận trong giải?", "Trận chưa chạy sẽ được gỡ lịch, giữ nguyên fixture để Admin xếp lịch mới.", "Hủy lịch")) return;
+          cancelFixture.disabled = true;
+          try {
+            await api(`/api/admin/official-matches/${encodeURIComponent(fixture.official_request_id)}/cancel`, jsonOptions("POST", {}));
+            await refreshOfficialMatches({ includeTeams: false });
+            await refreshTeamTournaments();
+            toast("Đã hủy lịch; có thể xếp lịch mới cho fixture.");
+          } catch (error) { cancelFixture.disabled = false; toast(error.message, true); }
+        };
+        fixtureCard.append(cancelFixture);
+      }
       if (app.accountAudience === "admin" && tournament.status === "ACTIVE" && !fixture.official_request_id) {
         const controls = el("div", "form-buttons");
         const lockInput = document.createElement("input"); lockInput.type = "datetime-local"; lockInput.setAttribute("aria-label", "Thời điểm khóa bot"); lockInput.value = officialLocalInput(Date.now() + 120000);
@@ -3479,6 +3526,7 @@ window.addEventListener("beforeunload", () => { app.shuttingDown = true; app.gen
 async function refreshAccountTeam() {
   if (!app.accountOnly || app.accountAudience !== "player" || !app.account) return;
   const [mine, invites] = await Promise.all([api("/api/player/team"), api("/api/player/team-invitations")]);
+  app.pendingTeamInvitationIds = invites.invitations.filter(inv => inv.status === "PENDING").map(inv => inv.id).sort().join(",");
   app.team = mine;
   const team = mine.team, captain = mine.my_role === "CAPTAIN";
   $("#account-team-create").classList.toggle("hidden", !!team);
@@ -3539,6 +3587,29 @@ async function refreshAccountTeam() {
   updateUploadEligibility();
   renderOfficialMatches();
 }
+// Refresh new Team invitations while the page stays open; only rebuild the
+// Team panel when the pending invitations actually change.
+let checkingTeamInvitations = false;
+setInterval(async () => {
+  if (checkingTeamInvitations || document.hidden || !app.accountOnly || !app.initialized
+      || app.accountAudience !== "player" || !app.account || app.team?.team
+      || Date.now() < app.pollPauseUntil) return;
+  checkingTeamInvitations = true;
+  const account = app.account;
+  try {
+    const response = await api("/api/player/team-invitations");
+    if (app.account !== account || app.accountAudience !== "player") return;
+    const signature = response.invitations.filter(inv => inv.status === "PENDING")
+      .map(inv => inv.id).sort().join(",");
+    if (signature !== app.pendingTeamInvitationIds) {
+      await refreshAccountTeam();
+      if (signature) toast("Bạn vừa nhận được lời mời tham gia Team. Mở Team & Bot để phản hồi.");
+    }
+  } catch (error) {
+    if (error.transport) setConnection(false);
+  } finally { checkingTeamInvitations = false; }
+}, 20000);
+
 function renderAccountBotLibrary() {
   const target = $("#bot-library");
   target.replaceChildren();

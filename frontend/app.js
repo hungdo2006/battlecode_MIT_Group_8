@@ -1966,6 +1966,7 @@ function renderPracticeOpponents() {
     captain?"Xác nhận đội sẵn sàng →":"Xem đội của tôi →":
     captain?"Chọn bot đại diện →":"Xem bot của đội →";
   link.href=activeTeam?workspaceLink("upload",{focus:"bots"}):"#upload";
+  const restoreFocus=preserveListState(target);
   target.replaceChildren();
   if(loading){
     target.append(el("div","empty-state","Đang tải các đội có thể đấu thử…"));
@@ -1996,6 +1997,7 @@ function renderPracticeOpponents() {
       el("small","",`Bot đại diện: ${other.bot_name} · ${other.language?.toUpperCase()||"Bot"}`));
     const button=el("button","button primary small",against?"Đã gửi trận":involved?"Đang thi đấu":"Đấu thử ↗");
     button.type="button";
+    button.dataset.focusKey=`practice-${other.id}`;
     button.disabled=!ready || loading || !!app.practiceChallengeBusy || myPending.length>=3 || involved;
     button.title=!ready?"Đội bạn cần bot đại diện hợp lệ":
       myPending.length>=3?"Đội đã đạt giới hạn 3 trận đang chờ/chạy":
@@ -2004,6 +2006,7 @@ function renderPracticeOpponents() {
     row.append(info,button);
     target.append(row);
   }
+  restoreFocus();
 }
 
 async function challengePracticeTeam(opponent,game) {

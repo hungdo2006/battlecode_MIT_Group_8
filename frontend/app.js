@@ -3307,7 +3307,7 @@ $("#offline-import-preview").addEventListener("click",async()=>{
   $("#offline-import-confirm").disabled=true;
   const file=$("#offline-import-file").files[0];
   if(!file){feedback("#offline-import-feedback","Hãy chọn file .json kết quả.",true);return;}
-  if(file.size>1024*1024+2048){feedback("#offline-import-feedback","File kết quả quá lớn.",true);return;}
+  if(file.size>2*1024*1024){feedback("#offline-import-feedback","File kết quả quá lớn.",true);return;}
   const button=$("#offline-import-preview");button.disabled=true;
   try{
     const parsed=JSON.parse(await file.text());

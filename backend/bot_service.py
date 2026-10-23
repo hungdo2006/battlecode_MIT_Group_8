@@ -10,6 +10,7 @@ from pathlib import Path
 
 from .account_database import transaction, require_writer
 from .auth_service import PermissionDenied
+from .artifact_compat import artifact_current, public_bot_status
 from .team_service import TeamConflict, TeamNotFound, TeamValidationError, TeamPermissionDenied
 
 
@@ -108,7 +109,8 @@ class TeamBots:
                 continue
             bot = self.store.get_bot(record["bot_id"])
             if bot and bot.get("team_id") == member["id"] and bot.get("game_id") == record["game_id"]:
-                result.append({**bot_compiler_detail(bot), "uploaded_by": record['uploaded_by'],
+                result.append({**bot_compiler_detail(bot), "status": public_bot_status(self.store,bot),
+                               "uploaded_by": record['uploaded_by'],
                                "is_active": self.db.execute('SELECT 1 FROM team_game_bots WHERE bot_id=?',(record['bot_id'],)).fetchone() is not None,
                                "can_delete": member['team_role']=='CAPTAIN' or record['uploaded_by']==user['id']})
         return result
@@ -121,7 +123,7 @@ class TeamBots:
         bot = self.store.get_bot(bot_id)
         if not record or not bot or bot.get("team_id") != member["id"] or bot.get("game_id") != record["game_id"]:
             raise TeamNotFound("Team bot not found")
-        return bot_compiler_detail(bot)
+        return {**bot_compiler_detail(bot), "status": public_bot_status(self.store,bot)}
 
     def archive(self, actor, bot_id):
         """Retain source/artifacts and immutable ownership for frozen matches.
@@ -174,7 +176,8 @@ class TeamBots:
         if self.db.execute("SELECT 1 FROM submission_archives WHERE bot_id=?", (row['bot_id'],)).fetchone():
             return None
         bot = self.store.get_bot(row["bot_id"])
-        if not bot or bot.get("team_id") != member["id"] or bot.get("game_id") != game_id or bot.get("status") != "ready":
+        if (not bot or bot.get("team_id") != member["id"] or bot.get("game_id") != game_id
+            or not artifact_current(self.store, bot)):
             return None  # Fail closed; never advertise stale/incompatible active bot.
         return {"game_id":game_id,"bot":bot_public(bot),"revision":row["revision"],
                 "selected_at":row["selected_at"]}
@@ -197,6 +200,8 @@ class TeamBots:
                 raise TeamNotFound("Bot is not owned by your Team and game")
             if bot.get("status") != "ready":
                 raise TeamConflict("Only ready bots can be selected")
+            if not artifact_current(self.store, bot):
+                raise TeamConflict("Bot cần biên dịch lại bằng Sandbox hiện tại trước khi làm bot đại diện.")
             previous = self.db.execute("SELECT revision FROM team_game_bots WHERE team_id=? AND game_id=?",
                                         (member["id"],game_id)).fetchone()
             revision = previous["revision"]+1 if previous else 1

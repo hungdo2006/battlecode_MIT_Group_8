@@ -66,7 +66,7 @@ Các thẻ này dùng duy nhất API Admin hiện có `/api/admin/system`; khôn
 Đây là **đấu luyện tự chọn đối thủ**, không phải ghép trận ngẫu nhiên. Player chọn trò chơi, xem danh sách các đội **ACTIVE và có bot đại diện hợp lệ** trong game đó, rồi nhấn **Đấu thử** cạnh đội muốn đối đầu.
 
 - Không cần hai đội đồng thời online, không có nút "Tìm đối thủ", đồng hồ chờ 5 phút hay hàng ghép ngẫu nhiên.
-- API `GET /api/player/scrimmage-opponents?game_id=...` trả về các đội đã có bot hợp lệ; danh sách loại bỏ chính đội mình và có tìm kiếm theo tên trên trình duyệt.
+- API `GET /api/player/scrimmage-opponents?game_id=...` trả về các đội đã có bot hợp lệ và cờ `own_ready` kiểm tra bot Sandbox đã được chứng thực của đội mình. Danh sách loại bỏ chính đội mình và hỗ trợ tìm kiếm tên trên trình duyệt.
 - Khi đã sẵn sàng, bất cứ thành viên đội ACTIVE nào có thể chủ động chọn đối thủ. Trưởng đội (Captain) chịu trách nhiệm chọn bot đại diện trước đó; Member không thể thay Captain chọn bot.
 - Nút **Đấu thử** gọi `POST /api/player/scrimmages` với `{game_id, opponent_team_id}`. Backend **ngay lập tức tạo một yêu cầu trận QUEUED**, snapshot luật và bot hai đội, rồi dispatcher thực thi trên Sandbox. **Đối thủ không cần chấp nhận.**
 - Khi bot bên mình chưa đủ điều kiện, các nút đấu bị khóa và có liên kết trở về **Đội & bot của tôi**.

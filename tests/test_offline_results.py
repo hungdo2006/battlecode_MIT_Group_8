@@ -20,10 +20,10 @@ def complete_event():
             {"team_id": "team-b", "team_name_snapshot": "Đội B"},
         ],
         "standings": [
-            {"team_name": "Đội A", "rank": 1, "played": 1,
+            {"team_id": "team-a", "team_name": "Đội A", "rank": 1, "played": 1,
              "wins": 1, "draws": 0, "losses": 0, "points": 3,
              "score_for": 4, "score_difference": 2},
-            {"team_name": "Đội B", "rank": 2, "played": 1,
+            {"team_id": "team-b", "team_name": "Đội B", "rank": 2, "played": 1,
              "wins": 0, "draws": 0, "losses": 1, "points": 0,
              "score_for": 2, "score_difference": -2},
         ],
@@ -50,6 +50,7 @@ def test_signed_export_import_publication_is_separate_and_idempotent(keys, tmp_p
     package=export_package(source)
     exported=verify_package(package)
     assert exported["tournament"]["name"] == "Giải đấu trường"
+    assert "team_id" not in str(exported)
     assert "private-request-id" not in str(exported)
     assert "private-match-id" not in str(exported)
     assert "source_sha256" not in str(exported)

@@ -51,11 +51,13 @@ def _text(value, length=128):
     return value
 
 
-def _score(row):
+def _score(row, *, strict=False):
     if not isinstance(row, dict):
         raise OfflineResultsError("Bảng điểm offline không hợp lệ.")
     result = {key: row[key] for key in _SCORE_KEYS if key in row}
-    if set(row) != set(result) or not result.get("team_name"):
+    # The internal scorer includes team_id; strip it from public exports.
+    # Imported/signed packages must contain ONLY approved public fields.
+    if (strict and set(row) != set(result)) or not result.get("team_name"):
         raise OfflineResultsError("Bảng điểm có trường không được công bố.")
     _text(result["team_name"], 128)
     for key, value in result.items():
@@ -137,7 +139,7 @@ def _validate(payload):
         if not isinstance(tournament[key], list) or len(tournament[key]) > maximum:
             raise OfflineResultsError("Gói kết quả vượt giới hạn.")
     for score in tournament["standings"]:
-        _score(score)
+        _score(score, strict=True)
     for group in tournament["groups"]:
         if not isinstance(group, dict) or set(group) != {"name", "standings"}:
             raise OfflineResultsError("Bảng đấu sai định dạng.")
@@ -145,7 +147,7 @@ def _validate(payload):
         if not isinstance(group["standings"], list) or len(group["standings"]) > 128:
             raise OfflineResultsError("Bảng điểm nhóm không hợp lệ.")
         for score in group["standings"]:
-            _score(score)
+            _score(score, strict=True)
     for key, names in (("matches", {"round","stage","team_a","team_b","winner"}),
                        ("bracket", {"round","status","team_a","team_b","winner"})):
         for row in tournament[key]:

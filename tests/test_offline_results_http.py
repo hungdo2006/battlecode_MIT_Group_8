@@ -91,3 +91,73 @@ def test_offline_export_denied_until_tournament_completed(room, signed_file):
     export = room.client.get(f"/api/admin/team-tournaments/{tournament['id']}/offline-export")
     assert export.status_code == 422
     assert "hoàn thành" in export.text
+
+
+def test_signed_export_uses_real_completed_round_robin_rows(room, signed_file):
+    """Exercise actual Tournament/Official database projection, not only a fake dict."""
+    import json
+
+    from backend.account_database import transaction
+    from backend.offline_results import verify_package
+    from test_team_tournament_http import create_active_team
+
+    teams = [
+        create_active_team(room, "alice", "offline-alpha"),
+        create_active_team(room, "bob", "offline-beta"),
+    ]
+    login(room, "admin", "admin")
+    headers = csrf(room, "admin")
+    created = room.client.post("/api/admin/team-tournaments", json={
+        "name": "Offline trial", "game_id": "robot_battle",
+        "team_ids": teams, "format": "round_robin",
+    }, headers=headers)
+    assert created.status_code == 201, created.text
+    tournament_id = created.json()["tournament"]["id"]
+    started = room.client.post(f"/api/admin/team-tournaments/{tournament_id}/start",
+                               json={}, headers=headers)
+    assert started.status_code == 200, started.text
+    fixture = started.json()["tournament"]["fixtures"][0]
+
+    scheduled = room.client.post(
+        f"/api/admin/team-tournaments/{tournament_id}/fixtures/{fixture['id']}/schedule",
+        json={"bot_lock_at": room.clock.now + 60,
+              "scheduled_at": room.clock.now + 120},
+        headers=headers,
+    )
+    assert scheduled.status_code == 201, scheduled.text
+    request_id = scheduled.json()["request"]["id"]
+
+    # Only synthetic staging records. An Official fixture is completed by its
+    # scheduler in real use; this test injects the terminal state deterministically.
+    outcome = {"winner_team_id": teams[0], "result": {"scores": {"A": 3, "B": 1}}}
+    runtime = room.app.state.account_http
+    with runtime.database.writer_connection(runtime.writer) as connection, transaction(connection):
+        connection.execute("""UPDATE official_match_requests
+            SET status='COMPLETED', outcome_json=?, finished_at=?, match_id=?
+            WHERE id=?""", (json.dumps(outcome), room.clock.now, "qa-match", request_id))
+
+    actual = room.client.get(f"/api/admin/team-tournaments/{tournament_id}")
+    assert actual.status_code == 200, actual.text
+    assert actual.json()["tournament"]["status"] == "COMPLETED"
+
+    exported = room.client.get(
+        f"/api/admin/team-tournaments/{tournament_id}/offline-export")
+    assert exported.status_code == 200, exported.text
+    package = exported.json()["package"]
+    record = verify_package(package)["tournament"]
+    assert record["status"] == "COMPLETED"
+    assert len(record["matches"]) == 1
+    assert len(record["teams"]) == 2
+    assert record["matches"][0]["winner"] in record["teams"]
+    assert record["standings"][0]["points"] == 3
+    assert "team_id" not in str(record) and "qa-match" not in str(record)
+    # Publishing the signed copy must not create or edit an Online tournament.
+    before = len(room.client.get("/api/public/standings").json()["tournaments"])
+    imported = room.client.post("/api/admin/offline-results/import", json={
+        "package": package, "confirm_publish": True,
+    }, headers=headers)
+    assert imported.status_code == 200, imported.text
+    standings = room.client.get("/api/public/standings").json()
+    assert len(standings["tournaments"]) == before
+    assert len(standings["offline_tournaments"]) == 1
+    assert standings["offline_tournaments"][0]["matches"][0]["winner"] in record["teams"]

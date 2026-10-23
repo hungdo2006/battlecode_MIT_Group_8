@@ -33,6 +33,7 @@ def test_new_database_creates_current_schema_with_team_official_email_and_totp(t
             (17, "competition_season_registration"),
             (18, "team_capacity_and_submission_archive"),
             (19, "opt_in_practice_matchmaking"),
+            (20, "tournament_round_rules_and_visibility"),
         ]
         indexes = {row[0] for row in connection.execute("SELECT name FROM sqlite_schema WHERE type='index'")}
         assert "membership_active_user_global" in indexes

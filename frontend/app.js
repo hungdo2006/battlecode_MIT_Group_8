@@ -1916,15 +1916,12 @@ async function refreshPracticeOpponents() {
     return;
   }
   try{
-    // Show only Teams with a valid active bot for this game. A separate
-    // active-bot lookup checks our Team in exactly the selected game.
-    const [opponents,own]=await Promise.all([
-      api(`/api/player/scrimmage-opponents?game_id=${encodeURIComponent(game)}`),
-      api(`/api/player/active-bot?game_id=${encodeURIComponent(game)}`)
-    ]);
+    // The server validates both the eligible opponents and our own attested
+    // sandbox bot for exactly this game in a single authorized response.
+    const opponents=await api(`/api/player/scrimmage-opponents?game_id=${encodeURIComponent(game)}`);
     if(seq!==app.practiceRefreshSeq || account!==app.account || game!==$("#scrimmage-game").value)return;
     app.practiceOpponents=opponents.teams||[];
-    app.practiceOwnBotReady=own.active?.bot?.status==="ready";
+    app.practiceOwnBotReady=!!opponents.own_ready;
     app.practiceFetchedGame=game;
     $("#scrimmage-feedback").classList.add("hidden");
   }catch(error){

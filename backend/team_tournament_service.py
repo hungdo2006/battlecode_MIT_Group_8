@@ -847,14 +847,23 @@ class TeamTournamentService:
             return self.detail(actor,tournament_id,admin=True)
 
     def public_standings(self):
-        # Deliberately omit fixtures, participants' accounts, submissions and replay.
+        # Explicit projection: NEVER expose team IDs, fixture IDs, source,
+        # bot revisions, private replay links or participant account data.
+        allowed = ("rank","team_name","played","wins","draws","losses",
+                   "points","score_for","score_difference","byes","buchholz")
+        def scores(rows):
+            return [{key:item[key] for key in allowed if key in item} for item in rows]
         result = []
         ids = [row[0] for row in self.db.execute("""SELECT id FROM team_tournaments
             WHERE visibility='PUBLIC' ORDER BY created_at DESC,id DESC LIMIT 100""")]
         for tournament_id in ids:
             detail = self._detail(tournament_id)
-            result.append({key:detail[key] for key in
-                           ("id","name","game_id","status","format","standings","groups")})
+            result.append({
+                **{key:detail[key] for key in ("id","name","game_id","status","format")},
+                "standings":scores(detail["standings"]),
+                "groups":[{"name":g["name"],"standings":scores(g["standings"])}
+                          for g in detail["groups"]],
+            })
         return result
 
     def list(self, actor, *, admin=False):

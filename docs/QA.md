@@ -2,6 +2,8 @@
 
 ## Regression
 
+Nghiệm thu giao diện sau PR #20, lỗi đã sửa và giới hạn fixture/Docker: [QA_REPORT.md](../QA_REPORT.md). Các kết quả trong báo cáo gắn với baseline và nhánh được ghi ở đầu báo cáo.
+
 Tại repository, trong Python 3.13 virtualenv có Node 24 và toolchain C++/Java phù hợp:
 
 ```sh

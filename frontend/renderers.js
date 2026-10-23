@@ -289,7 +289,7 @@ NeonRenderers.register("battlecode26", {
 NeonRenderers.register("ott_v2", {
   draw: drawOTT,
   hud(frame) {
-    return { grid: "OTT v2 / 9 × 9", phase: `VÁN ${frame.round}/${frame.rules.rounds} · ${frame.round_turn} NƯỚC · ${frame.current_player} ĐẾN LƯỢT`,
+    return { grid: `OTT v2 / ${frame.board_size} × ${frame.board_size}`, phase: `VÁN ${frame.round}/${frame.rules.rounds} · ${frame.round_turn} NƯỚC · ${frame.current_player} ĐẾN LƯỢT`,
       turnMax: frame.rules.max_turns * frame.rules.rounds + frame.rules.rounds - 1,
       players: Object.fromEntries(["A", "B"].map(p => [p, { value: Object.values(frame.counts[p]).reduce((a, b) => a + b, 0), max: 9,
         text: `R:${frame.counts[p].rock} P:${frame.counts[p].paper} S:${frame.counts[p].scissors} · ${frame.scores[p]} ĐIỂM` }])) };
@@ -311,3 +311,6 @@ NeonRenderers.register("ott_v2", {
     return result.reason;
   },
 });
+
+// Advanced uses the same Canvas representation, with dynamic grid size/goals.
+NeonRenderers.register("ott_advanced", NeonRenderers.get("ott_v2"));

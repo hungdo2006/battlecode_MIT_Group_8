@@ -13,6 +13,65 @@ from test_offline_results import complete_event
 from test_team_tournament_http import create_elimination_tournament
 
 
+def test_double_elimination_skipped_reset_can_be_exported(room, signed_file):
+    """Real bracket advancement, with synthetic Official outcomes (no runner)."""
+    import json
+
+    from backend.account_database import transaction
+    from backend.official_service import OfficialSchedule
+    from test_team_tournament_http import create_active_team
+
+    teams = [create_active_team(room, user, f"double-{user}")
+             for user in ("alice", "bob")]
+    login(room, "admin", "admin")
+    headers = csrf(room, "admin")
+    created = room.client.post("/api/admin/team-tournaments", json={
+        "name": "Double elimination QA", "game_id": "robot_battle",
+        "team_ids": teams, "format": "double_elimination",
+    }, headers=headers)
+    assert created.status_code == 201, created.text
+    tournament_id = created.json()["tournament"]["id"]
+    started = room.client.post(f"/api/admin/team-tournaments/{tournament_id}/start",
+                               json={}, headers=headers)
+    assert started.status_code == 200, started.text
+    runtime = room.app.state.account_http
+    for _ in range(4):
+        detail = room.client.get(f"/api/admin/team-tournaments/{tournament_id}").json()["tournament"]
+        if detail["status"] == "COMPLETED":
+            break
+        fixture = next(f for f in detail["fixtures"] if not f["official_request_id"])
+        scheduled = room.client.post(
+            f"/api/admin/team-tournaments/{tournament_id}/fixtures/{fixture['id']}/schedule",
+            json={"bot_lock_at": room.clock.now + 60, "scheduled_at": room.clock.now + 120},
+            headers=headers)
+        assert scheduled.status_code == 201, scheduled.text
+        request_id = scheduled.json()["request"]["id"]
+        outcome = {"winner_team_id": teams[0]}
+        with runtime.database.writer_connection(runtime.writer) as connection:
+            service = OfficialSchedule(connection, runtime.writer, runtime._service(connection),
+                                       room.app.state.store, room.app.state.registry)
+            with transaction(connection):
+                connection.execute("""UPDATE official_match_requests SET status='COMPLETED',
+                    locked_at=?,started_at=?,outcome_json=?,finished_at=?,match_id=? WHERE id=?""",
+                    (room.clock.now, room.clock.now, json.dumps(outcome), room.clock.now,
+                     f"synthetic-{request_id}", request_id))
+                row = connection.execute("SELECT * FROM official_match_requests WHERE id=?",
+                                         (request_id,)).fetchone()
+                service._handle_team_tournament_result(row, outcome, room.clock.now)
+    assert detail["status"] == "COMPLETED"
+    reset = next(s for s in detail["bracket"] if s["conditional_status"] == "SKIPPED")
+    assert reset["team_a_id"] is None and reset["winner_team_id"] == teams[0]
+    exported = room.client.get(f"/api/admin/team-tournaments/{tournament_id}/offline-export")
+    assert exported.status_code == 200, exported.text
+    package = exported.json()["package"]
+    skipped = next(s for s in package["payload"]["tournament"]["bracket"] if s["status"] == "SKIPPED")
+    assert skipped["winner"] is None
+    published = room.client.post("/api/admin/offline-results/import", json={
+        "package": package, "confirm_publish": True,
+    }, headers=headers)
+    assert published.status_code == 200, published.text
+
+
 @pytest.fixture
 def signed_file(monkeypatch):
     monkeypatch.setenv("ARENA_OFFLINE_SITE_ID", "school-lab-test")
@@ -163,3 +222,64 @@ def test_signed_export_uses_real_completed_round_robin_rows(room, signed_file):
     assert len(standings["tournaments"]) == before
     assert len(standings["offline_tournaments"]) == 1
     assert standings["offline_tournaments"][0]["matches"][0]["winner"] in record["teams"]
+
+
+def test_independent_import_restart_and_cold_directory_restore(room, signed_file, tmp_path):
+    """Two native app stores + actual file copy; NOT a Docker/staging sign-off."""
+    import hashlib
+    import shutil
+    import sqlite3
+    from types import SimpleNamespace
+
+    from fastapi.testclient import TestClient
+    from backend.main import create_app
+    from test_team_http import ORIGIN, seed_accounts
+    from test_team_tournament_http import create_active_team
+
+    target = tmp_path / "independent-online"
+    seed_accounts(target, room.clock)
+
+    def snapshot(runtime):
+        with runtime.database.writer_connection(runtime.writer) as connection:
+            return {table: [tuple(row) for row in connection.execute(f"SELECT * FROM {table}")]
+                    for table in ("users", "teams", "team_tournaments", "official_match_requests")}
+
+    source_before = snapshot(room.app.state.account_http)
+    with TestClient(create_app(target, account_http=room.settings), base_url=ORIGIN,
+                    client=("127.0.0.1", 51001)) as client:
+        client.headers["Origin"] = ORIGIN
+        online = SimpleNamespace(client=client)
+        team_ids = [create_active_team(online, user, f"online-{user}")
+                    for user in ("alice", "bob")]
+        login(online, "admin", "admin")
+        headers = csrf(online, "admin")
+        assert client.post("/api/admin/team-tournaments", json={
+            "name": "Existing online event", "game_id": "robot_battle",
+            "team_ids": team_ids, "format": "round_robin",
+        }, headers=headers).status_code == 201
+        before = snapshot(client.app.state.account_http)
+        assert client.post("/api/admin/offline-results/preview", json={"package": signed_file},
+                           headers=headers).status_code == 200
+        archive = target / "data" / "offline_publications.json"
+        assert not archive.exists()
+        assert client.post("/api/admin/offline-results/import", json={
+            "package": signed_file, "confirm_publish": True,
+        }, headers=headers).status_code == 200
+        expected = client.get("/api/public/standings").json()
+        assert snapshot(client.app.state.account_http) == before
+        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    assert snapshot(room.app.state.account_http) == source_before
+    assert not (room.base / "data" / "offline_publications.json").exists()
+
+    # The writer has stopped before copying; restore only to a fresh QA directory.
+    restored = tmp_path / "restored-online"
+    shutil.copytree(target, restored)
+    for base in (target, restored):
+        with TestClient(create_app(base, account_http=room.settings), base_url=ORIGIN,
+                        client=("127.0.0.1", 51001)) as client:
+            assert client.get("/api/public/standings").json() == expected
+            assert client.get("/results").status_code == 200
+            assert hashlib.sha256((base / "data" / "offline_publications.json").read_bytes()).hexdigest() == digest
+            assert snapshot(client.app.state.account_http) == before
+        with sqlite3.connect((base / "data" / "arena.sqlite3").as_uri() + "?mode=ro", uri=True) as connection:
+            assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"

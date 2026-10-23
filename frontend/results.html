@@ -59,6 +59,18 @@ async function load(){
    box.append(el("h2",t.name),el("p",`Giải thi offline · Điểm thi ${t.source} · ${t.game_id} · ${t.format} · Đã xác minh & công bố`));
    drawTable(box,t.standings||[],"Bảng xếp hạng offline");
    for(const group of t.groups||[])drawTable(box,group.standings||[],group.name);
+   if(t.bracket?.length){
+    const details=el("details"),summary=el("summary","Nhánh đấu offline");
+    details.append(summary);
+    const slots=el("ol");
+    for(const slot of t.bracket){
+      const result=slot.status==="SKIPPED"?"Không cần thi đấu":
+        slot.status==="BYE"?`Miễn đấu: ${slot.winner||slot.team_a||slot.team_b||"—"}`:
+        `${slot.team_a||"—"} – ${slot.team_b||"—"} · ${slot.winner?"Thắng: "+slot.winner:"Chưa có đội thắng"}`;
+      slots.append(el("li",`Vòng ${slot.round}: ${result}`));
+    }
+    details.append(slots);box.append(details);
+   }
    if(t.matches?.length){
     const details=el("details"),summary=el("summary",`Kết quả ${t.matches.length} trận`);
     details.append(summary);

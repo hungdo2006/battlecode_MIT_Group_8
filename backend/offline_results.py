@@ -101,7 +101,14 @@ def _project(detail):
         })
     bracket = []
     for slot in detail.get("bracket") or []:
-        if slot["status"] not in ("COMPLETED", "BYE", "PENDING") and slot.get("conditional_status") != "SKIPPED":
+        if slot.get("conditional_status") == "SKIPPED":
+            # A double-elimination reset is never played when the upper winner
+            # wins the final. Its internal BYE winner is not a match result and
+            # its participant slots can intentionally remain empty.
+            bracket.append({"round": slot["round_number"], "status": "SKIPPED",
+                            "team_a": None, "team_b": None, "winner": None})
+            continue
+        if slot["status"] not in ("COMPLETED", "BYE"):
             raise OfflineResultsError("Nhánh đấu chưa được xác nhận.")
         bracket.append({"round": slot["round_number"], "status": slot["status"],
                         "team_a": name(slot.get("team_a_id")),
@@ -167,6 +174,11 @@ def _validate(payload):
             if not isinstance(row, dict) or set(row) != names or type(row["round"]) is not int or row["round"] < 0:
                 raise OfflineResultsError("Dữ liệu trận/nhánh đấu không hợp lệ.")
             _text(row["stage"] if key == "matches" else row["status"], 64)
+            if key == "bracket":
+                if row["status"] not in ("COMPLETED", "BYE", "SKIPPED"):
+                    raise OfflineResultsError("Nhánh đấu chưa được xác nhận.")
+                if row["status"] == "SKIPPED" and any(row[side] is not None for side in ("team_a", "team_b", "winner")):
+                    raise OfflineResultsError("Nhánh bỏ qua không được có kết quả thi đấu.")
             for side in ("team_a", "team_b", "winner"):
                 if row[side] is not None:
                     _text(row[side])

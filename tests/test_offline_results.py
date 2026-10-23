@@ -177,3 +177,24 @@ def test_malformed_signature_type_fails_as_validation_error(keys):
     package["signature"] = int("1" * 64)
     with pytest.raises(OfflineResultsError, match="chữ ký"):
         verify_package(package)
+
+
+def test_unresolved_bracket_cannot_be_exported(keys):
+    detail = complete_event()
+    detail["bracket"] = [{"round_number": 2, "status": "PENDING",
+                          "team_a_id": None, "team_b_id": None}]
+    with pytest.raises(OfflineResultsError, match="chưa được xác nhận"):
+        export_package(detail)
+
+
+@pytest.mark.parametrize("status,winner", [("PENDING", None), ("SKIPPED", "Đội A")])
+def test_signed_unresolved_or_fabricated_skipped_bracket_rejected(keys, status, winner):
+    package = export_package(complete_event())
+    package["payload"]["tournament"]["bracket"] = [{
+        "round": 2, "status": status, "team_a": "Đội A", "team_b": None,
+        "winner": winner,
+    }]
+    package["signature"] = hmac.new(os.environ["ARENA_OFFLINE_RESULTS_KEY"].encode(),
+                                    _canonical(package["payload"]), hashlib.sha256).hexdigest()
+    with pytest.raises(OfflineResultsError):
+        verify_package(package)

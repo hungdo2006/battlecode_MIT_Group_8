@@ -18,6 +18,7 @@ Signing and verification use a **shared secret** known to both servers. This aut
 - **No SQLite migration, no overwrite of existing AWS users, teams, tournaments, standings or Official match results.** Imported results live in `arena_data/offline_publications.json`, isolated from online tournament authority.
 - The signed package contains venue ID, tournament name and game, team-name snapshots, standings, match winners and bracket. No password, e-mail, Team UUID, bot source, compiled artifact, private replay path, player token, session ID or admin secrets are exported.
 - This v1 publishes results and a text match history. **Replay transfer is not yet implemented.** Keep the offline server's own archive/backups for replay until a future separately verified replay-export feature.
+- The public page also shows bracket decisions (including an Admin-resolved tie), byes and unplayed conditional resets. A reset that was not needed is exported as `SKIPPED` with no participants or match winner; it is not an extra played match. Unresolved bracket slots cannot be exported.
 - Only Admin can export, preview or import. Preview does **not** publish; publish requires explicit confirmation, valid login/CSRF and a matching HMAC. Public viewers can only GET allowlisted summary data.
 - A pending or interrupted tournament cannot be exported. Imported events cannot mutate existing offline snapshots: changed content for the same source/tournament ID is rejected.
 - Protect `offline_publications.json` with normal Docker volume backups, separate from your competition database backups. Avoid manual editing.
@@ -42,7 +43,14 @@ python -m pytest tests/test_offline_results.py tests/test_offline_results_http.p
 python -m pytest tests controller_tests -ra
 python scripts/version_frontend.py --check
 node --check frontend/app.js
+node scripts/check_public_results_rendering.cjs
 ```
+
+With Playwright and local Chrome, `python scripts/check_offline_results_ui.py`
+checks file selection, preview without publication, tamper rejection, explicit
+publication, duplicate import and anonymous desktop/mobile results on a
+temporary localhost server. It uses a **synthetic signed event**, not Docker or
+a completed offline competition. It does not replace the two-host release gates.
 
 **These tests do not establish that a real LAN tournament or a two-host Docker
 transfer works.** Before promotion, the operator must record the PR commit SHA

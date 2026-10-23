@@ -77,7 +77,9 @@ def install_bot_http(app):
         # precedes SQLite ownership, and the journal is committed before compile.
         async with app.state.upload_lock:
             async with app.state.competition.lock:
-                app.state.store.require_submission_game(body.game_id)
+                # Team tournaments choose games independently of the legacy
+                # free-play default. TeamBots.begin validates the installed
+                # game and membership; the legacy upload route keeps its gate.
                 ticket = await work(request,lambda b,p:b.begin(p,body.game_id),mutation=True)
             bot_id=ticket["bot_id"]
             folder=app.state.store.uploads / bot_id
@@ -93,7 +95,6 @@ def install_bot_http(app):
                      "game_id":body.game_id,"created_at":ticket["created_at"],**prepared,
                      "source_sha256":hashlib.sha256(source).hexdigest(),"folder":str(folder)}
                 async with app.state.competition.lock:
-                    app.state.store.require_submission_game(body.game_id)
                     # Revalidate uploader/team/session immediately before publication.
                     await work(request,lambda b,p:b.check_upload(p,ticket),mutation=True)
                     await asyncio.to_thread(app.state.store.save_bot,bot)

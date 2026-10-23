@@ -161,7 +161,7 @@ def run():
                 expect(page.locator("#scrimmage-create [type=submit]")).to_be_disabled()
                 expect(page.locator("#scrimmage-eligibility")).to_contain_text("Tạo hoặc tham gia đội")
                 view("rules")
-                expect(page.locator("#rules-access-note")).to_contain_text("không cần online")
+                expect(page.locator("#rules-access-note")).to_contain_text("cấu hình riêng")
                 page.click(".rules-documentation > summary")
                 assert "TOURNAMENT" not in page.locator("#rules-guide").inner_text()
                 view("standings")
@@ -226,7 +226,7 @@ def run():
                 page.click("[data-sample=python]")
                 expect(page.locator("#bot-library")).to_contain_text("Bot mẫu python", timeout=30000)
                 page.click("#account-team-activate")
-                expect(page.locator("#account-team-status")).to_contain_text("ACTIVE")
+                expect(page.locator("#account-team-status")).to_contain_text("Đã sẵn sàng đăng ký")
                 view("official")
                 expect(page.locator("#official-match-list")).to_contain_text("Đội chưa có lịch đấu")
 

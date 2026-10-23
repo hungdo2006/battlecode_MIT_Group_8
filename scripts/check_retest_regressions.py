@@ -92,7 +92,7 @@ def run(reproduce=False):
                 page.fill("#account-team-create [name=display_name]", "Fixture Captain Team")
                 page.click("#account-team-create [type=submit]")
                 page.click("#account-team-activate")
-                expect(page.locator("#account-team-status")).to_contain_text("ACTIVE")
+                expect(page.locator("#account-team-status")).to_contain_text("Đã sẵn sàng đăng ký")
                 page.locator("#upload-workflow-details").evaluate("node => { node.open = true; }")
                 for count in range(1, 3):
                     page.click("[data-sample=python]")

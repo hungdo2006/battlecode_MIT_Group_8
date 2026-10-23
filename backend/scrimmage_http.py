@@ -96,7 +96,19 @@ def install_scrimmage_http(app):
 
     @router.get('/api/player/scrimmage-opponents')
     async def opponents(request:Request,game_id:str):
-        return {'teams':await execute(request,'PLAYER',lambda service,actor:service.opponents(actor,game_id))}
+        # Same authorization boundary and opponent list as before. The
+        # additional own_ready flag checks the full attested sandbox snapshot,
+        # not merely the "ready" label of an Active Bot.
+        def list_ready(service,actor):
+            teams = service.opponents(actor,game_id)
+            _, mine = service.member(actor,active=True)
+            try:
+                service.frozen(mine['id'],game_id)
+                ready = True
+            except TeamConflict:
+                ready = False
+            return {'teams':teams,'own_ready':ready}
+        return await execute(request,'PLAYER',list_ready)
 
     @router.post('/api/player/scrimmages',status_code=201)
     async def challenge(body:ChallengeBody,request:Request):

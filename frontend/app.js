@@ -19,7 +19,8 @@ const app = {
   logoutBusy: false, logoutError: false,
   sessionEpoch: 0, accountRequests: new Set(), replayController: null, replayLoadingKey: null,
   officialTimesDirty: false,
-  matchmaking: null, matchmakingBusy: false, matchmakingRefreshing: false,
+  practiceOpponents: [], practiceOwnBotReady: false, practiceFetchedGame: null, practiceLoading: false,
+  practiceError: null, practiceRefreshSeq: 0, practiceChallengeBusy: null,
   sessionInfo: null, sessionOffset: 0, activityAt: 0, heartbeatActivityAt: 0, heartbeatNextAt: 0, heartbeatBusy: false,
   competition: null, competitionSocket: null, competitionTimer: null, competitionRetryMs: 5000,
   competitionGeneration: 0, competitionBusy: false, shuttingDown: false,
@@ -417,20 +418,83 @@ $("#admin-invite-form").addEventListener("submit",async event=>{
   }catch(error){feedback("#admin-invite-feedback",error.message,true);}
   finally{busyButton(button,false);button.disabled=false;}
 });
+// Operator dashboard presents operational facts first, implementation details
+// second. This never makes an inference about CPU/RAM, Docker health, or AWS.
 async function refreshSystem(){
-  if(systemBusy || app.accountAudience!=="admin" || !app.account)return;
-  systemBusy=true;const account=app.account;
-  try{const snapshot=await api("/api/admin/system");if(app.account!==account)return;
-    const target=$("#system-status");target.replaceChildren();
-    const rows=[["Runner",snapshot.runner.ready?"Sẵn sàng":"Không khả dụng"],["Chế độ thực thi",snapshot.runner.mode],["Battlecode 2026",snapshot.runner.battlecode26?"Đã cấu hình":"Chưa cấu hình"],["Trận đang chạy",`${snapshot.active_matches.length} / ${snapshot.capacity}`],["Scrimmage chờ",String(snapshot.scrimmages.QUEUED||0)],["Official đã lên lịch",String(snapshot.official.SCHEDULED||0)]];
-    for(const[label,value]of rows){const pair=el("div");pair.append(el("dt","",label),el("dd","",value));target.append(pair);}
+  if(systemBusy || app.accountAudience !== "admin" || !app.account) return;
+  systemBusy=true;
+  const account=app.account, button=$("#system-refresh");
+  button.disabled=true;
+  try{
+    const snapshot=await api("/api/admin/system");
+    if(app.account!==account) return;
+    const runnerReady=!!snapshot.runner.ready;
+    const active=snapshot.active_matches.length;
+    const capacity=Number(snapshot.capacity) || 0;
+    const practiceWaiting=snapshot.scrimmages.QUEUED || 0;
+    const officialWaiting=(snapshot.official.SCHEDULED || 0)+(snapshot.official.LOCKED || 0);
+    const problems=snapshot.recent_interruptions.length;
+    const health=$("#system-health");
+    health.dataset.status=runnerReady ? "ready" : "warning";
+    setText("#system-health-title",runnerReady ? "Đấu trường sẵn sàng" : "Cần kiểm tra môi trường chạy bot");
+    setText("#system-health-note",runnerReady
+      ? active ? `Đang xử lý ${active} trận. Các trận khác sẽ được tiếp nhận theo lịch và hàng đợi.`
+        : "Hệ thống thực thi bot đã sẵn sàng. Hiện không có trận đang chạy."
+      : "Môi trường thực thi bot chưa sẵn sàng. Kiểm tra cấu hình vận hành trước khi bắt đầu trận.");
+    setText("#system-last-checked",`Dữ liệu nhận lúc ${new Date().toLocaleTimeString("vi-VN")}`);
+    const metrics=[
+      ["Trận đang chạy",`${active} / ${capacity}`,`Số trận đang xử lý / giới hạn đồng thời`],
+      ["Đấu luyện đang chờ",String(practiceWaiting),"Các đội đang đợi ghép trận"],
+      ["Trận chính thức chờ",String(officialWaiting),"Đã xếp lịch hoặc đã khóa bot, chưa chạy"]
+    ];
+    const status=$("#system-status");status.replaceChildren();
+    for(const [label,value,description] of metrics){
+      const pair=el("div","system-metric");
+      pair.append(el("dt","",label),el("dd","",value),el("small","form-note",description));
+      status.append(pair);
+    }
+    const technical=$("#system-technical");technical.replaceChildren();
+    const toolchains=snapshot.runner.toolchains || {};
+    const toolchainLabel=(key)=>toolchains[key] ? "Có sẵn trên máy chủ" : "Không phát hiện trên máy chủ";
+    const details=[
+      ["Môi trường chạy bot",snapshot.runner.mode === "sandbox" ? "Docker Sandbox" : (snapshot.runner.mode || "Không rõ")],
+      ["Battlecode 2026",snapshot.runner.battlecode26 ? "Đã cấu hình" : "Chưa cấu hình · không bắt buộc"],
+      ["Python",toolchainLabel("python")],
+      ["C++",toolchainLabel("cpp")],
+      ["Java",toolchains.javac && toolchains.java ? "Có sẵn trên máy chủ" : "Chưa đủ công cụ trên máy chủ"],
+      ["Trận tự do",snapshot.competition==="open" ? "Đang mở" : snapshot.competition==="draining" ? "Đang đóng" : "Chưa mở"]
+    ];
+    for(const [label,value] of details){
+      const pair=el("div");pair.append(el("dt","",label),el("dd","",value));technical.append(pair);
+    }
+    const statusNames={running:"Đang chạy",queued:"Đang chờ",interrupted:"Bị gián đoạn",
+      completed:"Hoàn thành",failed:"Thất bại",cancelled:"Đã hủy"};
     for(const[selector,matches]of [["#system-active",snapshot.active_matches],["#system-interruptions",snapshot.recent_interruptions]]){
       const list=$(selector);list.replaceChildren();
-      if(!matches.length)list.append(el("div","empty-state",selector==="#system-active"?"Không có trận đang chạy.":"Chưa ghi nhận trận bị gián đoạn."));
-      for(const match of matches){const row=el("div","official-match-row"),copy=el("div","official-match-copy");copy.append(el("strong","",`${match.player_a_name_snapshot||"A"} vs ${match.player_b_name_snapshot||"B"}`),el("p","form-note",`${match.game_id} · ${match.status} · ${match.result?.reason||"Đang xử lý"}`));row.append(copy);list.append(row);}
+      if(!matches.length) list.append(el("div","empty-state",selector==="#system-active"
+        ? "Không có trận nào đang chạy lúc này."
+        : "Không ghi nhận trận bị gián đoạn trong lịch sử được trả về."));
+      for(const match of matches){
+        const row=el("div","official-match-row"),copy=el("div","official-match-copy");
+        const statusText=statusNames[String(match.status||"").toLowerCase()] || match.status || "Đang xử lý";
+        copy.append(el("strong","",`${match.player_a_name_snapshot||"Đội A"} vs ${match.player_b_name_snapshot||"Đội B"}`),
+          el("p","form-note",`${match.game_name||match.game_id||"Trò chơi"} · ${statusText}${match.result?.reason ? " · "+match.result.reason : ""}`));
+        row.append(copy);list.append(row);
+      }
     }
     $("#system-feedback").classList.add("hidden");
-  }finally{systemBusy=false;}
+  }catch(error){
+    if(app.account===account){
+      $("#system-health").dataset.status="warning";
+      setText("#system-health-title","Chưa cập nhật được trạng thái");
+      setText("#system-health-note","Không lấy được dữ liệu mới từ máy chủ. Thông tin bên dưới có thể đã cũ.");
+      setText("#system-last-checked","Vui lòng kiểm tra kết nối và thử lại");
+    }
+    throw error;
+  }finally{
+    systemBusy=false;
+    button.disabled=false;
+  }
 }
 $("#system-refresh").onclick=()=>refreshSystem().catch(error=>feedback("#system-feedback",error.message,true));
 
@@ -743,6 +807,9 @@ function applyPermissions() {
   $$('.nav-item[data-view="administration"], .nav-item[data-view="system"]').forEach(node=>node.classList.toggle("hidden", !app.accountOnly || app.accountAudience!=="admin"));
   $("#scrimmage-create-panel").classList.toggle("hidden", !accountPlayer);
   setText("#scrimmage-nav-label", accountPlayer ? "Đấu luyện" : "Theo dõi đấu luyện");
+  setText("#scrimmage-intro",accountPlayer
+    ?"Chọn đội muốn đối đầu rồi nhấn Đấu thử. Bot hai đội được chốt khi tạo trận, không tính điểm giải."
+    :"Theo dõi các trận đấu luyện của các đội. Các trận này không ảnh hưởng bảng xếp hạng.");
   setText("#scrimmage-title", accountPlayer ? "Đấu luyện" : "Theo dõi đấu luyện");
   document.body.dataset.accountMode = app.accountOnly ? app.accountAudience || "signed-out" : "legacy";
   const allowed = organizer && app.competition?.can_edit && !app.competitionBusy && !app.rulesBusy;
@@ -1170,8 +1237,10 @@ function resetAccountWorkspace() {
   app.bots = []; app.matches = []; app.standings = []; app.tournaments = [];
   app.officialMatches = []; app.officialTeams = []; app.scrimmages = []; app.teamTournaments = []; app.seasons = [];
   app.competition = null; app.csrf = null;
-  app.matchmaking = null; app.matchmakingBusy = false;
-  app.matchmakingRefreshing = false;
+  app.practiceOpponents=[]; app.practiceOwnBotReady=false;
+  app.practiceFetchedGame=null; app.practiceError=null;
+  app.practiceLoading=false; app.practiceChallengeBusy=null;
+  app.practiceRefreshSeq++;
   app.sessionInfo = null; app.activityAt = 0; app.heartbeatActivityAt = 0; app.heartbeatNextAt = 0;
   app.heartbeatBusy = false;
   $("#session-notice").classList.add("hidden");
@@ -1487,7 +1556,7 @@ const labels = {
   scrimmage: "Đấu luyện",
   profile: "Hồ sơ cá nhân",
   administration: "Tài khoản & đội",
-  system: "Giám sát hệ thống",
+  system: "Trạng thái hệ thống",
   seasons: "Đợt đăng ký",
   rules: "Game & Luật chơi",
 };
@@ -1786,18 +1855,18 @@ function renderPracticeRows(target, requests, completedOnly = false) {
   const restore = preserveListState(target);
   target.replaceChildren();
   const visible = completedOnly ? requests.filter(item => ["COMPLETED","INTERRUPTED","CANCELLED"].includes(item.status)) : requests;
-  if (!visible.length) target.append(el("div", "empty-state", completedOnly ? "Chưa có trận thử hoàn tất. Gửi thách đấu hoặc xem lịch đấu chính thức để bắt đầu." : "Chưa có trận thử nào. Hai đội cần Active Bot sẵn sàng cho cùng một game."));
+  if (!visible.length) target.append(el("div", "empty-state", completedOnly ? "Chưa có trận luyện tập hoàn tất." : "Chưa có trận đấu luyện ở mục này. Chọn game và tìm đối thủ để bắt đầu."));
   const names = {QUEUED:"Đang chờ",DISPATCHING:"Đang chuẩn bị",RUNNING:"Đang thi đấu",COMPLETED:"Hoàn tất",INTERRUPTED:"Gián đoạn",CANCELLED:"Đã hủy"};
   for (const item of visible) {
     const row = el("article", "official-match-row"), copy = el("div", "official-match-copy");
     copy.append(el("strong", "", `${item.teams.A.team_name_snapshot} vs ${item.teams.B.team_name_snapshot}`),
-      el("p", "form-note", `${item.game_id} · ${new Date(item.created_at*1000).toLocaleString("vi-VN")}`),
+      el("p", "form-note", `${app.games.find(game=>game.game_id===item.game_id)?.name||item.game_id} · ${new Date(item.created_at*1000).toLocaleString("vi-VN")}`),
       el("span", "tag", names[item.status] || item.status));
     if (item.result) copy.append(el("p", "form-note", `Kết quả: ${item.result.winner ? item.teams[item.result.winner].team_name_snapshot + " thắng" : "Hòa"} · ${item.result.reason}`));
     if (item.status_reason) copy.append(el("p", "form-note", `Lý do: ${item.status_reason}`));
     row.append(copy);
     if (item.match_id && ["RUNNING","COMPLETED","INTERRUPTED"].includes(item.status)) {
-      const watch = el("button", "button ghost small", "Xem Live / Replay ↗"); watch.type = "button";
+      const watch = el("button", "button ghost small", item.status === "RUNNING" ? "Xem trực tiếp ↗" : "Xem lại trận ↗"); watch.type = "button";
       watch.dataset.focusKey = item.id + "-watch";
       watch.onclick = () => loadMatch(item.id, false, true).catch(error => toast(error.message,true));
       row.append(watch);
@@ -1823,104 +1892,184 @@ function renderPracticeRows(target, requests, completedOnly = false) {
   restore();
 }
 
+// Direct, opt-in Team challenges. This intentionally does not use the
+// automatic matchmaking endpoints; the existing server enforces eligibility,
+// ready attested bots, permissions, snapshotting and queue limits.
 async function refreshPracticeOpponents() {
-  if (!app.accountOnly || app.accountAudience !== "player" || app.matchmakingRefreshing) return;
-  const account = app.account;
-  const game = $("#scrimmage-game").value;
-  if (!game) return;
-  app.matchmakingRefreshing = true;
-  try {
-    const response = await api(`/api/player/matchmaking?game_id=${encodeURIComponent(game)}`);
-    if (app.account !== account || game !== $("#scrimmage-game").value) return;
-    app.matchmaking = { ...response, clockOffset: response.server_time * 1000 - Date.now() };
-    renderMatchmaking();
-  } catch (error) {
-    if (!error.staleSession) feedback("#scrimmage-feedback", "Không cập nhật được tìm trận. Dùng Làm mới để kiểm tra trạng thái trước khi thử lại.", true);
-    throw error;
-  } finally { if (app.account === account) app.matchmakingRefreshing = false; }
+  if (!app.accountOnly || app.accountAudience !== "player" || !app.account) return;
+  const seq=++app.practiceRefreshSeq,account=app.account,game=$("#scrimmage-game").value;
+  // Keep the prior list visible on the 10-second background refresh to
+  // avoid flicker or stealing focus from a Player considering a Team.
+  const sameGame=app.practiceFetchedGame===game;
+  app.practiceError=null;
+  if(!sameGame){
+    app.practiceOpponents=[];
+    app.practiceOwnBotReady=false;
+    app.practiceFetchedGame=null;
+    app.practiceLoading=true;
+    renderPracticeOpponents();
+  }
+  const team=app.team?.team;
+  if(!game || team?.status!=="ACTIVE"){
+    app.practiceLoading=false;
+    renderPracticeOpponents();
+    return;
+  }
+  try{
+    // The server validates both the eligible opponents and our own attested
+    // sandbox bot for exactly this game in a single authorized response.
+    const opponents=await api(`/api/player/scrimmage-opponents?game_id=${encodeURIComponent(game)}`);
+    if(seq!==app.practiceRefreshSeq || account!==app.account || game!==$("#scrimmage-game").value)return;
+    app.practiceOpponents=opponents.teams||[];
+    app.practiceOwnBotReady=!!opponents.own_ready;
+    app.practiceFetchedGame=game;
+    $("#scrimmage-feedback").classList.add("hidden");
+  }catch(error){
+    if(seq!==app.practiceRefreshSeq || account!==app.account || game!==$("#scrimmage-game").value)return;
+    if(!error.staleSession){
+      app.practiceError=error.message;
+      feedback("#scrimmage-feedback","Chưa cập nhật được danh sách đội. Hãy thử nút Cập nhật đội.",true);
+    }
+  }finally{
+    if(seq===app.practiceRefreshSeq && account===app.account){
+      app.practiceLoading=false;
+      renderPracticeOpponents();
+    }
+  }
 }
 
-function renderMatchmaking() {
-  const data = app.matchmaking;
-  if (!data) return;
-  const search = data.search, state = search?.status || (data.can_search ? "READY" : "NOT_READY");
-  const pending = ["SEARCHING", "MATCHED", "RUNNING"].includes(state);
-  const labels = { NOT_READY:"Chưa sẵn sàng", READY:"Sẵn sàng", SEARCHING:"Đang tìm trận", MATCHED:"Đã ghép trận",
-    RUNNING:"Đang thi đấu", COMPLETED:"Hoàn tất", CANCELLED:"Đã hủy", EXPIRED:"Hết thời gian tìm", ERROR:"Cần tìm lại" };
-  setText("#matchmaking-state", labels[state] || state);
-  const button = $("#scrimmage-create [type=submit]");
-  button.disabled = !data.can_search || pending || app.matchmakingBusy;
-  button.textContent = app.matchmakingBusy ? "Đang xử lý…" : ["COMPLETED", "CANCELLED", "EXPIRED", "ERROR"].includes(state) ? "Tìm trận mới ↗" : "Tìm trận ↗";
-  $("#scrimmage-game").disabled = pending || app.matchmakingBusy;
-  if (pending && search.game_id !== $("#scrimmage-game").value) $("#scrimmage-game").value = search.game_id;
-  $("#matchmaking-cancel").classList.toggle("hidden", state !== "SEARCHING");
-  $("#matchmaking-cancel").disabled = app.matchmakingBusy;
-  $("#matchmaking-watch").classList.toggle("hidden", !search?.request?.match_id);
-  const missing = !data.ready_bot && !!app.team?.team;
-  $("#scrimmage-bot-link").classList.toggle("hidden", !missing || app.team?.my_role !== "CAPTAIN" || pending);
-  setText("#scrimmage-eligibility", missing && app.team?.my_role !== "CAPTAIN" ? "Đội chưa có Active Bot hợp lệ cho game này. Liên hệ Captain để chọn bot đại diện." : pending ? "Lượt tìm trận được lưu trên máy chủ và dùng chung cho các thành viên, kể cả khi mở nhiều tab." : data.reason || "Đội đã sẵn sàng. Bot của hai đội được chốt khi ghép trận.");
-  const reasons = { SEARCH_TIMEOUT:"Đã hết 5 phút tìm trận. Bạn có thể tìm lại.", SERVER_RESTART:"Máy chủ đã khởi động lại. Bấm Tìm trận mới khi sẵn sàng.",
-    USER_CANCELLED:"Lượt tìm đã được hủy.", TEAM_NOT_READY:"Điều kiện đội hoặc bot đã thay đổi. Kiểm tra lại trước khi tìm." };
-  setText("#matchmaking-detail", state === "SEARCHING" ? `${data.waiting_count} đội khác đang chờ cùng game. Ghép với đội hợp lệ chờ lâu nhất.`
-    : search?.request ? `${Object.values(search.request.teams).map(team => team.team_name_snapshot).join(" vs ")} · ${state === "MATCHED" ? "Đang chờ thực thi. Bạn có thể rời website." : labels[state] || state}` : reasons[search?.status_reason] || "Chỉ ghép những đội đã chủ động bấm Tìm trận.");
-  updateMatchmakingClock();
+function renderPracticeOpponents() {
+  if(!app.accountOnly || app.accountAudience!=="player")return;
+  const target=$("#practice-opponents"),game=$("#scrimmage-game").value,team=app.team?.team;
+  const captain=app.team?.my_role==="CAPTAIN",activeTeam=team?.status==="ACTIVE";
+  const ready=activeTeam && app.practiceOwnBotReady && app.practiceFetchedGame===game;
+  const loading=app.practiceLoading,failed=!!app.practiceError && !loading;
+  const myPending=app.scrimmages.filter(item=>
+    ["QUEUED","DISPATCHING","RUNNING"].includes(item.status) &&
+    item.teams?.A?.team_id===team?.id);
+  $("#practice-state").dataset.state=loading?"loading":!activeTeam || !ready?"attention":"ready";
+  setText("#practice-state-title",loading?"Đang kiểm tra các đội…":
+    !team?"Hãy tạo hoặc tham gia một đội":
+    !activeTeam?"Đội chưa xác nhận sẵn sàng":
+    failed?"Chưa kiểm tra được trạng thái đội":
+    !ready?"Chưa có bot đại diện cho trò chơi này":
+    "Đội của bạn đã sẵn sàng đấu thử");
+  setText("#scrimmage-eligibility",loading?"Đang tải danh sách đội có bot hợp lệ…":
+    !team?"Bạn cần tham gia một đội trước khi đấu thử.":
+    !activeTeam?captain?"Trưởng đội cần xác nhận đội sẵn sàng trong trang Đội & bot.":
+      "Nhờ trưởng đội xác nhận đội sẵn sàng trước khi đấu thử.":
+    !ready?captain?"Chọn một bot đã biên dịch thành công làm đại diện cho game này.":
+      "Nhờ trưởng đội chọn bot đại diện cho game này.":
+    myPending.length>=3?"Đội đã có 3 trận luyện tập đang chờ/chạy. Hãy hoàn tất trước khi tạo trận mới.":
+    "Chọn đội bên dưới để đấu thử. Bạn không cần chờ đối thủ online.");
+  const link=$("#scrimmage-bot-link");
+  link.classList.toggle("hidden",!!activeTeam && ready || loading);
+  link.textContent=!team?"Tạo hoặc tham gia đội →":!activeTeam?
+    captain?"Xác nhận đội sẵn sàng →":"Xem đội của tôi →":
+    captain?"Chọn bot đại diện →":"Xem bot của đội →";
+  link.href=activeTeam?workspaceLink("upload",{focus:"bots"}):"#upload";
+  const restoreFocus=preserveListState(target);
+  target.replaceChildren();
+  if(loading){
+    target.append(el("div","empty-state","Đang tải các đội có thể đấu thử…"));
+    return;
+  }
+  if(!activeTeam){
+    target.append(el("div","empty-state","Khi đội của bạn sẵn sàng, danh sách đối thủ phù hợp sẽ xuất hiện tại đây."));
+    return;
+  }
+  if(failed){
+    target.append(el("div","empty-state","Không lấy được danh sách đội. Hãy cập nhật lại."));
+    return;
+  }
+  const query=$("#practice-opponent-filter").value.trim().toLocaleLowerCase("vi-VN");
+  const opponents=app.practiceOpponents.filter(other=>other.display_name.toLocaleLowerCase("vi-VN").includes(query));
+  if(!opponents.length){
+    target.append(el("div","empty-state",query?
+      "Không tìm thấy đội nào có tên phù hợp.":"Chưa có đội khác có bot sẵn sàng cho trò chơi này."));
+    return;
+  }
+  for(const other of opponents){
+    const row=el("div","practice-opponent-row"),info=el("div","practice-opponent-info");
+    const against=myPending.find(item=>item.game_id===game && item.teams?.B?.team_id===other.id);
+    const involved=app.scrimmages.some(item=>["QUEUED","DISPATCHING","RUNNING"].includes(item.status) &&
+      item.game_id===game && [item.teams?.A?.team_id,item.teams?.B?.team_id].includes(team?.id) &&
+      [item.teams?.A?.team_id,item.teams?.B?.team_id].includes(other.id));
+    info.append(el("strong","",other.display_name),
+      el("small","",`Bot đại diện: ${other.bot_name} · ${other.language?.toUpperCase()||"Bot"}`));
+    const button=el("button","button primary small",against?"Đã gửi trận":involved?"Đang thi đấu":"Đấu thử ↗");
+    button.type="button";
+    button.dataset.focusKey=`practice-${other.id}`;
+    button.disabled=!ready || loading || !!app.practiceChallengeBusy || myPending.length>=3 || involved;
+    button.title=!ready?"Đội bạn cần bot đại diện hợp lệ":
+      myPending.length>=3?"Đội đã đạt giới hạn 3 trận đang chờ/chạy":
+      involved?"Hai đội đã có trận luyện tập chưa hoàn tất":"Tạo trận luyện tập trực tiếp với đội này";
+    button.onclick=()=>challengePracticeTeam(other,game);
+    row.append(info,button);
+    target.append(row);
+  }
+  restoreFocus();
 }
 
-function updateMatchmakingClock() {
-  const data = app.matchmaking, search = data?.search;
-  if (search?.status !== "SEARCHING") { setText("#matchmaking-clock", ""); return; }
-  const now = (Date.now() + data.clockOffset) / 1000;
-  const elapsed = Math.max(0, Math.floor(now - search.created_at)), left = Math.max(0, Math.ceil(search.expires_at - now));
-  setText("#matchmaking-clock", `Đã tìm ${Math.floor(elapsed/60)}:${String(elapsed%60).padStart(2,"0")} · Còn ${left}s`);
+async function challengePracticeTeam(opponent,game) {
+  if(app.practiceChallengeBusy || !app.practiceOwnBotReady || app.practiceFetchedGame!==game ||
+     app.team?.team?.status!=="ACTIVE")return;
+  const currentTeam=app.team?.team?.id,account=app.account;
+  app.practiceChallengeBusy=opponent.id;
+  renderPracticeOpponents();
+  try{
+    await api("/api/player/scrimmages",jsonOptions("POST",{game_id:game,opponent_team_id:opponent.id}));
+    if(account!==app.account || currentTeam!==app.team?.team?.id)return;
+    feedback("#scrimmage-feedback",`Đã tạo trận đấu thử với ${opponent.display_name}. Xem tiến trình ở phần Các trận đấu luyện.`);
+    await refreshScrimmages();
+    $("#practice-history-heading").scrollIntoView({behavior:"smooth",block:"start"});
+  }catch(error){
+    if(!error.staleSession)feedback("#scrimmage-feedback",error.message,true);
+    await refreshScrimmages().catch(()=>{});
+  }finally{
+    app.practiceChallengeBusy=null;
+    renderPracticeOpponents();
+  }
 }
-
-$("#matchmaking-cancel").onclick = async () => {
-  const search = app.matchmaking?.search;
-  if (!search || app.matchmakingBusy) return;
-  app.matchmakingBusy = true; renderMatchmaking();
-  try {
-    await api(`/api/player/matchmaking/${encodeURIComponent(search.id)}/cancel`, jsonOptions("POST", {}));
-    feedback("#scrimmage-feedback", "Đã hủy tìm trận.");
-  } catch (error) { if (!error.staleSession) feedback("#scrimmage-feedback", error.message, true); }
-  finally { app.matchmakingBusy = false; await refreshPracticeOpponents().catch(() => {}); }
-};
-$("#matchmaking-watch").onclick = () => {
-  const id = app.matchmaking?.search?.request_id;
-  if (id) loadMatch(id, false, true).catch(error => toast(error.message, true));
-};
 
 async function refreshScrimmages() {
   if (!app.accountOnly || !app.account || app.practiceRefreshing) return;
-  const account = app.account, audience = app.accountAudience;
-  app.practiceRefreshing = true;
-  try {
-    const response = await api(`/api/${audience}/scrimmages`);
-    if (app.account !== account || app.accountAudience !== audience) return;
-    app.scrimmages = response.requests;
-    renderPracticeRows($("#scrimmage-list"), app.scrimmages);
-    if (audience === "player") renderMatches();
-    const game = $("#scrimmage-game"), previous = game.value;
-    if (!game.childElementCount) {
-      for (const item of app.games) { const option=el("option","",item.name); option.value=item.game_id; game.append(option); }
-      game.value = previous || app.selectedGameId;
+  const account=app.account,audience=app.accountAudience;
+  app.practiceRefreshing=true;
+  try{
+    const response=await api(`/api/${audience}/scrimmages`);
+    if(app.account!==account || app.accountAudience!==audience)return;
+    app.scrimmages=response.requests;
+    renderPracticeHistory();
+    if(audience==="player")renderMatches();
+    const game=$("#scrimmage-game"),previous=game.value;
+    if(!game.childElementCount){
+      for(const item of app.games){
+        const option=el("option","",item.name);option.value=item.game_id;game.append(option);
+      }
+      game.value=previous || app.botGameId || app.selectedGameId;
     }
-    if (document.body.dataset.view === "scrimmage") await refreshPracticeOpponents();
-  } finally { app.practiceRefreshing = false; }
+    if(document.body.dataset.view==="scrimmage")await refreshPracticeOpponents();
+  }finally{app.practiceRefreshing=false;}
 }
-$("#scrimmage-game").addEventListener("change", () => refreshPracticeOpponents().catch(error=>feedback("#scrimmage-feedback",error.message,true)));
-$("#refresh-scrimmages").addEventListener("click",()=>refreshScrimmages().catch(error=>toast(error.message,true)));
-$("#scrimmage-create").addEventListener("submit", async event => {
-  event.preventDefault();
-  if (app.matchmakingBusy) return;
-  const form=event.currentTarget, button=form.querySelector("[type=submit]"); busyButton(button,true);
-  try {
-    app.matchmakingBusy = true;
-    await api("/api/player/matchmaking/find",jsonOptions("POST",{game_id:form.elements.game_id.value}));
-    feedback("#scrimmage-feedback","Đã gửi yêu cầu tìm trận. Trạng thái được lưu trên máy chủ.");
-    await refreshScrimmages();
-  } catch(error) { feedback("#scrimmage-feedback",error.message,true); }
-  finally { app.matchmakingBusy = false; busyButton(button,false); await refreshPracticeOpponents().catch(()=>{}); }
+$("#scrimmage-game").addEventListener("change",()=>{
+  app.practiceError=null;
+  refreshPracticeOpponents().catch(error=>feedback("#scrimmage-feedback",error.message,true));
 });
+$("#practice-opponent-filter").addEventListener("input",renderPracticeOpponents);
+$("#practice-refresh-teams").addEventListener("click",()=>{
+  app.practiceError=null;
+  refreshScrimmages().then(()=>refreshPracticeOpponents()).catch(error=>feedback("#scrimmage-feedback",error.message,true));
+});
+$("#refresh-scrimmages").addEventListener("click",()=>refreshScrimmages().catch(error=>toast(error.message,true)));
+$("#practice-match-filter").addEventListener("change",renderPracticeHistory);
+function renderPracticeHistory() {
+  const filter=$("#practice-match-filter").value;
+  const entries=app.scrimmages.filter(item=>filter==="active"
+    ?["QUEUED","DISPATCHING","RUNNING"].includes(item.status):
+    filter==="done"?["COMPLETED","INTERRUPTED","CANCELLED"].includes(item.status):true);
+  renderPracticeRows($("#scrimmage-list"),entries);
+}
 setInterval(() => {
   if (!document.hidden && app.accountOnly && app.account && app.initialized && !app.practiceRefreshing
       && Date.now() >= app.pollPauseUntil && ["scrimmage","watch"].includes(document.body.dataset.view))
@@ -1968,7 +2117,7 @@ function updateSessionNotice() {
 }
 $("#session-continue").onclick = () => { app.activityAt = Date.now(); renewActiveSession(true); };
 setInterval(() => { renewActiveSession(); }, 5000);
-setInterval(() => { updateMatchmakingClock(); updateSessionNotice(); }, 1000);
+setInterval(() => { updateSessionNotice(); }, 1000);
 
 function populateBotSelectors() {
   const ready = (app.lobby?.players || []).filter(player => player.status === "READY");

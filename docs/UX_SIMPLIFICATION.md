@@ -39,3 +39,49 @@ Trạng thái Team ACTIVE và việc Captain chọn bot đại diện hiện đ�
 - Chạy Python/Node regression và Docker/staging trước khi triển khai EC2.
 
 **Giới hạn:** Chưa thay đổi thiết kế schema Season/Tournament hay tự động hóa trạng thái Team/Active Bot; đây là bước 1 của lộ trình UX, không phải một rewrite toàn hệ thống.
+
+
+## Trạng thái hệ thống dành cho Admin
+
+Trang **Trạng thái hệ thống** (trong **Thiết lập & công cụ**) có hai tầng thông tin:
+
+- **Thông tin vận hành:** hệ thống sẵn sàng hay cần kiểm tra, số trận đang chạy / giới hạn đồng thời, đấu luyện đang chờ, trận chính thức đã xếp lịch hoặc đã chốt bot, danh sách trận đang chạy và sự cố gần đây. Nút cập nhật lấy lại dữ liệu từ API.
+- **Chi tiết kỹ thuật (mở khi cần):** môi trường runner, Battlecode 2026 tùy chọn, Python/C++/Java có được phát hiện trên host hay không và trạng thái trận tự do.
+
+Các thẻ này dùng duy nhất API Admin hiện có `/api/admin/system`; không tự kết luận về CPU, RAM, container Docker hay kết nối AWS vì endpoint chưa cung cấp các giá trị này. `Battlecode 2026` chưa cấu hình không phải lỗi của OTT/Robot Battle. Danh sách sự cố là các trận `interrupted` trong dữ liệu API, không phải log hệ điều hành.
+
+### Acceptance
+
+- Runner sẵn sàng / chưa sẵn sàng: lời dẫn và biểu tượng hiển thị đúng.
+- Số trận đang chạy và giới hạn, hai hàng đợi, danh sách trận và sự cố đúng dữ liệu backend.
+- Không có Battlecode: chi tiết kỹ thuật giải thích đây là tùy chọn.
+- User Player không truy cập được trang và API Admin; UX không được thay thế phân quyền backend.
+- Ngắt mạng / hết phiên: hiển thị lỗi tải trạng thái, không khẳng định dữ liệu cũ là hiện tại.
+- Desktop/mobile 1440, 768, 390, 360 px: nội dung không tràn và mục kỹ thuật đóng mặc định.
+- Sau đổi JS/CSS cập nhật fingerprint mọi trang HTML tham chiếu.
+
+
+## Đấu luyện — chọn đội và đấu thử trực tiếp
+
+Đây là **đấu luyện tự chọn đối thủ**, không phải ghép trận ngẫu nhiên. Player chọn trò chơi, xem danh sách các đội **ACTIVE và có bot đại diện hợp lệ** trong game đó, rồi nhấn **Đấu thử** cạnh đội muốn đối đầu.
+
+- Không cần hai đội đồng thời online, không có nút "Tìm đối thủ", đồng hồ chờ 5 phút hay hàng ghép ngẫu nhiên.
+- API `GET /api/player/scrimmage-opponents?game_id=...` trả về các đội đã có bot hợp lệ và cờ `own_ready` kiểm tra bot Sandbox đã được chứng thực của đội mình. Danh sách loại bỏ chính đội mình và hỗ trợ tìm kiếm tên trên trình duyệt.
+- Khi đã sẵn sàng, bất cứ thành viên đội ACTIVE nào có thể chủ động chọn đối thủ. Trưởng đội (Captain) chịu trách nhiệm chọn bot đại diện trước đó; Member không thể thay Captain chọn bot.
+- Nút **Đấu thử** gọi `POST /api/player/scrimmages` với `{game_id, opponent_team_id}`. Backend **ngay lập tức tạo một yêu cầu trận QUEUED**, snapshot luật và bot hai đội, rồi dispatcher thực thi trên Sandbox. **Đối thủ không cần chấp nhận.**
+- Khi bot bên mình chưa đủ điều kiện, các nút đấu bị khóa và có liên kết trở về **Đội & bot của tôi**.
+- Giới hạn server vẫn là tối đa 3 trận đang chờ/chạy mà đội chủ động tạo, không gửi trùng cùng cặp đội/game; chỉ có thể hủy trận khi QUEUED.
+- **Các trận đấu luyện** hiển thị trạng thái, kết quả và nút live/replay, kèm bộ lọc tất cả / chờ-đang đấu / đã kết thúc.
+- Frontend bỏ giao diện và lời gọi `/api/player/matchmaking`. Endpoint ghép trận cũ được giữ trong backend cho dữ liệu và client lịch sử, **không có đường vào trong giao diện mới**. Việc xóa hẳn API/schema cũ sẽ là một migration riêng nếu thực sự cần.
+- Không cộng điểm giải đấu, không thay đổi Tournament/Official, không migration database.
+
+### QA Đấu luyện trực tiếp
+
+- Tài khoản chưa có đội, Team DRAFT, ACTIVE chưa có bot, ACTIVE có bot cho game A nhưng chưa có cho game B: danh sách và nút hợp lệ chính xác.
+- Tài khoản Captain và Member đều thấy danh sách đội; Member chỉ xem bot và không có quyền tự chọn bot đại diện.
+- Hai đội có bot `ready`/attested cho OTT, Robot Battle, OTT Advanced: bấm **Đấu thử** đúng đội, tạo QUEUED, chạy thật trên Sandbox, có replay chính xác và không cộng điểm Tournament.
+- Đội khác không có bot hợp lệ hoặc chưa ACTIVE không được quảng cáo như đối thủ sẵn sàng; đội mình không xuất hiện.
+- Không cho gửi trùng cặp đội/game đang chờ, giới hạn 3 trận chờ/chạy, hủy QUEUED, không hủy khi đã DISPATCHING/RUNNING.
+- Thay game liên tục trong khi đang tải: kết quả request game cũ không ghi đè game mới, nút không được bật cho game chưa kiểm tra.
+- Bộ lọc tên đội, bộ lọc lịch sử, nút cập nhật, tải lại, lỗi mạng và xử lý 403/409. Kiểm tra bàn phím/đọc màn hình, responsive 360/390/768/1440.
+- Docker Sandbox thật và ưu tiên xử lý Official phải được nghiệm thu ở môi trường có Docker trước khi production.

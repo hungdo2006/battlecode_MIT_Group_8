@@ -9,10 +9,10 @@
   <title>NEON ARENA · Tournament workspace</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=b78a50b1c80f">
   <link rel="preload" href="/static/fonts/InterVariable.woff2?v=693b77d4f32e" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/static/styles.css?v=f06e6bc51b3b">
+  <link rel="stylesheet" href="/static/styles.css?v=888090b8fe89">
   <script src="/static/renderers.js?v=9aa93bd51455" defer></script>
   <script src="/static/ui.js?v=01d6bafd6c85" defer></script>
-  <script src="/static/app.js?v=7f881a895e80" defer></script>
+  <script src="/static/app.js?v=ee6c57d571cd" defer></script>
 </head>
 <body class="account-landing-active">
   <!-- Public welcome screen; workspace visibility is never an authorization boundary. -->
@@ -109,7 +109,7 @@
         <div class="nav-group">
           <a class="nav-item hidden" href="#seasons" data-view="seasons"><svg class="nav-icon" aria-hidden="true"><use href="#i-calendar"/></svg>Đợt đăng ký (Season)</a>
           <a class="nav-item" href="#rules" data-view="rules"><svg class="nav-icon" aria-hidden="true"><use href="#i-sliders"/></svg>Cấu hình game mặc định</a>
-          <a class="nav-item hidden" href="#system" data-view="system"><svg class="nav-icon" aria-hidden="true"><use href="#i-activity"/></svg>Giám sát kỹ thuật</a>
+          <a class="nav-item hidden" href="#system" data-view="system"><svg class="nav-icon" aria-hidden="true"><use href="#i-activity"/></svg>Trạng thái hệ thống</a>
           <a class="nav-item" href="#create" data-view="create"><svg class="nav-icon" aria-hidden="true"><use href="#i-players"/></svg>Phòng thi đấu (demo)</a>
         </div>
       </details>
@@ -318,12 +318,44 @@
         </details>
       </section>
 
-      <section class="view" id="view-scrimmage" aria-label="Đấu luyện và tìm trận">
-        <div class="page-intro"><h1 id="scrimmage-title">Đấu luyện</h1><p>Chủ động tìm một đội khác đang chờ cùng game. Bot được chốt khi ghép; trận không cộng điểm giải đấu và tiếp tục chạy khi bạn rời website.</p></div>
-        <section class="panel hidden" id="scrimmage-create-panel"><div class="panel-heading"><h2>Tìm trận đấu luyện</h2><span class="tag" id="matchmaking-state">Chưa sẵn sàng</span></div>
-          <form id="scrimmage-create" class="padded-form account-form"><label>Game<select name="game_id" id="scrimmage-game" required></select></label><p class="form-note" id="scrimmage-eligibility"></p><a class="text-button hidden" id="scrimmage-bot-link" href="?focus=bots#upload">Chọn Active Bot →</a><p class="form-note" id="matchmaking-detail"></p><span class="form-note" id="matchmaking-clock"></span><div class="form-buttons"><button class="button primary" type="submit">Tìm trận <span aria-hidden="true">↗</span></button><button class="button ghost hidden" id="matchmaking-cancel" type="button">Hủy tìm trận</button><button class="button ghost hidden" id="matchmaking-watch" type="button">Xem diễn biến / Replay ↗</button></div><p class="form-note">Tìm tối đa 5 phút, ưu tiên đội chờ lâu. Reload hoặc mất mạng vẫn giữ lượt tìm tới hạn; khi máy chủ khởi động lại, bạn cần tìm lại.</p><div id="scrimmage-feedback" class="feedback hidden" role="status"></div></form>
+      <section class="view" id="view-scrimmage" aria-label="Đấu luyện">
+        <div class="page-intro">
+          <h1 id="scrimmage-title">Đấu luyện</h1>
+          <p id="scrimmage-intro">Chọn đội bạn muốn đối đầu và nhấn Đấu thử. Hệ thống tự chạy trận với bot của hai đội, không tính điểm giải đấu.</p>
+        </div>
+        <section class="panel practice-workspace hidden" id="scrimmage-create-panel" aria-labelledby="practice-panel-heading">
+          <div class="practice-panel-heading">
+            <div><span class="eyebrow">ĐẤU LUYỆN CÙNG CÁC ĐỘI</span>
+              <h2 id="practice-panel-heading">Chọn đội để đấu thử</h2>
+              <p>Không cần ghép trận ngẫu nhiên hay chờ đội kia online. Những đội bên dưới đã có bot đại diện sẵn sàng cho game bạn chọn.</p>
+            </div>
+            <button class="button ghost small" id="practice-refresh-teams" type="button">Cập nhật đội ↻</button>
+          </div>
+          <div class="practice-form">
+            <label for="scrimmage-game">Trò chơi<select id="scrimmage-game" name="game_id" required></select></label>
+            <div class="practice-state" id="practice-state" data-state="loading">
+              <span class="practice-state-symbol" aria-hidden="true"><svg class="nav-icon"><use href="#i-swords"/></svg></span>
+              <div class="practice-state-body">
+                <strong id="practice-state-title" role="status" aria-live="polite">Đang kiểm tra đội của bạn…</strong>
+                <p id="scrimmage-eligibility" class="form-note">Trận đấu thử cần hai đội có bot đại diện hợp lệ.</p>
+                <a class="text-button hidden" id="scrimmage-bot-link" href="#upload">Chuẩn bị đội &amp; bot →</a>
+              </div>
+            </div>
+            <div class="practice-opponent-heading">
+              <h3>Danh sách đội có thể đấu</h3>
+              <label for="practice-opponent-filter">Tìm đội<input id="practice-opponent-filter" type="search" placeholder="Nhập tên đội…" autocomplete="off"></label>
+            </div>
+            <div id="practice-opponents" class="practice-opponent-list" aria-live="polite">
+              <div class="empty-state">Đang tải danh sách đội…</div>
+            </div>
+            <p class="practice-fineprint">Khi nhấn <strong>Đấu thử</strong>, hệ thống chốt bot hai đội và xếp trận vào hàng đợi. Đối thủ không cần xác nhận. Bạn có thể rời trang; xem trạng thái và replay ở danh sách phía dưới.</p>
+            <div id="scrimmage-feedback" class="feedback hidden" role="status"></div>
+          </div>
         </section>
-        <section class="panel"><div class="panel-heading"><h2>Hàng đợi &amp; kết quả</h2><button class="button ghost small" id="refresh-scrimmages" type="button">Làm mới</button></div><div id="scrimmage-list" class="match-list"><div class="empty-state">Đang tải trận thử…</div></div></section>
+        <section class="panel practice-history" aria-labelledby="practice-history-heading">
+          <div class="panel-heading"><h2 id="practice-history-heading">Các trận đấu luyện</h2><div class="practice-history-actions"><label for="practice-match-filter">Hiển thị<select id="practice-match-filter"><option value="all">Tất cả</option><option value="active">Đang chờ / đang đấu</option><option value="done">Đã kết thúc</option></select></label><button class="button ghost small" id="refresh-scrimmages" type="button">Cập nhật ↻</button></div></div>
+          <div id="scrimmage-list" class="match-list"><div class="empty-state">Đang tải danh sách trận đấu luyện…</div></div>
+        </section>
       </section>
       <section class="view" id="view-watch" aria-label="Lịch sử và replay"><div class="page-intro"><h1>Lịch sử &amp; Replay</h1><p>Xem trực tiếp hoặc khám phá lại từng lượt. Replay sử dụng dữ liệu đã lưu, không chạy lại bot.</p></div><section class="panel"><div class="panel-heading"><h2>Lịch sử trận đấu</h2><button class="text-button" id="refresh-matches">Làm mới ↻</button></div><div id="all-matches" class="match-list"></div></section></section>
 
@@ -381,11 +413,29 @@
         </section>
         <section id="admin-pane-bots" role="tabpanel" aria-labelledby="admin-tab-bots" tabindex="0" hidden><section class="panel"><div class="panel-heading"><h2>Bot &amp; biên dịch</h2><label class="inline-search">Tìm bot<input id="admin-bot-query" placeholder="Tên, game hoặc trạng thái" maxlength="128"></label><button class="button ghost small" id="admin-refresh-bots" type="button">Làm mới</button></div><div id="admin-submissions-list" class="match-list"></div></section></section>
       </section>
-      <section class="view" id="view-system" aria-label="Giám sát hệ thống">
-        <div class="page-intro"><h1>Giám sát hệ thống</h1><p>Trạng thái runner, hàng đợi và các tác vụ thực tế trên máy chủ.</p></div>
-        <section class="panel"><div class="panel-heading"><h2>Runtime</h2><button class="button ghost small" id="system-refresh" type="button">Kiểm tra lại</button></div><dl id="system-status" class="system-status"></dl><div id="system-feedback" class="feedback hidden" role="status"></div></section>
-        <section class="panel administration-tools"><div class="panel-heading"><h2>Trận đang chạy</h2><span class="tag">Tối đa 2 trận</span></div><div id="system-active" class="match-list"></div></section>
-        <section class="panel administration-tools"><div class="panel-heading"><h2>Gián đoạn gần đây</h2></div><div id="system-interruptions" class="match-list"></div></section>
+      <section class="view" id="view-system" aria-label="Trạng thái hệ thống">
+        <div class="page-intro"><h1>Trạng thái hệ thống</h1><p>Kiểm tra đấu trường đã sẵn sàng, có bao nhiêu trận đang chạy và có sự cố nào cần xử lý.</p></div>
+        <section class="system-health panel" id="system-health" data-status="loading" aria-labelledby="system-health-title">
+          <div class="system-health-indicator" aria-hidden="true"><svg class="nav-icon"><use href="#i-activity"/></svg></div>
+          <div class="system-health-content">
+            <span class="eyebrow">SỨC KHỎE ĐẤU TRƯỜNG</span>
+            <h2 id="system-health-title" role="status" aria-live="polite">Đang kiểm tra hệ thống…</h2>
+            <p id="system-health-note">Đang lấy dữ liệu vận hành từ máy chủ.</p>
+            <small id="system-last-checked" class="form-note">Chưa có dữ liệu mới</small>
+          </div>
+          <button class="button ghost small" id="system-refresh" type="button">Cập nhật trạng thái ↻</button>
+        </section>
+        <section class="panel system-activity" aria-labelledby="system-activity-title">
+          <div class="panel-heading"><h2 id="system-activity-title">Hoạt động thi đấu</h2><a class="text-button" href="#official">Xem lịch thi đấu →</a></div>
+          <dl id="system-status" class="system-status" aria-live="polite"></dl>
+          <div id="system-feedback" class="feedback hidden" role="status"></div>
+        </section>
+        <section class="panel administration-tools"><div class="panel-heading"><h2>Trận đang chạy</h2><a class="text-button" href="#official">Xem trận chính thức →</a></div><div id="system-active" class="match-list"></div></section>
+        <section class="panel administration-tools"><div class="panel-heading"><h2>Sự cố gần đây</h2></div><div id="system-interruptions" class="match-list"></div></section>
+        <details class="panel workflow-disclosure system-advanced" id="system-technical-details"><summary>Chi tiết kỹ thuật (dành cho người vận hành)</summary>
+          <p class="form-note">Thông tin về môi trường chạy bot và các công cụ tùy chọn. Battlecode 2026 không bắt buộc với Robot Battle hoặc OTT.</p>
+          <dl id="system-technical" class="system-status"></dl>
+        </details>
       </section>
       <footer class="main-footer"><strong>neon arena</strong><a href="/static/protocol.html">Tài liệu bot ↗</a></footer>
     </main>

@@ -39,3 +39,23 @@ Trạng thái Team ACTIVE và việc Captain chọn bot đại diện hiện đ�
 - Chạy Python/Node regression và Docker/staging trước khi triển khai EC2.
 
 **Giới hạn:** Chưa thay đổi thiết kế schema Season/Tournament hay tự động hóa trạng thái Team/Active Bot; đây là bước 1 của lộ trình UX, không phải một rewrite toàn hệ thống.
+
+
+## Trạng thái hệ thống dành cho Admin
+
+Trang **Trạng thái hệ thống** (trong **Thiết lập & công cụ**) có hai tầng thông tin:
+
+- **Thông tin vận hành:** hệ thống sẵn sàng hay cần kiểm tra, số trận đang chạy / giới hạn đồng thời, đấu luyện đang chờ, trận chính thức đã xếp lịch hoặc đã chốt bot, danh sách trận đang chạy và sự cố gần đây. Nút cập nhật lấy lại dữ liệu từ API.
+- **Chi tiết kỹ thuật (mở khi cần):** môi trường runner, Battlecode 2026 tùy chọn, Python/C++/Java có được phát hiện trên host hay không và trạng thái trận tự do.
+
+Các thẻ này dùng duy nhất API Admin hiện có `/api/admin/system`; không tự kết luận về CPU, RAM, container Docker hay kết nối AWS vì endpoint chưa cung cấp các giá trị này. `Battlecode 2026` chưa cấu hình không phải lỗi của OTT/Robot Battle. Danh sách sự cố là các trận `interrupted` trong dữ liệu API, không phải log hệ điều hành.
+
+### Acceptance
+
+- Runner sẵn sàng / chưa sẵn sàng: lời dẫn và biểu tượng hiển thị đúng.
+- Số trận đang chạy và giới hạn, hai hàng đợi, danh sách trận và sự cố đúng dữ liệu backend.
+- Không có Battlecode: chi tiết kỹ thuật giải thích đây là tùy chọn.
+- User Player không truy cập được trang và API Admin; UX không được thay thế phân quyền backend.
+- Ngắt mạng / hết phiên: hiển thị lỗi tải trạng thái, không khẳng định dữ liệu cũ là hiện tại.
+- Desktop/mobile 1440, 768, 390, 360 px: nội dung không tràn và mục kỹ thuật đóng mặc định.
+- Sau đổi JS/CSS cập nhật fingerprint mọi trang HTML tham chiếu.

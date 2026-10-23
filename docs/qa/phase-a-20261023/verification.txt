@@ -1,0 +1,53 @@
+Runtime source: 060a412e09ea4be5d45fbde37a3ca30c62dd31c7
+Browser captures ran on ca2acb3; frontend is byte-identical through this runtime source.
+Browser checks are localhost/fixture coverage. The old checker HTTPS LAN label is a route simulation; real TLS/LAN remains BLOCKED.
+Command: D:/LTM/.venv/Scripts/python.exe -m pip check
+Exit: 0
+No broken requirements found.
+
+Command: node --check frontend/app.js
+Exit: 0
+
+
+Command: node --check frontend/renderers.js
+Exit: 0
+
+
+Command: node --check frontend/ui.js
+Exit: 0
+
+
+Command: node --check frontend/protocol.js
+Exit: 0
+
+
+Command: node --check frontend/lan.js
+Exit: 0
+
+
+Command: node scripts/check_account_frontend_routing.cjs
+Exit: 0
+PASS: account routing/CSRF, forbidden-session recheck, stale calendar guard and standings modes
+
+Command: node scripts/check_public_results_rendering.cjs
+Exit: 0
+PASS public results: adjudicated bracket, BYE, skipped reset, draw history, text-only names
+
+Command: D:/LTM/.venv/Scripts/python.exe scripts/version_frontend.py --check
+Exit: 0
+Frontend asset versions: up to date
+
+Command: git diff --check
+Exit: 0
+
+
+browser-account.log:
+PASS Account-Only browser UI: landing, signup/login, session restore, logout/retry, mobile navigation/focus/layout, revocation, profile password confirmation and multi-tab logout, legacy 410
+browser-ux.log:
+PASS UI review: account forms/contact, docs/retry/return, role routing, Team/upload/sample, empty states, alignment, HTTPS LAN, 8 widths
+browser-layout.log:
+PASS workspace layout: 120 role/view/width combinations; real Captain/member/bot transitions; grants, keyboard, pagination, search, local schedules/seasons/tournaments, error recovery, logout
+browser-retest.log:
+{"R03_replay_scroll_and_focus": true, "R02_home_exits_replay": true, "R01_no_previous_session_replay": true, "R04_active_bot_cta_reveals_list": true, "R02_history_reload_and_old_deep_link": true, "R12_actual_turn_and_slider_bounds": true, "R10_captain_missing_bot_action": true, "R11_player_empty_states_explain_team_scope": true, "R01_late_success_and_401_cannot_update_new_session": true, "R09_duplicate_bot_metadata_and_team_search": true, "R05_R07_upcoming_attention_filter_and_explanation": true, "R08_time_validation_defaults_and_edited_values": true, "responsive_replay_and_official_five_widths": true, "R07_compact_tournaments_keep_explanation_and_expansion": true}
+browser-offline.log:
+PASS native browser: signed synthetic preview without publish, file-change invalidation, tamper rejection, explicit publication, duplicate import, anonymous results/bracket/history, desktop/mobile

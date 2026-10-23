@@ -1237,8 +1237,10 @@ function resetAccountWorkspace() {
   app.bots = []; app.matches = []; app.standings = []; app.tournaments = [];
   app.officialMatches = []; app.officialTeams = []; app.scrimmages = []; app.teamTournaments = []; app.seasons = [];
   app.competition = null; app.csrf = null;
-  app.matchmaking = null; app.matchmakingBusy = false;
-  app.matchmakingRefreshing = false;
+  app.practiceOpponents=[]; app.practiceOwnBotReady=false;
+  app.practiceFetchedGame=null; app.practiceError=null;
+  app.practiceLoading=false; app.practiceChallengeBusy=null;
+  app.practiceRefreshSeq++;
   app.sessionInfo = null; app.activityAt = 0; app.heartbeatActivityAt = 0; app.heartbeatNextAt = 0;
   app.heartbeatBusy = false;
   $("#session-notice").classList.add("hidden");
@@ -1897,6 +1899,7 @@ async function refreshPracticeOpponents() {
   if (!app.accountOnly || app.accountAudience !== "player" || !app.account) return;
   const seq=++app.practiceRefreshSeq,account=app.account,game=$("#scrimmage-game").value;
   app.practiceOpponents=[];
+  app.practiceError=null;
   app.practiceOwnBotReady=false;
   app.practiceFetchedGame=null;
   app.practiceLoading=true;

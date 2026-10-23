@@ -2872,8 +2872,10 @@ function renderTeamTournaments() {
       }
       if (app.accountAudience === "admin" && tournament.status === "ACTIVE" && !fixture.official_request_id) {
         const controls = el("div", "form-buttons");
-        const lockInput = document.createElement("input"); lockInput.type = "datetime-local"; lockInput.setAttribute("aria-label", "Thời điểm khóa bot"); lockInput.value = officialLocalInput(Date.now() + 120000);
-        const scheduledInput = document.createElement("input"); scheduledInput.type = "datetime-local"; scheduledInput.setAttribute("aria-label", "Thời điểm thi đấu"); scheduledInput.value = officialLocalInput(Date.now() + 300000);
+        const roundPolicy = tournament.round_rules?.find(p => p.stage === fixture.stage && p.round_number === fixture.round_number);
+        const defaultLockAt = Math.max(Date.now() + 120000, (roundPolicy?.bot_lock_at || 0) * 1000 + 60000);
+        const lockInput = document.createElement("input"); lockInput.type = "datetime-local"; lockInput.setAttribute("aria-label", "Thời điểm khóa bot"); lockInput.value = officialLocalInput(defaultLockAt);
+        const scheduledInput = document.createElement("input"); scheduledInput.type = "datetime-local"; scheduledInput.setAttribute("aria-label", "Thời điểm thi đấu"); scheduledInput.value = officialLocalInput(defaultLockAt + 180000);
         const schedule = el("button", "button ghost small", "XẾP LỊCH"); schedule.type = "button";
         schedule.onclick = async () => {
           schedule.disabled = true;

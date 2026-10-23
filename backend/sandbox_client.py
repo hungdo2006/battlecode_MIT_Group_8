@@ -36,6 +36,7 @@ class SandboxRunner:
         self.stop = threading.Event()
         self.thread = None
         self.available = False
+        self.image_ids = {}
         self.cleanup_lock = threading.Lock()
         self.pending_closes = {}  # job_id -> its original lease, never the next lease.
 
@@ -62,7 +63,9 @@ class SandboxRunner:
             raise RunnerUnavailable('Sandbox controller unavailable or operation rejected; no legacy fallback') from exc
 
     def startup(self):
-        self.claim_epoch(self.rpc('/health', timeout=3)['epoch'])
+        health = self.rpc('/health', timeout=3)
+        self.claim_epoch(health['epoch'])
+        self._save_image_ids(health)
         self.available = True
         self.thread = threading.Thread(target=self._heartbeat, daemon=True)
         self.thread.start()
@@ -72,17 +75,33 @@ class SandboxRunner:
             result = self.rpc('/owner', {'epoch': epoch})
             self.epoch, self.lease = result['epoch'], result['lease']
 
+    def _save_image_ids(self, health):
+        with self.lease_lock:
+            # A controller pinned to a different Docker image invalidates
+            # previously compiled artifacts, even when it is otherwise healthy.
+            self.image_ids = {'sandbox': health.get('sandbox_image'),
+                              'battlecode26': health.get('battlecode_image')}
+
+    def image_for_game(self, game_id):
+        with self.lease_lock:
+            if not self.available:
+                return None
+            return self.image_ids.get('battlecode26' if game_id == 'battlecode26' else 'sandbox')
+
     def heartbeat_once(self):
         try:
             self.rpc('/heartbeat', {}, timeout=4)
+            health = self.rpc('/health', timeout=3)
         except ControllerRejected as exc:
             if exc.status != 409:
                 raise
-            epoch = self.rpc('/health', timeout=3)['epoch']
-            if epoch == self.epoch:
+            health = self.rpc('/health', timeout=3)
+            if health['epoch'] == self.epoch:
                 # An expired/superseded owner may never resurrect itself.
                 raise
-            self.claim_epoch(epoch)  # Controller restart swept old containers.
+            self.available = False
+            self.claim_epoch(health['epoch'])  # Controller restart swept old containers.
+        self._save_image_ids(health)
         self.available = True
         with self.cleanup_lock:
             pending = list(self.pending_closes.items())
@@ -119,9 +138,11 @@ class SandboxRunner:
     def health(self):
         try:
             health = self.rpc('/health', timeout=3)
+            self._save_image_ids(health)
             return {'mode': self.mode, 'ready': self.available and health['ready'], 'toolchains': health['toolchains'],
                     'battlecode26': health.get('battlecode26', False)}
         except RunnerUnavailable:
+            self.available = False
             return {'mode': self.mode, 'ready': False, 'toolchains': {}}
 
     def shutdown(self):

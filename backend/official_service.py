@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from .account_database import require_writer, transaction
 from .auth_service import AccountConflict, PermissionDenied
+from .artifact_compat import artifact_current
 
 
 class OfficialNotFound(ValueError):
@@ -118,6 +119,8 @@ def lock_due_matches(connection, store, now):
             if (not binding or not bot or bot.get("team_id")!=tid
                 or bot.get("game_id")!=request["game_id"] or bot.get("status")!="ready"):
                 reason="BOT_UNAVAILABLE";break
+            if not artifact_current(store, bot):
+                reason="BOT_TOOLCHAIN_OUTDATED";break
             attestation=connection.execute("""SELECT source_sha256 FROM official_source_attestations
                 WHERE bot_id=?""",(selected["bot_id"],)).fetchone()
             if attestation is None:
@@ -435,6 +438,9 @@ class OfficialSchedule:
                         or bot.get("artifact_id") != slot["artifact_id"]
                         or bot.get("artifact_digest") != slot["artifact_digest"]):
                         reason = "FROZEN_ARTIFACT_UNAVAILABLE"
+                        break
+                    if not artifact_current(self.store, bot):
+                        reason = "BOT_TOOLCHAIN_OUTDATED"
                         break
                     actual = snapshot_source(self.store, slot, bot)
                     if actual is None:

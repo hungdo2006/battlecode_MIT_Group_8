@@ -131,6 +131,10 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
                 app.state.sessions = None if account_settings.account_only else Sessions(app.state.store.data / "sessions.json")
                 runner = app.state.runner = configured_runner(lambda *args: prepare_submission(*args))
                 await asyncio.to_thread(runner.startup)
+                # Dynamic, private Controller image identity is authoritative.
+                # Never rewrite historical bot JSON or replay snapshots.
+                if getattr(runner, "mode", None) == "sandbox":
+                    app.state.store.sandbox_image_for_game = runner.image_for_game
                 manager = app.state.manager = MatchManager(app.state.store, tick_seconds, runner)
                 app.state.competition = Competition(app.state.store, manager)
                 if account_settings.account_only:

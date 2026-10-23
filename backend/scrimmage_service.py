@@ -4,6 +4,7 @@ import uuid
 
 from .account_database import require_writer, transaction, validate_service_connection
 from .official_service import snapshot_source
+from .artifact_compat import artifact_current
 from .team_service import TeamConflict, TeamNotFound, TeamPermissionDenied
 
 PENDING = ('QUEUED', 'DISPATCHING', 'RUNNING')
@@ -32,10 +33,10 @@ class Scrimmages:
             raise TeamConflict('Active Bot has been archived')
         bot = self.store.get_bot(row['bot_id']) if row else None
         if (not team or not bot or bot.get('team_id') != team_id or bot.get('game_id') != game_id
-            or bot.get('status') != 'ready' or bot.get('execution_backend') != 'sandbox'
+            or not artifact_current(self.store, bot) or bot.get('execution_backend') != 'sandbox'
             or not bot.get('artifact_id') or not bot.get('artifact_digest')
             or snapshot_source(self.store, row, bot) != row['source_sha256']):
-            raise TeamConflict('Both Teams need an attested, ready Active Bot for this game')
+            raise TeamConflict('Hai đội cần bot đại diện đã biên dịch bằng Sandbox hiện tại. Hãy nộp lại bot cũ và chọn lại.')
         return {'team_id':team_id, 'team_name_snapshot':team['display_name'], 'game_id':game_id,
                 'bot_id':bot['id'], 'bot_name':bot['name'], 'language':bot['language'],
                 'artifact_id':bot['artifact_id'], 'artifact_digest':bot['artifact_digest']}

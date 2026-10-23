@@ -133,8 +133,10 @@ def test_signed_export_uses_real_completed_round_robin_rows(room, signed_file):
     runtime = room.app.state.account_http
     with runtime.database.writer_connection(runtime.writer) as connection, transaction(connection):
         connection.execute("""UPDATE official_match_requests
-            SET status='COMPLETED', outcome_json=?, finished_at=?, match_id=?
-            WHERE id=?""", (json.dumps(outcome), room.clock.now, "qa-match", request_id))
+            SET status='COMPLETED', locked_at=?, started_at=?, outcome_json=?,
+                finished_at=?, match_id=?
+            WHERE id=?""", (room.clock.now, room.clock.now, json.dumps(outcome),
+                            room.clock.now, "qa-match", request_id))
 
     actual = room.client.get(f"/api/admin/team-tournaments/{tournament_id}")
     assert actual.status_code == 200, actual.text

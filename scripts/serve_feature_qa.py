@@ -110,6 +110,36 @@ def run(port):
                 return {'match_id':match_id,'qa_fixture':True}
             return await runtime.run(complete)
 
+        @app.post('/__qa__/complete-official')
+        async def complete_official():
+            """Labelled replay fixture, never evidence of Docker execution."""
+            from backend.official_service import OfficialSchedule
+            runtime = app.state.account_http
+            def complete(auth,db):
+                service = OfficialSchedule(db,runtime.writer,auth,app.state.store,app.state.registry)
+                service.freeze_due()
+                plan = service.claim_due()
+                if not plan or 'blocked' in plan:
+                    return {'qa_fixture':True,'plan':plan}
+                adapter = app.state.registry.get(plan['game_id'])
+                initial = adapter.create_initial_state(plan['rules_snapshot'])
+                final = {**initial,'turn':1,'events':[], 'result':{'winner':'A','reason':'qa_fixture'}}
+                result = adapter.get_result(final)
+                match = {'id':plan['match_id'],'game_id':plan['game_id'],'status':'completed',
+                         'official_request_id':plan['id'],'rules':plan['rules_snapshot'],
+                         'result':result,'turn':1,'created_at':int(clock()),
+                         'bots':{side:app.state.store.get_bot(slot['bot_id']) for side,slot in plan['slots'].items()}}
+                for side,slot in plan['slots'].items():
+                    match['bot_'+side.lower()+'_id'] = slot['bot_id']
+                    match['player_'+side.lower()+'_id'] = slot['team_id']
+                    match['player_'+side.lower()+'_name_snapshot'] = slot['team_name_snapshot']
+                app.state.store.save_match(match)
+                app.state.store.start_replay(plan['match_id'],initial)
+                app.state.store.append_replay_frame(plan['match_id'],final)
+                service.sync_execution()
+                return {'qa_fixture':True,'request_id':plan['id'],'match_id':plan['match_id']}
+            return await runtime.run(complete)
+
         @app.post('/__qa__/shutdown')
         async def shutdown():
             server.should_exit = True

@@ -187,6 +187,24 @@ def run():
                 assert page.locator("#account-team-create").is_visible()
                 assert page.locator("#account-team-inbox").is_hidden()  # No pending invitations.
                 assert page.locator("#workspace-game-select").is_disabled()
+                # Team preparation has its own game scope, independent of
+                # the read-only server default and its legacy lock.
+                global_game_writes = []
+                page.on("request", lambda request: global_game_writes.append(request.url)
+                        if request.method == "PUT" and request.url.endswith("/games/selected") else None)
+                page.click("#upload-workflow-details > summary")
+                expect_game = page.locator("#upload-game")
+                assert expect_game.is_enabled()
+                expect_game.select_option("ott_advanced")
+                page.wait_for_function("document.querySelector('#sample-list [data-game-id=ott_advanced]') !== null")
+                assert page.evaluate("app.competition.selected_game_id") == "robot_battle"
+                assert global_game_writes == []
+                expect_game.select_option("robot_battle")
+                page.click("#upload-workflow-details > summary")
+                assert page.evaluate("""() => [...document.querySelectorAll('input[pattern]')].every(input => {
+                    const pattern = new RegExp('^(?:' + input.pattern + ')$', 'v');
+                    return pattern instanceof RegExp;
+                })""")
                 assert page.evaluate("fetch('/api/session').then(r => r.status)") == 410
 
                 # The responsive shell uses one real navigation tree. Check
@@ -204,12 +222,20 @@ def run():
                 assert navigation.locator('[data-view="watch"]').is_visible()
                 assert navigation.locator('[data-view="scrimmage"]').is_visible()
                 # Last visible link -> Tab returns to the first control.
-                controls = navigation.locator('a[href], button:not(:disabled), [tabindex="0"]').filter(visible=True)
+                controls = navigation.locator('a[href], button:not(:disabled), summary, [tabindex="0"]').filter(visible=True)
                 controls.last.focus()
                 page.keyboard.press("Tab")
                 assert controls.first.evaluate("node => node === document.activeElement")
                 page.keyboard.press("Shift+Tab")
                 assert controls.last.evaluate("node => node === document.activeElement")
+                # Closed details must contribute its summary, but not hidden
+                # child links, to the modal's keyboard cycle.
+                navigation.locator("#nav-advanced > summary").focus()
+                page.keyboard.press("Enter")
+                controls = navigation.locator('a[href], button:not(:disabled), summary, [tabindex="0"]').filter(visible=True)
+                controls.last.focus()
+                page.keyboard.press("Tab")
+                assert controls.first.evaluate("node => node === document.activeElement")
                 page.keyboard.press("Escape")
                 assert toggle.evaluate("node => node === document.activeElement")
                 assert not page.locator(".shell").evaluate("node => node.inert")

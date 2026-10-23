@@ -57,7 +57,7 @@ def test_practice_state_is_driven_by_real_matchmaking_api():
     assert 'workspaceLink("upload",{focus:"bots"})' in status
     assert 'app.matchmaking=null' in js  # Changing game clears stale state.
     assert '"/api/player/matchmaking/find"' in js
-    assert '"/api/player/matchmaking' in js
+    assert "/api/player/matchmaking?game_id=" in js
     assert '"/cancel"' not in status  # No mutations in view rendering.
 
 

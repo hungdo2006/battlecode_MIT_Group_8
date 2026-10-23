@@ -417,20 +417,83 @@ $("#admin-invite-form").addEventListener("submit",async event=>{
   }catch(error){feedback("#admin-invite-feedback",error.message,true);}
   finally{busyButton(button,false);button.disabled=false;}
 });
+// Operator dashboard presents operational facts first, implementation details
+// second. This never makes an inference about CPU/RAM, Docker health, or AWS.
 async function refreshSystem(){
-  if(systemBusy || app.accountAudience!=="admin" || !app.account)return;
-  systemBusy=true;const account=app.account;
-  try{const snapshot=await api("/api/admin/system");if(app.account!==account)return;
-    const target=$("#system-status");target.replaceChildren();
-    const rows=[["Runner",snapshot.runner.ready?"Sẵn sàng":"Không khả dụng"],["Chế độ thực thi",snapshot.runner.mode],["Battlecode 2026",snapshot.runner.battlecode26?"Đã cấu hình":"Chưa cấu hình"],["Trận đang chạy",`${snapshot.active_matches.length} / ${snapshot.capacity}`],["Scrimmage chờ",String(snapshot.scrimmages.QUEUED||0)],["Official đã lên lịch",String(snapshot.official.SCHEDULED||0)]];
-    for(const[label,value]of rows){const pair=el("div");pair.append(el("dt","",label),el("dd","",value));target.append(pair);}
+  if(systemBusy || app.accountAudience !== "admin" || !app.account) return;
+  systemBusy=true;
+  const account=app.account, button=$("#system-refresh");
+  button.disabled=true;
+  try{
+    const snapshot=await api("/api/admin/system");
+    if(app.account!==account) return;
+    const runnerReady=!!snapshot.runner.ready;
+    const active=snapshot.active_matches.length;
+    const capacity=Number(snapshot.capacity) || 0;
+    const practiceWaiting=snapshot.scrimmages.QUEUED || 0;
+    const officialWaiting=(snapshot.official.SCHEDULED || 0)+(snapshot.official.LOCKED || 0);
+    const problems=snapshot.recent_interruptions.length;
+    const health=$("#system-health");
+    health.dataset.status=runnerReady ? "ready" : "warning";
+    setText("#system-health-title",runnerReady ? "Đấu trường sẵn sàng" : "Cần kiểm tra môi trường chạy bot");
+    setText("#system-health-note",runnerReady
+      ? active ? `Đang xử lý ${active} trận. Các trận khác sẽ được tiếp nhận theo lịch và hàng đợi.`
+        : "Hệ thống thực thi bot đã sẵn sàng. Hiện không có trận đang chạy."
+      : "Môi trường thực thi bot chưa sẵn sàng. Kiểm tra cấu hình vận hành trước khi bắt đầu trận.");
+    setText("#system-last-checked",`Dữ liệu nhận lúc ${new Date().toLocaleTimeString("vi-VN")}`);
+    const metrics=[
+      ["Trận đang chạy",`${active} / ${capacity}`,`Số trận đang xử lý / giới hạn đồng thời`],
+      ["Đấu luyện đang chờ",String(practiceWaiting),"Các đội đang đợi ghép trận"],
+      ["Trận chính thức chờ",String(officialWaiting),"Đã xếp lịch hoặc đã khóa bot, chưa chạy"]
+    ];
+    const status=$("#system-status");status.replaceChildren();
+    for(const [label,value,description] of metrics){
+      const pair=el("div","system-metric");
+      pair.append(el("dt","",label),el("dd","",value),el("small","form-note",description));
+      status.append(pair);
+    }
+    const technical=$("#system-technical");technical.replaceChildren();
+    const toolchains=snapshot.runner.toolchains || {};
+    const toolchainLabel=(key)=>toolchains[key] ? "Có sẵn trên máy chủ" : "Không phát hiện trên máy chủ";
+    const details=[
+      ["Môi trường chạy bot",snapshot.runner.mode === "sandbox" ? "Docker Sandbox" : (snapshot.runner.mode || "Không rõ")],
+      ["Battlecode 2026",snapshot.runner.battlecode26 ? "Đã cấu hình" : "Chưa cấu hình · không bắt buộc"],
+      ["Python",toolchainLabel("python")],
+      ["C++",toolchainLabel("cpp")],
+      ["Java",toolchains.javac && toolchains.java ? "Có sẵn trên máy chủ" : "Chưa đủ công cụ trên máy chủ"],
+      ["Trận tự do",snapshot.competition==="open" ? "Đang mở" : snapshot.competition==="draining" ? "Đang đóng" : "Chưa mở"]
+    ];
+    for(const [label,value] of details){
+      const pair=el("div");pair.append(el("dt","",label),el("dd","",value));technical.append(pair);
+    }
+    const statusNames={running:"Đang chạy",queued:"Đang chờ",interrupted:"Bị gián đoạn",
+      completed:"Hoàn thành",failed:"Thất bại",cancelled:"Đã hủy"};
     for(const[selector,matches]of [["#system-active",snapshot.active_matches],["#system-interruptions",snapshot.recent_interruptions]]){
       const list=$(selector);list.replaceChildren();
-      if(!matches.length)list.append(el("div","empty-state",selector==="#system-active"?"Không có trận đang chạy.":"Chưa ghi nhận trận bị gián đoạn."));
-      for(const match of matches){const row=el("div","official-match-row"),copy=el("div","official-match-copy");copy.append(el("strong","",`${match.player_a_name_snapshot||"A"} vs ${match.player_b_name_snapshot||"B"}`),el("p","form-note",`${match.game_id} · ${match.status} · ${match.result?.reason||"Đang xử lý"}`));row.append(copy);list.append(row);}
+      if(!matches.length) list.append(el("div","empty-state",selector==="#system-active"
+        ? "Không có trận nào đang chạy lúc này."
+        : "Không ghi nhận trận bị gián đoạn trong lịch sử được trả về."));
+      for(const match of matches){
+        const row=el("div","official-match-row"),copy=el("div","official-match-copy");
+        const statusText=statusNames[String(match.status||"").toLowerCase()] || match.status || "Đang xử lý";
+        copy.append(el("strong","",`${match.player_a_name_snapshot||"Đội A"} vs ${match.player_b_name_snapshot||"Đội B"}`),
+          el("p","form-note",`${match.game_name||match.game_id||"Trò chơi"} · ${statusText}${match.result?.reason ? " · "+match.result.reason : ""}`));
+        row.append(copy);list.append(row);
+      }
     }
     $("#system-feedback").classList.add("hidden");
-  }finally{systemBusy=false;}
+  }catch(error){
+    if(app.account===account){
+      $("#system-health").dataset.status="warning";
+      setText("#system-health-title","Chưa cập nhật được trạng thái");
+      setText("#system-health-note","Không lấy được dữ liệu mới từ máy chủ. Thông tin bên dưới có thể đã cũ.");
+      setText("#system-last-checked","Vui lòng kiểm tra kết nối và thử lại");
+    }
+    throw error;
+  }finally{
+    systemBusy=false;
+    button.disabled=false;
+  }
 }
 $("#system-refresh").onclick=()=>refreshSystem().catch(error=>feedback("#system-feedback",error.message,true));
 
@@ -1487,7 +1550,7 @@ const labels = {
   scrimmage: "Đấu luyện",
   profile: "Hồ sơ cá nhân",
   administration: "Tài khoản & đội",
-  system: "Giám sát hệ thống",
+  system: "Trạng thái hệ thống",
   seasons: "Đợt đăng ký",
   rules: "Game & Luật chơi",
 };

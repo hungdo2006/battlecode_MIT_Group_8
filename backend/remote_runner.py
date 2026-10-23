@@ -3,10 +3,9 @@
 The worker PC polls the Arena over HTTPS, then talks to its own controller
 over a Docker-internal network. Arena has no Docker socket or PC callback URL.
 """
-import json
 import os
 import threading
-import time
+import uuid
 
 from backend.execution import RunnerUnavailable
 from backend.remote_relay import RemoteRelay
@@ -51,7 +50,18 @@ class RemoteSandboxRunner(SandboxRunner):
                     self.available = False
                 elif not self.available:
                     health = self.rpc("/health", timeout=3)
-                    self.claim_epoch(health["epoch"])
+                    try:
+                        self.claim_epoch(health["epoch"])
+                    except ControllerRejected as exc:
+                        if exc.status == 409:
+                            # A retired Controller owner must never resurrect
+                            # after its lease expires. Old in-flight sessions
+                            # keep their captured lease and cannot use this one.
+                            with self.lease_lock:
+                                self.owner = uuid.uuid4().hex
+                                self.lease = None
+                                self.epoch = None
+                        raise
                     self._save_image_ids(health)
                     self.available = bool(health["ready"])
                 else:

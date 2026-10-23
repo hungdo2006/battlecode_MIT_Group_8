@@ -1898,12 +1898,17 @@ function renderPracticeRows(target, requests, completedOnly = false) {
 async function refreshPracticeOpponents() {
   if (!app.accountOnly || app.accountAudience !== "player" || !app.account) return;
   const seq=++app.practiceRefreshSeq,account=app.account,game=$("#scrimmage-game").value;
-  app.practiceOpponents=[];
+  // Keep the prior list visible on the 10-second background refresh to
+  // avoid flicker or stealing focus from a Player considering a Team.
+  const sameGame=app.practiceFetchedGame===game;
   app.practiceError=null;
-  app.practiceOwnBotReady=false;
-  app.practiceFetchedGame=null;
-  app.practiceLoading=true;
-  renderPracticeOpponents();
+  if(!sameGame){
+    app.practiceOpponents=[];
+    app.practiceOwnBotReady=false;
+    app.practiceFetchedGame=null;
+    app.practiceLoading=true;
+    renderPracticeOpponents();
+  }
   const team=app.team?.team;
   if(!game || team?.status!=="ACTIVE"){
     app.practiceLoading=false;

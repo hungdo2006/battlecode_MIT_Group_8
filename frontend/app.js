@@ -755,9 +755,12 @@ function applyPermissions() {
   $("#competition-close").disabled = !organizer || !app.competition?.competition_locked || app.competitionBusy;
   $("#competition-open").classList.toggle("hidden", app.role !== "organizer" || app.competition?.phase !== "setup");
   $("#competition-close").classList.toggle("hidden", app.role !== "organizer" || !app.competition?.competition_locked);
-  $("#rules-access-note").textContent = accountPlayer
-    ? "Game và luật do Admin quyết định. Captain chọn Active Bot của đội trước hạn khóa Official Match; trận tự chạy, thành viên không cần online. Khi thách đấu, bot hai đội được chốt ngay lúc gửi yêu cầu."
-    : app.competition?.competition_locked ? "Luật đã chốt. Đóng cuộc thi và chờ các trận kết thúc để cấu hình lại." : app.competition?.phase === "draining" ? "Cuộc thi đang đóng. Chờ các trận và tác vụ còn lại kết thúc để chỉnh cấu hình." : allowed ? app.rulesDirty ? "Có thay đổi chưa lưu. Lưu cấu hình trước khi mở cuộc thi." : "Chọn game, lưu cấu hình rồi nhấn Lock game & mở cuộc thi." : "Game và luật do Organizer quyết định. Chọn Active Bot để sẵn sàng nhận lời mời.";
+  $("#rules-access-note").textContent = app.accountOnly
+    ? "Các giải đấu chính thức được tạo và cấu hình riêng trong mục Giải đấu. Bạn không cần mở khóa Game mặc định để tạo giải hoặc chọn trò chơi khác."
+    : accountPlayer ? "Luật do Ban tổ chức quyết định; hãy chọn bot đại diện trước giờ khóa trận."
+    : app.competition?.competition_locked ? "Luật đã chốt. Đóng cuộc thi và chờ các trận kết thúc để cấu hình lại."
+    : app.competition?.phase === "draining" ? "Cuộc thi đang đóng. Chờ các trận kết thúc để chỉnh luật."
+    : allowed ? "Chọn game, lưu luật rồi bật trận tự do." : "Chỉ Organizer được cấu hình luật.";
   $$(".organizer-only").forEach(node => node.classList.toggle("hidden", !organizer));
   $$(".player-only, [data-go=upload], .nav-item[data-view=upload]").forEach(node => node.classList.toggle("hidden", organizer));
   if (app.accountOnly) {
@@ -784,6 +787,7 @@ function applyPermissions() {
     : "Trận sẽ bắt đầu khi hai Player chấp nhận lời mời.");
   $('.nav-item[data-view="watch"]').classList.remove("hidden");
   $(".docs-link").classList.toggle("hidden", app.accountOnly);
+  setText(".workspace-context .context-label", app.accountOnly ? "Game mặc định" : "Game hiện tại");
   $$("#rules-form [type=submit], #default-rules").forEach(node => node.classList.toggle("hidden", !organizer));
   if (organizer && location.hash === "#upload") location.hash = "create";
   $$("#quick-match [type=submit], #create-match [type=submit]").forEach(node => {
@@ -799,6 +803,87 @@ function applyPermissions() {
   $$(".game-select").forEach(node => { node.title = allowed ? "Chọn game của cuộc thi" : app.competition?.competition_locked ? "Game đã khóa; đóng cuộc thi để cấu hình lại" : "Chỉ Organizer được chọn game"; });
   renderCompetitionBanner();
   renderWorkspaceOverview();
+}
+
+// Contextual next steps. Existing permissions and server-side readiness
+// remain authoritative; this UI never activates a Team or selects a bot itself.
+function renderPlayerJourney() {
+  const panel = $("#player-setup-journey");
+  if (!app.accountOnly || app.accountAudience !== "player") {
+    panel.classList.add("hidden"); return;
+  }
+  panel.classList.remove("hidden");
+  const team = app.team?.team;
+  const ready = app.bots.some(bot => bot.game_id === app.selectedGameId && bot.status === "ready");
+  const active = !!(app.activeTeamBot?.bot && app.activeTeamBot.bot.game_id === app.selectedGameId);
+  const complete = [!!team, team?.status === "ACTIVE", ready, active];
+  const steps = [
+    ["Vào một đội", "Tạo đội hoặc chấp nhận lời mời."],
+    ["Xác nhận đội", "Trưởng đội xác nhận khi đã sẵn sàng tham gia giải."],
+    ["Chuẩn bị bot", "Nộp code và biên dịch bot cho trò chơi đã chọn."],
+    ["Chọn bot đại diện", "Trưởng đội chọn bot sẽ thi đấu cho đội."]
+  ];
+  const current = complete.findIndex(done => !done);
+  $("#player-journey-steps").replaceChildren(...steps.map(([title,info],i) => {
+    const item = el("li","journey-step");
+    item.dataset.state = complete[i] ? "done" : "pending";
+    if (current === i) item.setAttribute("aria-current","step");
+    item.append(el("span","step-number",complete[i] ? "✓" : String(i+1).padStart(2,"0")));
+    const body = el("div");
+    body.append(el("strong","",title),el("small","",info));
+    item.append(body);
+    return item;
+  }));
+  setText("#player-journey-count",`${complete.filter(Boolean).length}/4 hoàn tất`);
+  setText("#player-journey-title",current < 0 ? "Đội của bạn đã sẵn sàng thi đấu" : steps[current][0]);
+  const captain = app.team?.my_role === "CAPTAIN";
+  const help = [
+    "Bắt đầu bằng cách tạo đội hoặc chấp nhận lời mời.",
+    captain ? "Xác nhận một lần để đội được đăng ký giải. Đây không phải nút bắt đầu trận." :
+      "Nhờ trưởng đội xác nhận sẵn sàng. Bạn vẫn có thể nộp bot.",
+    "Dùng bot mẫu hoặc tải mã Python, C++ hay Java. Bot phải biên dịch thành công.",
+    captain ? "Chọn bot từ thư viện bên dưới; bạn có thể thay đổi trước khi trận khóa." :
+      "Nhờ trưởng đội chọn một bot đại diện trước hạn khóa trận.",
+    "Bạn có thể vào giải đấu hoặc tìm đội khác để đấu luyện."
+  ];
+  setText("#player-journey-note",help[current < 0 ? 4 : current]);
+  const action = $("#player-journey-action");
+  action.textContent = current < 0 ? "Xem giải đấu →" : current === 2 ? "Nộp bot →"
+    : current === 3 ? "Chọn bot đại diện →" : current === 1 ? "Kiểm tra đội →" : "Tạo hoặc tham gia đội →";
+  action.href = current < 0 ? "#tournaments" : current === 2
+    ? workspaceLink("upload",{focus:"upload"}) : current === 3
+      ? workspaceLink("upload",{focus:"bots"}) : "#upload";
+  action.onclick = current === 0 || current === 1 ? () => {
+    $("#account-team-panel").scrollIntoView({behavior:"smooth",block:"start"});
+    if (current === 1 && captain) $("#account-team-activate").focus({preventScroll:true});
+  } : null;
+}
+
+function renderAdminTournamentJourney() {
+  const panel = $("#admin-tournament-journey");
+  const admin = app.accountOnly && app.accountAudience === "admin";
+  panel.classList.toggle("hidden",!admin);
+  if (!admin) return;
+  const readyTeams = app.officialTeams.length;
+  const active = app.teamTournaments.filter(t => t.status === "ACTIVE").length;
+  const count = app.teamTournaments.length;
+  setText("#admin-journey-count",`${count} giải · ${readyTeams} đội sẵn sàng`);
+  setText("#admin-journey-title",readyTeams < 2 ? "Chuẩn bị đội trước khi tạo giải" :
+    count ? "Điều hành giải đấu của bạn" : "Tạo giải đấu đầu tiên");
+  setText("#admin-journey-note",readyTeams < 2
+    ? "Cần ít nhất hai đội sẵn sàng để tạo giải chính thức."
+    : active ? `Có ${active} giải đang diễn ra. Mở giải để công bố luật theo vòng và xếp lịch.`
+    : count ? "Bạn có thể mở giải đã có hoặc tạo giải mới. Mỗi giải chọn game riêng."
+    : "Chọn trò chơi, thể thức và các đội. Không cần mở khóa game mặc định.");
+  const button = $("#admin-journey-action");
+  button.textContent = readyTeams < 2 ? "Quản lý đội →" : "Tạo giải mới →";
+  button.onclick = () => {
+    if (readyTeams < 2) { location.hash = "administration"; return; }
+    const details = $("#team-tournament-admin-panel");
+    details.open = true;
+    details.scrollIntoView({behavior:"smooth",block:"start"});
+    details.querySelector('[name="name"]')?.focus({preventScroll:true});
+  };
 }
 
 function updateUploadEligibility() {
@@ -824,8 +909,8 @@ function updateUploadEligibility() {
   }
   setText("#bot-library-title", app.accountOnly ? "Bot của đội" : "Submission của tôi");
   setText("#bot-library-note", app.accountOnly
-    ? "Thành viên dùng chung danh sách bot của đội. Captain của đội ACTIVE chọn bot đã biên dịch hợp lệ làm Active Bot cho từng game."
-    : "Chọn một bot đã biên dịch thành công, thuộc game hiện tại, làm Active Bot.");
+    ? "Mọi thành viên đều có thể nộp bot. Trưởng đội chọn một bot đã biên dịch thành công làm đại diện cho từng trò chơi."
+    : "Chọn bot đã biên dịch thành công làm bot đại diện.");
   const team = app.team?.team;
   const hasTeam = !app.accountOnly || !!team;
   const workflow = $("#upload-workflow-details");
@@ -837,7 +922,8 @@ function updateUploadEligibility() {
   workflow.querySelector("summary").textContent = hasTeam ? "Nộp bot và bot mẫu" : "Sau khi tham gia đội · Nộp bot và bot mẫu";
   $("#view-upload .library-panel").classList.toggle("hidden", !hasTeam || app.role === "organizer");
   setText("#account-team-heading", team ? "Đội của bạn" : "Tạo hoặc tham gia đội");
-  setText("#team-readiness", !team ? "Bước 1 · Tham gia đội" : team.status !== "ACTIVE" ? "Chưa kích hoạt" : app.activeTeamBot?.bot ? "Đã chọn Active Bot" : "Chưa chọn Active Bot");
+  setText("#team-readiness", !team ? "Chưa có đội" : team.status !== "ACTIVE" ? "Đội đang chuẩn bị" : app.activeTeamBot?.bot ? "Sẵn sàng thi đấu" : "Cần chọn bot đại diện");
+  renderPlayerJourney();
   $(".onboarding-resources").hidden = hasTeam;
   setText("#team-next-help", hasTeam ? "" : "Nhận lời mời từ Captain hoặc tạo đội để bắt đầu nộp bot.");
 }
@@ -1529,7 +1615,12 @@ function navigate(event) {
   }
   $$(".view").forEach(node => node.classList.toggle("active", node.id === `view-${view}`));
   $$(".nav-item").forEach(node => node.classList.toggle("active", node.dataset.view === view));
-  $("#page-label").textContent = labels[view];
+  $("#page-label").textContent = app.accountOnly
+    ? ({upload:"Đội & bot của tôi",official:"Trận chính thức",rules:"Cấu hình game mặc định",
+        administration:"Quản lý đội",seasons:"Đợt đăng ký",standings:"Kết quả & bảng điểm",
+        watch:"Xem lại trận đấu"}[view] || labels[view])
+    : labels[view];
+  if (["seasons","rules","system","create"].includes(view)) $("#nav-advanced").open = true;
   document.body.dataset.view = view;
   // Account and operations screens do not need competition context.
   $(".workspace-context").hidden = ["profile", "administration", "system"].includes(view);
@@ -1625,17 +1716,16 @@ function renderWorkspaceOverview() {
   let action;
   if (admin) {
     action = blocked.length ? ["official", "Kiểm tra trận cần xử lý", `${blocked.length} trận bị chặn, gián đoạn hoặc quá hạn. Kiểm tra lý do trước khi xếp lịch tiếp.`, "Xử lý lịch đấu"]
-      : !app.competition?.competition_locked ? ["rules", "Chốt game và luật thi đấu", "Kiểm tra cấu hình, lưu luật rồi mở cuộc thi khi đã sẵn sàng.", "Thiết lập game & luật"]
-      : app.officialTeams.length < 2 ? ["administration", "Chuẩn bị đội thi đấu", `Hiện có ${app.officialTeams.length} đội ACTIVE. Cần ít nhất hai đội để xếp lịch hoặc tạo giải.`, "Quản lý tài khoản & đội"]
-      : !readyBots.length ? ["administration", "Kiểm tra bot của các đội", "Chưa có bot biên dịch thành công cho game hiện tại. Kiểm tra bot và hướng dẫn các đội chuẩn bị.", "Xem đội & bot"]
-      : ["official", next ? "Theo dõi lịch thi đấu" : "Sẵn sàng xếp lịch", `${app.officialTeams.length} đội ACTIVE · ${readyBots.length} bot hợp lệ cho game hiện tại.`, next ? "Mở lịch đấu" : "Lên lịch thi đấu"];
+      : app.officialTeams.length < 2 ? ["administration", "Chuẩn bị các đội thi đấu", `Hiện có ${app.officialTeams.length} đội sẵn sàng. Cần ít nhất hai đội để tạo giải chính thức.`, "Quản lý đội"]
+      : !app.teamTournaments.length ? ["tournaments", "Tạo giải đấu đầu tiên", "Chọn trò chơi, thể thức và các đội tham gia. Mỗi giải có game và luật riêng.", "Tạo giải đấu"]
+      : ["tournaments", next ? "Theo dõi giải và lịch thi đấu" : "Điều hành giải đấu", "Quản lý các vòng thi, công bố luật và bảng xếp hạng từ một nơi.", "Mở giải đấu"];
   } else {
     action = !app.team ? ["upload", "Đang tải đội của bạn…", "Chờ thông tin đội và bot từ máy chủ.", "Xem Team & Bot"]
       : !team ? ["upload", "Tạo hoặc tham gia đội", "Tạo đội mới hoặc xem lời mời từ Captain. Sau đó, bạn có thể nộp bot và chuẩn bị thi đấu.", "Tạo hoặc tham gia đội"]
-      : team.status !== "ACTIVE" ? ["upload", team.status === "ARCHIVED" ? "Đội đã được lưu trữ" : "Đội chưa được kích hoạt", captain ? "Kích hoạt đội tại Team & Bot để chọn bot đại diện và đăng ký thi đấu." : "Nhờ Captain kích hoạt đội. Bạn có thể chuẩn bị và nộp bot cho đội trước.", captain ? "Kiểm tra đội" : "Chuẩn bị bot cho đội"]
+      : team.status !== "ACTIVE" ? ["upload", team.status === "ARCHIVED" ? "Đội đã được lưu trữ" : "Xác nhận đội đã sẵn sàng", captain ? "Trưởng đội xác nhận một lần để đội được vào giải. Bạn vẫn có thể nộp bot trước đó." : "Nhờ trưởng đội xác nhận. Bạn vẫn có thể chuẩn bị bot.", "Đến trang đội & bot"]
       : !readyBots.length ? ["upload", "Chuẩn bị bot hợp lệ", "Đội chưa có bot biên dịch thành công cho game hiện tại. Nộp code hoặc bắt đầu từ bot mẫu.", "Nộp bot cho đội"]
-      : !app.activeTeamBot?.bot ? ["upload", "Chưa chọn Active Bot", captain ? "Chọn một bot hợp lệ làm đại diện cho game hiện tại trước hạn khóa trận." : "Captain cần chọn bot đại diện trước hạn khóa trận. Bạn có thể xem bot và tiếp tục nộp phiên bản mới.", captain ? "Chọn Active Bot" : "Xem bot của đội"]
-      : [next ? "official" : "scrimmage", "Đội đã sẵn sàng", `Active Bot: ${app.activeTeamBot.bot.name}. ${next ? "Kiểm tra lịch và hạn khóa bot của trận tiếp theo." : "Tìm một đội khác đang chờ để luyện chiến thuật trong khi chờ lịch chính thức."}`, next ? "Xem trận tiếp theo" : "Tìm trận đấu luyện"];
+      : !app.activeTeamBot?.bot ? ["upload", "Cần chọn bot đại diện", captain ? "Chọn bot đã biên dịch thành công cho trò chơi này trước hạn khóa trận." : "Trưởng đội cần chọn bot đại diện. Bạn vẫn có thể nộp bản mới.", "Chọn bot đại diện"]
+      : [next ? "official" : "scrimmage", "Đội đã sẵn sàng", `Bot đại diện: ${app.activeTeamBot.bot.name}. ${next ? "Xem lịch và hạn khóa bot của trận tiếp theo." : "Bạn có thể đấu luyện trong khi chờ giải chính thức."}`, next ? "Xem trận tiếp theo" : "Tìm trận đấu luyện"];
   }
   const [primaryView, title, note, label] = action;
   setText("#overview-title", title);
@@ -1650,13 +1740,13 @@ function renderWorkspaceOverview() {
   setText("#home-description", admin ? "Việc cần xử lý, trạng thái chuẩn bị và lịch thi đấu." : team ? `${team.display_name} · ${team.member_count}/${team.max_members || 5} thành viên` : "Bắt đầu với đội của bạn, rồi chuẩn bị bot cho trận đầu tiên.");
   $("#view-home .hero-actions").hidden = true;
   const steps = (admin ? [
-    ["administration", "Đội & bot", `${app.officialTeams.length} đội ACTIVE · ${app.bots.length} bot đã nộp.`],
-    ["tournaments", "Giải đấu", `${app.teamTournaments.length} giải. Xem thể thức và tiến trình.`],
-    ["rules", "Game & luật", app.competition?.competition_locked ? "Luật đã khóa." : "Đang chuẩn bị cấu hình."]
+    ["administration", "Quản lý đội", `${app.officialTeams.length} đội sẵn sàng.`],
+    ["tournaments", "Giải đấu", `${app.teamTournaments.length} giải. Xếp lịch, công bố luật và điểm.`],
+    ["official", "Trận chính thức", "Theo dõi những trận được lên lịch."]
   ] : team ? [
-    ["upload", "Team & Bot", "Xem thành viên, bot và kết quả biên dịch."],
-    ["seasons", "Mùa thi đấu", "Xem thời hạn đăng ký và trạng thái mùa giải."],
-    ["rules", "Luật thi đấu", "Đọc cấu hình và cách chơi."]
+    ["upload", "Đội & bot", "Chuẩn bị bot đại diện và quản lý thành viên."],
+    ["tournaments", "Giải đấu", "Xem lịch và các vòng thi."],
+    ["rules", "Luật chơi", "Xem cách chơi và quy tắc từng game."]
   ] : [["rules", "Tìm hiểu luật thi đấu", "Đọc cách chơi và cấu hình game hiện tại."]]).filter(([view]) => view !== primaryView).slice(0, 2);
   // Keep links stable during background refresh so keyboard focus is retained.
   const target = $("#overview-steps");
@@ -1964,7 +2054,9 @@ function renderRulesAccess() {
   $("#competition-banner").hidden = !editor;
   setText("#rules-heading", editor ? "Cấu hình luật" : "Luật đang áp dụng");
   setText("#rules-state", app.rulesDirty ? "Chưa lưu" : app.competition?.competition_locked ? "Đã khóa" : "Đã lưu");
-  setText("#rules-intro", editor ? "Chọn game, lưu cấu hình và mở cuộc thi khi đã sẵn sàng." : "Game hiện tại và luật chung do ban tổ chức thiết lập.");
+  setText("#rules-intro", app.accountOnly
+    ? "Luật mặc định dành cho trận tự do. Khi tạo giải chính thức, Admin chọn game và có thể công bố luật riêng theo từng vòng. Khóa ở đây không khóa game của các giải."
+    : editor ? "Chọn game, lưu cấu hình và mở cuộc thi khi đã sẵn sàng." : "Game hiện tại và luật chung do ban tổ chức thiết lập.");
 }
 
 function updateUploadProtocol() {
@@ -2597,6 +2689,9 @@ function updateTeamTournamentPolicy() {
   button.setAttribute("aria-describedby", "team-tournament-selection-policy");
 }
 function renderTeamTournaments() {
+  renderAdminTournamentJourney();
+  $("#player-tournament-signup").classList.toggle("hidden",
+    !app.accountOnly || app.accountAudience !== "player");
   const legacyVisible = !app.accountOnly;
   $("#view-tournaments > .page-intro").classList.toggle("hidden", !legacyVisible);
   $("#view-tournaments > .tournament-create-panel").classList.toggle("hidden", !legacyVisible);
@@ -3750,8 +3845,8 @@ async function refreshAccountTeam() {
   $("#account-team-create").classList.toggle("hidden", !!team);
   $("#account-team-manage").classList.toggle("hidden", !team);
   $("#account-team-status").textContent = team
-    ? `${team.display_name} · ${team.status} · ${mine.my_role} · ${team.member_count}/${team.max_members || 5} thành viên`
-    : "Bạn chưa tham gia Team. Tạo Team mới hoặc nhận lời mời bên dưới.";
+    ? `${team.display_name} · ${team.status === "ACTIVE" ? "Đã sẵn sàng đăng ký" : team.status === "ARCHIVED" ? "Đã lưu trữ" : "Đang chuẩn bị"} · ${mine.my_role === "CAPTAIN" ? "Trưởng đội" : "Thành viên"} · ${team.member_count}/${team.max_members || 5} người`
+    : "Bạn chưa có đội. Hãy tạo đội mới hoặc nhận lời mời bên dưới.";
   $("#account-team-invite").classList.toggle("hidden", !captain || team?.status === "ARCHIVED");
   const full = !!team && team.member_count >= team.max_members;
   $("#account-team-invite [name=username]").disabled = full;
@@ -3841,7 +3936,7 @@ function renderAccountBotLibrary() {
     const row=el("div","bot-row"), name=el("strong","",`${bot.name} · ${bot.language.toUpperCase()} · ${bot.status}`);
     row.append(name,el("span","tag",bot.game_id));
     const active=app.activeTeamBot?.bot?.id===bot.id;
-    const btn=el("button","button ghost small",active?"Active Bot ✓":"Chọn Active Bot");
+    const btn=el("button","button ghost small",active?"Đang đại diện ✓":"Chọn làm bot đại diện");
     btn.disabled=app.team?.my_role!=="CAPTAIN" || app.team?.team?.status!=="ACTIVE" || bot.status!=="ready" || active;
     btn.hidden=app.team?.my_role!=="CAPTAIN";
     btn.title=active ? "Bot đang đại diện cho đội ở game này" : app.team?.team?.status!=="ACTIVE" ? "Captain cần kích hoạt đội trước" : bot.status!=="ready" ? "Bot cần biên dịch thành công" : "Chọn bot đại diện cho game này";
@@ -3867,7 +3962,7 @@ function renderAccountBotLibrary() {
       };
       row.append(remove);
     }
-    if (app.team?.my_role!=="CAPTAIN") row.append(el("span", "form-note", active ? "Active Bot ✓" : "Captain chọn bot đại diện"));
+    if (app.team?.my_role!=="CAPTAIN") row.append(el("span", "form-note", active ? "Bot đại diện ✓" : "Trưởng đội chọn bot đại diện"));
     const view=el("button","button ghost small","Xem source");
     view.onclick=async()=>{
       try{const src=await api(`/api/player/bots/${bot.id}/source`);

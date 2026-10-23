@@ -9,10 +9,10 @@
   <title>NEON ARENA · Tournament workspace</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=b78a50b1c80f">
   <link rel="preload" href="/static/fonts/InterVariable.woff2?v=693b77d4f32e" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/static/styles.css?v=260d06541f1c">
+  <link rel="stylesheet" href="/static/styles.css?v=f06e6bc51b3b">
   <script src="/static/renderers.js?v=9aa93bd51455" defer></script>
   <script src="/static/ui.js?v=01d6bafd6c85" defer></script>
-  <script src="/static/app.js?v=ee2c0c2727d0" defer></script>
+  <script src="/static/app.js?v=69f1e8131858" defer></script>
 </head>
 <body class="account-landing-active">
   <!-- Public welcome screen; workspace visibility is never an authorization boundary. -->
@@ -90,26 +90,29 @@
       <button class="icon-button nav-close" id="nav-close" type="button" aria-label="Đóng điều hướng">×</button>
     </div>
     <nav aria-label="Điều hướng chính">
-      <div class="nav-group"><span class="nav-group-label">Workspace</span>
+      <div class="nav-group">
+        <span class="nav-group-label">Bắt đầu</span>
         <a class="nav-item active" href="#home" data-view="home"><svg class="nav-icon" aria-hidden="true"><use href="#i-home"/></svg>Tổng quan</a>
-        <a class="nav-item" href="#upload" data-view="upload"><svg class="nav-icon" aria-hidden="true"><use href="#i-robot"/></svg>Team &amp; Bot</a>
+        <a class="nav-item" href="#upload" data-view="upload"><svg class="nav-icon" aria-hidden="true"><use href="#i-robot"/></svg>Đội &amp; bot của tôi</a>
       </div>
-      <div class="nav-group"><span class="nav-group-label">Thi đấu</span>
-        <a class="nav-item hidden" href="#seasons" data-view="seasons"><svg class="nav-icon" aria-hidden="true"><use href="#i-calendar"/></svg>Mùa thi đấu</a>
-        <a class="nav-item" href="#standings" data-view="standings"><svg class="nav-icon" aria-hidden="true"><use href="#i-ranking"/></svg>Bảng xếp hạng</a>
+      <div class="nav-group">
+        <span class="nav-group-label">Giải đấu</span>
         <a class="nav-item" href="#tournaments" data-view="tournaments"><svg class="nav-icon" aria-hidden="true"><use href="#i-bracket"/></svg>Giải đấu</a>
-        <a class="nav-item hidden" href="#official" data-view="official"><svg class="nav-icon" aria-hidden="true"><use href="#i-calendar-play"/></svg>Official Match</a>
-        <a class="nav-item hidden" href="#scrimmage" data-view="scrimmage"><svg class="nav-icon" aria-hidden="true"><use href="#i-swords"/></svg><span id="scrimmage-nav-label">Thách đấu</span></a>
-        <a class="nav-item" href="#create" data-view="create"><svg class="nav-icon" aria-hidden="true"><use href="#i-players"/></svg>Phòng thi đấu</a>
-        <a class="nav-item" href="#watch" data-view="watch"><svg class="nav-icon" aria-hidden="true"><use href="#i-replay"/></svg>Lịch sử &amp; Replay</a>
+        <a class="nav-item hidden" href="#administration" data-view="administration"><svg class="nav-icon" aria-hidden="true"><use href="#i-players"/></svg>Quản lý đội</a>
+        <a class="nav-item hidden" href="#official" data-view="official"><svg class="nav-icon" aria-hidden="true"><use href="#i-calendar-play"/></svg>Trận chính thức</a>
+        <a class="nav-item hidden" href="#scrimmage" data-view="scrimmage"><svg class="nav-icon" aria-hidden="true"><use href="#i-swords"/></svg><span id="scrimmage-nav-label">Đấu luyện</span></a>
+        <a class="nav-item" href="#standings" data-view="standings"><svg class="nav-icon" aria-hidden="true"><use href="#i-ranking"/></svg>Kết quả &amp; bảng điểm</a>
+        <a class="nav-item" href="#watch" data-view="watch"><svg class="nav-icon" aria-hidden="true"><use href="#i-replay"/></svg>Xem lại trận đấu</a>
       </div>
-      <div class="nav-group"><span class="nav-group-label">Tài liệu</span>
-        <a class="nav-item" href="#rules" data-view="rules"><svg class="nav-icon" aria-hidden="true"><use href="#i-sliders"/></svg>Game &amp; Luật chơi</a>
-      </div>
-      <div class="nav-group"><span class="nav-group-label">Tài khoản &amp; vận hành</span>
-        <a class="nav-item hidden" href="#administration" data-view="administration"><svg class="nav-icon" aria-hidden="true"><use href="#i-shield"/></svg>Tài khoản &amp; đội</a>
-        <a class="nav-item hidden" href="#system" data-view="system"><svg class="nav-icon" aria-hidden="true"><use href="#i-activity"/></svg>Giám sát hệ thống</a>
-      </div>
+      <details class="nav-advanced" id="nav-advanced">
+        <summary>Thiết lập &amp; công cụ <span aria-hidden="true">⌄</span></summary>
+        <div class="nav-group">
+          <a class="nav-item hidden" href="#seasons" data-view="seasons"><svg class="nav-icon" aria-hidden="true"><use href="#i-calendar"/></svg>Đợt đăng ký (Season)</a>
+          <a class="nav-item" href="#rules" data-view="rules"><svg class="nav-icon" aria-hidden="true"><use href="#i-sliders"/></svg>Cấu hình game mặc định</a>
+          <a class="nav-item hidden" href="#system" data-view="system"><svg class="nav-icon" aria-hidden="true"><use href="#i-activity"/></svg>Giám sát kỹ thuật</a>
+          <a class="nav-item" href="#create" data-view="create"><svg class="nav-icon" aria-hidden="true"><use href="#i-players"/></svg>Phòng thi đấu (demo)</a>
+        </div>
+      </details>
     </nav>
     <div class="sidebar-bottom">
       <a class="docs-link" href="/docs" target="_blank" rel="noopener">API documentation <span aria-hidden="true">↗</span></a>
@@ -195,20 +198,36 @@
 
         <section class="view" id="view-tournaments" aria-label="Giải đấu"><div class="page-intro"><h1>Giải đấu</h1><p>Organizer tạo giải, chọn thể thức và theo dõi tiến trình ghép trận.</p></div><details class="panel workflow-disclosure organizer-only legacy-match-panel tournament-create-panel"><summary>T?o gi?i ??u</summary><div class="panel-heading"><h2>Tạo giải đấu</h2><span class="tag">Organizer</span></div><form id="tournament-create-form" class="padded-form"><label>Tên giải<input name="name" type="text" maxlength="64" required></label><label>Thể thức<select name="format" required><option value="single_elimination">Loại trực tiếp</option><option value="double_elimination">Double elimination</option><option value="round_robin">Vòng tròn tính điểm</option></select></label><div><span>Chọn người chơi</span><div id="tournament-player-options" class="match-list"><div class="empty-state">Đang tải danh sách người chơi…</div></div></div><p id="tournament-feedback" class="feedback"></p><button class="button primary" type="submit">Tạo giải <span>↗</span></button></form></details><section class="panel tournament-list-panel"><div class="panel-heading"><h2>Các giải đấu</h2><button class="button ghost small" id="refresh-tournaments" type="button">Làm mới</button></div><div id="tournaments-list" class="match-list"><div class="empty-state">Đang tải danh sách giải đấu…</div></div></section>
           <div id="account-team-tournaments" class="hidden">
-            <div class="page-intro"><h1>Giải đấu</h1><p>Thể thức, danh sách đội và tiến trình Official Match. Giải có thể tạo trực tiếp hoặc từ đăng ký của một mùa thi đấu.</p></div>
-            <details class="panel workflow-disclosure tournament-create-panel hidden" id="team-tournament-admin-panel"><summary>Tạo giải đấu</summary><div class="panel-heading"><h2>Tạo giải Team</h2><span class="tag">ADMIN</span></div><form id="team-tournament-create" class="padded-form">
+            <div class="page-intro"><h1>Giải đấu</h1><p>Chọn trò chơi, mời đội tham gia rồi điều hành từng vòng. Bạn không cần mở khóa phần Game mặc định để tạo giải.</p></div>
+            <div class="tournament-signup-shortcut hidden" id="player-tournament-signup"><div><strong>Bạn muốn tham gia một giải?</strong><p>Trưởng đội đăng ký trong đợt tuyển đội đang mở. Sau khi đăng ký, Ban tổ chức sẽ công bố lịch thi đấu.</p></div><a class="button primary" href="#seasons">Xem đợt đăng ký →</a></div>
+            <section class="panel setup-journey hidden" id="admin-tournament-journey" aria-label="Hướng dẫn tổ chức giải">
+              <div class="setup-journey-heading"><div><span class="eyebrow">ĐIỀU HÀNH TỪNG BƯỚC</span><h2 id="admin-journey-title">Tạo giải đấu đầu tiên</h2><p id="admin-journey-note" class="form-note">Chọn trò chơi và các đội để bắt đầu.</p></div><span class="tag" id="admin-journey-count"></span></div>
+              <ol class="journey-steps">
+                <li><span class="step-number">01</span><div><strong>Tạo giải</strong><small>Chọn game, thể thức và đội.</small></div></li>
+                <li><span class="step-number">02</span><div><strong>Chuẩn bị vòng</strong><small>Công bố luật mới nếu cần, cho đội thời gian sửa bot.</small></div></li>
+                <li><span class="step-number">03</span><div><strong>Cho thi đấu</strong><small>Xếp lịch từng trận; hệ thống tự chốt bot và chạy.</small></div></li>
+                <li><span class="step-number">04</span><div><strong>Công bố kết quả</strong><small>Chọn quyền xem bảng điểm của giải.</small></div></li>
+              </ol>
+              <div class="journey-actions"><button type="button" id="admin-journey-action" class="button primary">Tạo giải mới →</button><a href="#seasons" class="text-button">Muốn đội tự đăng ký theo thời gian? →</a></div>
+            </section>
+            <details class="panel workflow-disclosure tournament-create-panel hidden" id="team-tournament-admin-panel"><summary>Tạo giải mới</summary><div class="panel-heading"><h2>Thiết lập giải đấu</h2><span class="tag">Dành cho Ban tổ chức</span></div><form id="team-tournament-create" class="padded-form">
               <label>Tên giải<input name="name" type="text" maxlength="64" required></label>
               <label>Game<select name="game_id" id="team-tournament-game" required></select></label>
               <label>Thể thức<select name="format"><option value="round_robin">Vòng tròn tính điểm</option><option value="single_elimination">Loại trực tiếp</option><option value="double_elimination">Double Elimination (nhánh thắng/thua)</option><option value="group_knockout">Vòng bảng + loại trực tiếp</option><option value="swiss_single_elimination">Vòng Thụy Sĩ + Loại trực tiếp</option></select></label>
-              <div><span>Chọn các đội đang hoạt động tham gia giải</span><div id="team-tournament-team-options" class="match-list"></div><p id="team-tournament-selection-policy" class="feedback">Từ 2–16 đội: Organizer được chọn thể thức.</p></div>
+              <div><span>Chọn các đội đã sẵn sàng tham gia</span><div id="team-tournament-team-options" class="match-list"></div><p id="team-tournament-selection-policy" class="feedback">Từ 2–16 đội: Organizer được chọn thể thức.</p></div>
               <label id="team-tournament-qualifier-target-row" class="hidden">Số đội vào vòng bảng<select name="qualifier_target"><option value="64">64 đội</option><option value="16">16 đội</option></select></label>
               <div class="feedback hidden" id="team-tournament-feedback" role="status"></div><button class="button primary" type="submit">Tạo giải</button>
             </form></details>
-            <section class="panel tournament-list-panel"><div class="panel-heading"><h2>Giải đấu Team</h2><button class="button ghost small" id="refresh-team-tournaments" type="button">Làm mới</button></div><div id="team-tournaments-list" class="match-list"><div class="empty-state">Đang tải giải đấu…</div></div></section>
+            <section class="panel tournament-list-panel"><div class="panel-heading"><h2>Danh sách giải đấu</h2><button class="button ghost small" id="refresh-team-tournaments" type="button">Làm mới</button></div><div id="team-tournaments-list" class="match-list"><div class="empty-state">Đang tải giải đấu…</div></div></section>
           </div></section>
 
         <section class="view" id="view-upload" aria-label="Nộp bot">
-        <div class="page-intro"><h1>Team &amp; Bot</h1><p>Tạo đội, chuẩn bị bot và theo dõi trạng thái sẵn sàng thi đấu.</p></div>
+        <div class="page-intro"><h1>Đội &amp; bot của tôi</h1><p>Ba bước để sẵn sàng thi đấu: vào đội, chuẩn bị bot và chọn bot đại diện.</p></div>
+        <section class="panel setup-journey hidden" id="player-setup-journey" aria-label="Các bước chuẩn bị thi đấu">
+          <div class="setup-journey-heading"><div><span class="eyebrow">HƯỚNG DẪN CỦA BẠN</span><h2 id="player-journey-title">Đang kiểm tra…</h2><p id="player-journey-note" class="form-note"></p></div><span class="tag" id="player-journey-count"></span></div>
+          <ol class="journey-steps" id="player-journey-steps"></ol>
+          <a class="button primary" id="player-journey-action" href="?focus=upload#upload">Tiếp tục →</a>
+        </section>
         <section class="panel hidden" id="account-team-panel"><div class="panel-heading"><h2 id="account-team-heading">Đội của bạn</h2><span class="tag" id="team-readiness">Đang tải…</span></div>
           <div class="padded-form">
             <p class="form-note" id="account-team-status">Đang tải Team…</p>
@@ -217,7 +236,7 @@
             <div id="account-team-inbox" class="match-list" aria-label="Lời mời tham gia Team"></div>
             <div id="account-team-manage" class="hidden">
               <p id="account-team-members" class="form-note"></p>
-              <button id="account-team-activate" class="button primary hidden" type="button">Kích hoạt đội</button>
+              <button id="account-team-activate" class="button primary hidden" type="button">Xác nhận đội sẵn sàng tham gia giải</button>
               <details class="team-management"><summary>Quản lý thành viên và đội</summary>
               <p id="account-team-capacity" class="form-note" role="status"></p><form id="account-team-invite" class="hidden"><label>Mời Player theo username<input name="username" required minlength="3" maxlength="32"></label><button class="button ghost" type="submit">Mời thành viên</button></form>
               <div id="account-team-member-actions" class="match-list"></div>
@@ -231,7 +250,7 @@
         </section>
 
         <div class="onboarding-resources"><a class="text-button" href="/static/protocol.html#examples-section">Tài liệu và bot mẫu ↗</a><span class="form-note" id="team-next-help">Sau khi tham gia đội, bạn có thể nộp code và kiểm tra biên dịch.</span></div>
-        <section class="panel library-panel player-only"><div class="panel-heading"><h2 id="bot-library-title" tabindex="-1">Bot của tôi</h2><button class="text-button" id="refresh-bots">Làm mới ↻</button></div><p class="shared-hint" id="bot-library-note">Chọn một bot đã biên dịch thành công, thuộc game hiện tại, làm Active Bot.</p><div id="bot-library"></div></section>
+        <section class="panel library-panel player-only"><div class="panel-heading"><h2 id="bot-library-title" tabindex="-1">Bot của tôi</h2><button class="text-button" id="refresh-bots">Làm mới ↻</button></div><p class="shared-hint" id="bot-library-note">Bot đại diện là bot sẽ được dùng khi thi đấu chính thức.</p><div id="bot-library"></div></section>
         <details class="workflow-disclosure" id="upload-workflow-details"><summary>Nộp bot và bot mẫu</summary>
         <h2 class="upload-section-heading player-only">Nộp bot</h2>
         <div class="two-column player-only">
@@ -309,10 +328,10 @@
       <section class="view" id="view-watch" aria-label="Lịch sử và replay"><div class="page-intro"><h1>Lịch sử &amp; Replay</h1><p>Xem trực tiếp hoặc khám phá lại từng lượt. Replay sử dụng dữ liệu đã lưu, không chạy lại bot.</p></div><section class="panel"><div class="panel-heading"><h2>Lịch sử trận đấu</h2><button class="text-button" id="refresh-matches">Làm mới ↻</button></div><div id="all-matches" class="match-list"></div></section></section>
 
       <section class="view" id="view-rules" aria-label="Game và luật chơi">
-        <div class="page-intro"><h1>Game &amp; Luật chơi</h1><p id="rules-intro">Chọn game, lưu cấu hình và mở cuộc thi khi đã sẵn sàng.</p></div>
+        <div class="page-intro"><h1>Cấu hình game mặc định</h1><p id="rules-intro">Dùng cho chế độ thi đấu tự do. Mỗi giải chính thức có game và luật riêng, được chọn tại trang Giải đấu.</p></div>
         <section class="competition-banner" id="competition-banner" aria-label="Quản lý cuộc thi">
           <p class="form-note" id="competition-message"></p>
-          <div class="competition-actions"><button class="button primary small hidden" id="competition-open" type="button">Khóa luật &amp; mở cuộc thi <span>↗</span></button><button class="button ghost small hidden" id="competition-close" type="button">Đóng cuộc thi / Mở khóa</button></div>
+          <div class="competition-actions"><button class="button primary small hidden" id="competition-open" type="button">Bật trận tự do với luật này <span>↗</span></button><button class="button ghost small hidden" id="competition-close" type="button">Tắt trận tự do để chỉnh luật</button></div>
         </section>
         <label class="rules-game-picker">Chọn game<select class="game-select" id="workspace-game-select" aria-label="Game đang chọn"></select></label>
         <div class="game-library" id="game-library" aria-label="Danh sách game đã cài đặt"></div>

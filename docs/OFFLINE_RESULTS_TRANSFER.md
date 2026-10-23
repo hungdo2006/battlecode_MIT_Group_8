@@ -29,3 +29,55 @@ Without a server from school, start by running tests/CI and one LAN dry run with
 Full dry run: create a local offline tournament, complete Official matches, export JSON, use a **staging** online installation with the same signing key, preview + import, and verify it appears at `/results` while unrelated online tournaments, source and replay remain unchanged. Do not test an unverified import for the first time on production AWS.
 
 Future milestones: signed replay bundles and integrity checks; richer offline results page; opt-in remote runner with isolated credentials, resource-aware scheduling and throughput benchmarks. The current Controller only trusts its Docker private network and must never be exposed directly.
+
+## Release verification (before merging or touching AWS)
+
+The regression suite exercises HMAC signing, invalid records, access controls, CSRF,
+preview-only mode, tamper rejection, duplicate imports, conflict rejection and the
+public results API. Run it against the PR head on Linux/Windows, and confirm the
+asset version checker passes:
+
+```bash
+python -m pytest tests/test_offline_results.py tests/test_offline_results_http.py -ra
+python -m pytest tests controller_tests -ra
+python scripts/version_frontend.py --check
+node --check frontend/app.js
+```
+
+**These tests do not establish that a real LAN tournament or a two-host Docker
+transfer works.** Before promotion, the operator must record the PR commit SHA
+and independently rehearse the following steps with fake accounts/data:
+
+1. In a *dedicated offline staging* installation (not the live AWS data volume),
+   prepare two test Teams and bot artifacts. Complete a tournament with real
+   Sandbox execution, verify Official results and replay, then export its JSON.
+2. Move that JSON to a **separate online staging installation** configured with
+   the same signing secret. Do not put the shared secret in the package or logs.
+3. Verify the preview matches the venue, tournament and expected team/match
+   counts. Confirm that merely previewing makes nothing public.
+4. Test rejection of an altered byte, another secret, and missing CSRF; confirm
+   no publication occurs. Publish only the original signed package.
+5. Open public `/results` without a session. Verify the correct offline
+   scoreboard and match winners, no private source, identifiers or replay.
+   Re-import the same package (no duplicate); try an independently re-signed
+   conflicting package for the same venue/tournament (must be rejected).
+6. Restart the online Arena without deleting Docker volumes. Confirm the offline
+   publication survives and online users, tournaments, Official history, replay
+   and scores have not changed. Back up and restore the staging data volume.
+7. Record PASS/FAIL/SKIP, source SHA, image IDs, Docker versions, host/OS,
+   screenshots with credentials redacted and observed CPU/RAM. Any failure
+   blocks deployment; a passing unit test alone is not a release sign-off.
+
+Do not run the offline Exam overlay and Internet/Public overlay on the same
+host, expose the Controller Docker socket, or use production participants to
+validate the feature.
+
+## Remote runner boundary
+
+This milestone transfers *results files*, not live execution jobs. The existing
+two-match cap and Controller on-host Docker boundary are intentional. A future
+dedicated PC acting as a remote bot runner requires a separate threat model,
+mutually authenticated transport, one-way work queue, artifact attestation,
+resource limits and crash recovery. It must be implemented and benchmarked in
+a separate change; merely opening port 9000 or forwarding the Docker socket
+is unsafe.

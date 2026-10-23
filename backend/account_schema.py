@@ -467,4 +467,21 @@ MIGRATIONS = (
         "CREATE INDEX matchmaking_waiting ON matchmaking_searches(status,game_id,created_at,id)",
         "CREATE INDEX matchmaking_team_history ON matchmaking_searches(team_id,created_at DESC,id DESC)",
     )),
+    (20, "tournament_round_rules_and_visibility", (
+        """CREATE TABLE team_tournament_round_rules (
+            tournament_id TEXT NOT NULL REFERENCES team_tournaments(id) ON DELETE RESTRICT,
+            stage TEXT NOT NULL CHECK (stage IN ('GROUP','KNOCKOUT')),
+            round_number INTEGER NOT NULL CHECK (round_number > 0),
+            rules_json TEXT NOT NULL CHECK (json_valid(rules_json)),
+            status TEXT NOT NULL CHECK (status IN ('DRAFT','PUBLISHED')),
+            editing_minutes INTEGER NOT NULL CHECK (editing_minutes IN (15,20)),
+            published_at INTEGER CHECK (published_at IS NULL OR published_at >= 0),
+            updated_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+            updated_at INTEGER NOT NULL CHECK (updated_at >= 0),
+            PRIMARY KEY (tournament_id,stage,round_number),
+            CHECK ((status='DRAFT' AND published_at IS NULL)
+                OR (status='PUBLISHED' AND published_at IS NOT NULL))
+        ) STRICT""",
+        "ALTER TABLE team_tournaments ADD COLUMN visibility TEXT NOT NULL DEFAULT 'PRIVATE' CHECK (visibility IN ('PRIVATE','SIGNED_IN','PUBLIC'))",
+    )),
 )

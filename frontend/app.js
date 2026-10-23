@@ -19,7 +19,7 @@ const app = {
   logoutBusy: false, logoutError: false,
   sessionEpoch: 0, accountRequests: new Set(), replayController: null, replayLoadingKey: null,
   officialTimesDirty: false,
-  matchmaking: null, matchmakingBusy: false, matchmakingRefreshing: false,
+  matchmaking: null, matchmakingBusy: false, matchmakingRefreshing: false, matchmakingRefreshPending: false,
   sessionInfo: null, sessionOffset: 0, activityAt: 0, heartbeatActivityAt: 0, heartbeatNextAt: 0, heartbeatBusy: false,
   competition: null, competitionSocket: null, competitionTimer: null, competitionRetryMs: 5000,
   competitionGeneration: 0, competitionBusy: false, shuttingDown: false,
@@ -1890,7 +1890,13 @@ function renderPracticeRows(target, requests, completedOnly = false) {
 }
 
 async function refreshPracticeOpponents() {
-  if (!app.accountOnly || app.accountAudience !== "player" || app.matchmakingRefreshing) return;
+  if (!app.accountOnly || app.accountAudience !== "player") return;
+  if (app.matchmakingRefreshing) {
+    // Never leave a new game disabled because the previous game's response
+    // was still in flight when the player changed the selection.
+    app.matchmakingRefreshPending = true;
+    return;
+  }
   const account = app.account;
   const game = $("#scrimmage-game").value;
   if (!game) return;
@@ -1903,7 +1909,17 @@ async function refreshPracticeOpponents() {
   } catch (error) {
     if (!error.staleSession) feedback("#scrimmage-feedback", "Không cập nhật được tìm trận. Dùng Làm mới để kiểm tra trạng thái trước khi thử lại.", true);
     throw error;
-  } finally { if (app.account === account) app.matchmakingRefreshing = false; }
+  } finally {
+    if (app.account === account) {
+      app.matchmakingRefreshing = false;
+      if (app.matchmakingRefreshPending) {
+        app.matchmakingRefreshPending = false;
+        queueMicrotask(() => refreshPracticeOpponents().catch(error => {
+          if (!error.staleSession) feedback("#scrimmage-feedback",error.message,true);
+        }));
+      }
+    }
+  }
 }
 
 function renderMatchmaking() {

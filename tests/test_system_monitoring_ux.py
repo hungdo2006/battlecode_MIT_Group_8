@@ -52,7 +52,7 @@ def test_system_dashboard_uses_existing_admin_authorized_api():
     assert 'snapshot.scrimmages.QUEUED' in rendering
     assert 'snapshot.official.SCHEDULED' in rendering
     assert 'snapshot.official.LOCKED' in rendering
-    assert '"system-health"' in rendering
+    assert '"#system-health"' in rendering
     assert 'system-technical' in rendering
     assert 'snapshot.runner.battlecode26' in rendering
     assert "Dữ liệu nhận lúc" in rendering

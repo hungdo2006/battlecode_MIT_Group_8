@@ -2692,12 +2692,44 @@ function renderTeamTournaments() {
         const details = el("details", "workflow-disclosure");
         details.append(el("summary", "", `Cấu hình luật ${stage === "GROUP" ? "vòng bảng" : "vòng đấu"} ${roundNumber}${policy ? " · Bản nháp" : ""}`));
         const form = el("form", "padded-form");
-        const editLabel = el("label", "", "Luật dạng JSON (theo trường mà game hỗ trợ)");
-        const edit = document.createElement("textarea"); edit.rows = 4;
-        const currentRules = app.games.find(g => g.game_id === tournament.game_id)?.rules || {};
-        edit.value = JSON.stringify(policy?.rules || currentRules, null, 2);
-        edit.setAttribute("aria-label", "JSON luật vòng " + roundNumber);
-        editLabel.append(edit);
+        const game = app.games.find(g => g.game_id === tournament.game_id);
+        const currentRules = policy?.rules || game?.rules || game?.default_rules || {};
+        const schemas = game?.rules_schema?.properties || {};
+        const fields = el("div", "rules-fields");
+        if (Object.keys(schemas).length) {
+          for (const [name, schema] of Object.entries(schemas)) {
+            const label = el("label", "", schema.title || name);
+            let input;
+            if (schema.enum) {
+              input = document.createElement("select");
+              for (const value of schema.enum) {
+                const option = document.createElement("option"); option.value = String(value);
+                option.textContent = String(value); input.append(option);
+              }
+            } else if (schema.type === "object" || schema.type === "array") {
+              input = document.createElement("textarea"); input.rows = 2;
+            } else {
+              input = document.createElement("input");
+              input.type = schema.type === "boolean" ? "checkbox"
+                : ["integer", "number"].includes(schema.type) ? "number" : "text";
+              if (schema.minimum !== undefined) input.min = String(schema.minimum);
+              if (schema.maximum !== undefined) input.max = String(schema.maximum);
+              if (input.type === "number") input.step = schema.type === "integer" ? "1" : "any";
+            }
+            input.name = name; input.required = schema.type !== "boolean";
+            const value = currentRules[name] ?? schema.default ?? "";
+            if (input.type === "checkbox") input.checked = Boolean(value);
+            else input.value = schema.type === "object" || schema.type === "array" ? JSON.stringify(value, null, 2) : String(value);
+            label.append(input);
+            if (schema.description) label.append(el("small", "field-description", schema.description));
+            fields.append(label);
+          }
+        } else {
+          const label = el("label", "", "Luật JSON (adapter chưa có schema biểu mẫu)");
+          const textarea = document.createElement("textarea"); textarea.name = "raw_rules";
+          textarea.rows = 4; textarea.value = JSON.stringify(currentRules, null, 2);
+          label.append(textarea); fields.append(label);
+        }
         const minuteLabel = el("label", "", "Thời gian chỉnh bot sau công bố");
         const minutes = document.createElement("select");
         for (const value of [15, 20]) {
@@ -2708,14 +2740,25 @@ function renderTeamTournaments() {
         form.onsubmit = async event => {
           event.preventDefault(); save.disabled = true;
           try {
-            const rules = JSON.parse(edit.value);
+            const rules = {};
+            if (!Object.keys(schemas).length) {
+              Object.assign(rules, JSON.parse(fields.querySelector('[name="raw_rules"]').value));
+            } else {
+              for (const [name, schema] of Object.entries(schemas)) {
+                const input = [...fields.querySelectorAll("input,select,textarea")].find(el => el.name === name);
+                rules[name] = schema.type === "boolean" ? input.checked
+                  : ["integer", "number"].includes(schema.type) ? Number(input.value)
+                  : ["object", "array"].includes(schema.type) ? JSON.parse(input.value)
+                  : input.value;
+              }
+            }
             if (!rules || Array.isArray(rules) || typeof rules !== "object") throw new Error("JSON luật phải là object.");
             await api(`/api/admin/team-tournaments/${encodeURIComponent(tournament.id)}/rounds/${stage}/${roundNumber}/rules`,
               jsonOptions("PUT", {rules, editing_minutes: Number(minutes.value)}));
             await refreshTeamTournaments(); toast("Đã lưu nháp luật, chưa công bố.");
           } catch (error) { save.disabled = false; toast(error.message, true); }
         };
-        form.append(editLabel, minuteLabel, save);
+        form.append(fields, minuteLabel, save);
         if (policy?.status === "DRAFT") {
           const publish = el("button", "button primary small", "Công bố luật và bắt đầu giờ chỉnh bot");
           publish.type = "button";

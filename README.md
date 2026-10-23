@@ -1,6 +1,6 @@
 # NEON ARENA
 
-Nền tảng tự host để thi đấu bot: Robot Battle, OTT v2 và Battlecode 2026 tùy chọn. Player quản lý Team/bot; Admin tổ chức giải, lên lịch Official Match và công bố kết quả Season. Bot chạy trong Docker Sandbox; Scrimmage tiếp tục chạy khi người chơi đăng xuất.
+Nền tảng tự host để thi đấu bot: Robot Battle, OTT v2, OTT Advanced và Battlecode 2026 tùy chọn. Player quản lý Team/bot; Admin tổ chức giải, lên lịch Official Match và công bố kết quả Season. Bot chạy trong Docker Sandbox; Scrimmage tiếp tục chạy khi người chơi đăng xuất.
 
 ## Chạy nhanh
 
@@ -23,6 +23,9 @@ Mở **http://localhost:8000**. Mặc định là demo LAN dùng mã Organizer t
 | Đăng ký, Team, bot và khôi phục tài khoản | [Tài khoản](docs/USERNAME_ONLY_SIGNUP.md) |
 | Season, Official Match, Scrimmage và bảng điểm | [Giải đấu](docs/TEAM_TOURNAMENTS.md) |
 | Migration, backup/restore, public HTTPS | [Vận hành](docs/OPERATIONS.md) |
+| Thi trực tiếp trong phòng máy không Internet | [Exam LAN](docs/EXAM_MODE.md) |
+| Luật theo từng vòng và công bố kết quả | [Round Rules](docs/ROUND_RULES.md) |
+| Cài thêm game đã qua kiểm duyệt | [Game Adapter](docs/NEW_GAME_ADAPTER.md) |
 | Protocol bot và thêm game | [Adapter](docs/ADAPTERS.md) |
 | Bật engine MIT tùy chọn | [Battlecode 2026](docs/BATTLECODE_2026.md) |
 | Chạy kiểm thử và phạm vi đã xác minh | [QA](docs/QA.md) |

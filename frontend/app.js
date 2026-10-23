@@ -807,6 +807,87 @@ function applyPermissions() {
   renderWorkspaceOverview();
 }
 
+// Contextual next steps. Existing permissions and server-side readiness
+// remain authoritative; this UI never activates a Team or selects a bot itself.
+function renderPlayerJourney() {
+  const panel = $("#player-setup-journey");
+  if (!app.accountOnly || app.accountAudience !== "player") {
+    panel.classList.add("hidden"); return;
+  }
+  panel.classList.remove("hidden");
+  const team = app.team?.team;
+  const ready = app.bots.some(bot => bot.game_id === app.selectedGameId && bot.status === "ready");
+  const active = !!(app.activeTeamBot?.bot && app.activeTeamBot.bot.game_id === app.selectedGameId);
+  const complete = [!!team, team?.status === "ACTIVE", ready, active];
+  const steps = [
+    ["Vào một đội", "Tạo đội hoặc chấp nhận lời mời."],
+    ["Xác nhận đội", "Trưởng đội xác nhận khi đã sẵn sàng tham gia giải."],
+    ["Chuẩn bị bot", "Nộp code và biên dịch bot cho trò chơi đã chọn."],
+    ["Chọn bot đại diện", "Trưởng đội chọn bot sẽ thi đấu cho đội."]
+  ];
+  const current = complete.findIndex(done => !done);
+  $("#player-journey-steps").replaceChildren(...steps.map(([title,info],i) => {
+    const item = el("li","journey-step");
+    item.dataset.state = complete[i] ? "done" : "pending";
+    if (current === i) item.setAttribute("aria-current","step");
+    item.append(el("span","step-number",complete[i] ? "✓" : String(i+1).padStart(2,"0")));
+    const body = el("div");
+    body.append(el("strong","",title),el("small","",info));
+    item.append(body);
+    return item;
+  }));
+  setText("#player-journey-count",`${complete.filter(Boolean).length}/4 hoàn tất`);
+  setText("#player-journey-title",current < 0 ? "Đội của bạn đã sẵn sàng thi đấu" : steps[current][0]);
+  const captain = app.team?.my_role === "CAPTAIN";
+  const help = [
+    "Bắt đầu bằng cách tạo đội hoặc chấp nhận lời mời.",
+    captain ? "Xác nhận một lần để đội được đăng ký giải. Đây không phải nút bắt đầu trận." :
+      "Nhờ trưởng đội xác nhận sẵn sàng. Bạn vẫn có thể nộp bot.",
+    "Dùng bot mẫu hoặc tải mã Python, C++ hay Java. Bot phải biên dịch thành công.",
+    captain ? "Chọn bot từ thư viện bên dưới; bạn có thể thay đổi trước khi trận khóa." :
+      "Nhờ trưởng đội chọn một bot đại diện trước hạn khóa trận.",
+    "Bạn có thể vào giải đấu hoặc tìm đội khác để đấu luyện."
+  ];
+  setText("#player-journey-note",help[current < 0 ? 4 : current]);
+  const action = $("#player-journey-action");
+  action.textContent = current < 0 ? "Xem giải đấu →" : current === 2 ? "Nộp bot →"
+    : current === 3 ? "Chọn bot đại diện →" : current === 1 ? "Kiểm tra đội →" : "Tạo hoặc tham gia đội →";
+  action.href = current < 0 ? "#tournaments" : current === 2
+    ? workspaceLink("upload",{focus:"upload"}) : current === 3
+      ? workspaceLink("upload",{focus:"bots"}) : "#upload";
+  action.onclick = current === 0 || current === 1 ? () => {
+    $("#account-team-panel").scrollIntoView({behavior:"smooth",block:"start"});
+    if (current === 1 && captain) $("#account-team-activate").focus({preventScroll:true});
+  } : null;
+}
+
+function renderAdminTournamentJourney() {
+  const panel = $("#admin-tournament-journey");
+  const admin = app.accountOnly && app.accountAudience === "admin";
+  panel.classList.toggle("hidden",!admin);
+  if (!admin) return;
+  const readyTeams = app.officialTeams.length;
+  const active = app.teamTournaments.filter(t => t.status === "ACTIVE").length;
+  const count = app.teamTournaments.length;
+  setText("#admin-journey-count",`${count} giải · ${readyTeams} đội sẵn sàng`);
+  setText("#admin-journey-title",readyTeams < 2 ? "Chuẩn bị đội trước khi tạo giải" :
+    count ? "Điều hành giải đấu của bạn" : "Tạo giải đấu đầu tiên");
+  setText("#admin-journey-note",readyTeams < 2
+    ? "Cần ít nhất hai đội sẵn sàng để tạo giải chính thức."
+    : active ? `Có ${active} giải đang diễn ra. Mở giải để công bố luật theo vòng và xếp lịch.`
+    : count ? "Bạn có thể mở giải đã có hoặc tạo giải mới. Mỗi giải chọn game riêng."
+    : "Chọn trò chơi, thể thức và các đội. Không cần mở khóa game mặc định.");
+  const button = $("#admin-journey-action");
+  button.textContent = readyTeams < 2 ? "Quản lý đội →" : "Tạo giải mới →";
+  button.onclick = () => {
+    if (readyTeams < 2) { location.hash = "administration"; return; }
+    const details = $("#team-tournament-admin-panel");
+    details.open = true;
+    details.scrollIntoView({behavior:"smooth",block:"start"});
+    details.querySelector('[name="name"]')?.focus({preventScroll:true});
+  };
+}
+
 function updateUploadEligibility() {
   const reason = app.role === "organizer" ? "Admin quản lý đội và bot tại Tài khoản & đội."
     : app.readOnly ? "Phiên này chỉ có quyền xem."

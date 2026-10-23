@@ -61,22 +61,27 @@ Các thẻ này dùng duy nhất API Admin hiện có `/api/admin/system`; khôn
 - Sau đổi JS/CSS cập nhật fingerprint mọi trang HTML tham chiếu.
 
 
-## Đấu luyện (Scrimmage) — trải nghiệm Player
+## Đấu luyện — chọn đội và đấu thử trực tiếp
 
-Đấu luyện là trận tự động giữa hai đội **cùng chủ động tìm** đối thủ cho **cùng game**. Kết quả không cộng điểm giải chính thức.
+Đây là **đấu luyện tự chọn đối thủ**, không phải ghép trận ngẫu nhiên. Player chọn trò chơi, xem danh sách các đội **ACTIVE và có bot đại diện hợp lệ** trong game đó, rồi nhấn **Đấu thử** cạnh đội muốn đối đầu.
 
-- Trên trang **Đấu luyện**, Player chọn game rồi xem chỉ dẫn điều kiện: có đội ACTIVE và bot đại diện hợp lệ cho game đó. Trưởng đội có đường dẫn tới Bot của đội nếu chưa đủ điều kiện.
-- Nhấn **Tìm đối thủ** chỉ khi backend trả `can_search=true`. Máy chủ giữ yêu cầu đến 5 phút, ghép FIFO và lưu trận. Không thay đổi quyền của Captain/Member.
-- Khi đang tìm: trạng thái, số đội khác đang chờ và đồng hồ đếm ngược hiển thị. Có thể ngừng tìm **trước khi ghép**, không thể ngừng ghép trận chỉ qua nút này.
-- Khi đã ghép: bot được chốt, trận chạy trên server, người dùng có thể rời trang. Liên kết **Xem trận**/replay xuất hiện khi server trả `match_id`.
-- Dưới form là danh sách **Tất cả / Đang chờ-đang đấu / Đã kết thúc** được lọc ở frontend, không thêm endpoint hay tác vụ backend.
-- Nếu Player đổi game trong lúc request trước chưa xong, frontend bắt buộc làm mới dữ liệu game đã chọn trước khi cho phép tìm trận, tránh dùng trạng thái hợp lệ của game cũ.
+- Không cần hai đội đồng thời online, không có nút "Tìm đối thủ", đồng hồ chờ 5 phút hay hàng ghép ngẫu nhiên.
+- API `GET /api/player/scrimmage-opponents?game_id=...` trả về các đội đã có bot hợp lệ; danh sách loại bỏ chính đội mình và có tìm kiếm theo tên trên trình duyệt.
+- Khi đã sẵn sàng, bất cứ thành viên đội ACTIVE nào có thể chủ động chọn đối thủ. Trưởng đội (Captain) chịu trách nhiệm chọn bot đại diện trước đó; Member không thể thay Captain chọn bot.
+- Nút **Đấu thử** gọi `POST /api/player/scrimmages` với `{game_id, opponent_team_id}`. Backend **ngay lập tức tạo một yêu cầu trận QUEUED**, snapshot luật và bot hai đội, rồi dispatcher thực thi trên Sandbox. **Đối thủ không cần chấp nhận.**
+- Khi bot bên mình chưa đủ điều kiện, các nút đấu bị khóa và có liên kết trở về **Đội & bot của tôi**.
+- Giới hạn server vẫn là tối đa 3 trận đang chờ/chạy mà đội chủ động tạo, không gửi trùng cùng cặp đội/game; chỉ có thể hủy trận khi QUEUED.
+- **Các trận đấu luyện** hiển thị trạng thái, kết quả và nút live/replay, kèm bộ lọc tất cả / chờ-đang đấu / đã kết thúc.
+- Frontend bỏ giao diện và lời gọi `/api/player/matchmaking`. Endpoint ghép trận cũ được giữ trong backend cho dữ liệu và client lịch sử, **không có đường vào trong giao diện mới**. Việc xóa hẳn API/schema cũ sẽ là một migration riêng nếu thực sự cần.
+- Không cộng điểm giải đấu, không thay đổi Tournament/Official, không migration database.
 
-### QA Đấu luyện
+### QA Đấu luyện trực tiếp
 
-- Không đội, Team DRAFT, Team ACTIVE không có bot ready, có bot ready nhưng chưa chọn đại diện, Member không thể tự chọn bot: đúng thông báo/nút.
-- Captain đã chọn bot đại diện: có thể tìm; hai Team cùng game tạo yêu cầu, ghép, chốt bot, xem live/replay đúng quyền.
-- Trạng thái SEARCHING/MATCHED/RUNNING/COMPLETED/CANCELLED/EXPIRED/ERROR, đồng hồ 5 phút, kết nối lại và thay đổi game giữa lúc fetch.
-- Một Team không thể tạo hai yêu cầu tìm đối thủ; không cho hủy khi trận đã ghép; không thay đổi thứ tự ưu tiên Official.
-- Trang Admin chỉ có danh sách để theo dõi. Mobile 360/390/768 và desktop, tiêu điểm Tab và nhãn các điều khiển.
-- Docker Sandbox end-to-end cần chạy trên môi trường có Docker thật, không coi fixture là kiểm thử thực thi bot.
+- Tài khoản chưa có đội, Team DRAFT, ACTIVE chưa có bot, ACTIVE có bot cho game A nhưng chưa có cho game B: danh sách và nút hợp lệ chính xác.
+- Tài khoản Captain và Member đều thấy danh sách đội; Member chỉ xem bot và không có quyền tự chọn bot đại diện.
+- Hai đội có bot `ready`/attested cho OTT, Robot Battle, OTT Advanced: bấm **Đấu thử** đúng đội, tạo QUEUED, chạy thật trên Sandbox, có replay chính xác và không cộng điểm Tournament.
+- Đội khác không có bot hợp lệ hoặc chưa ACTIVE không được quảng cáo như đối thủ sẵn sàng; đội mình không xuất hiện.
+- Không cho gửi trùng cặp đội/game đang chờ, giới hạn 3 trận chờ/chạy, hủy QUEUED, không hủy khi đã DISPATCHING/RUNNING.
+- Thay game liên tục trong khi đang tải: kết quả request game cũ không ghi đè game mới, nút không được bật cho game chưa kiểm tra.
+- Bộ lọc tên đội, bộ lọc lịch sử, nút cập nhật, tải lại, lỗi mạng và xử lý 403/409. Kiểm tra bàn phím/đọc màn hình, responsive 360/390/768/1440.
+- Docker Sandbox thật và ưu tiên xử lý Official phải được nghiệm thu ở môi trường có Docker trước khi production.

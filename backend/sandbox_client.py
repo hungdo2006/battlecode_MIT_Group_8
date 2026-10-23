@@ -22,14 +22,18 @@ class ControllerRejected(RunnerUnavailable):
 class SandboxRunner:
     mode = 'sandbox'
 
-    def __init__(self):
-        self.url = os.environ.get('ARENA_CONTROLLER_URL', 'http://controller:9000').rstrip('/')
-        parsed = urlparse(self.url)
-        if parsed.scheme != 'http' or parsed.hostname != 'controller' or parsed.port != 9000 or parsed.path:
-            raise ValueError('Controller must be http://controller:9000 on the private Compose network')
-        self.token = os.environ.get('ARENA_RUNNER_TOKEN', '')
-        if len(self.token) < 32:
-            raise ValueError('ARENA_RUNNER_TOKEN requires at least 32 characters')
+    def __init__(self, *, remote=False):
+        if remote:
+            # The cloud must never know the PC Controller's Docker authority token.
+            self.url, self.token = None, None
+        else:
+            self.url = os.environ.get('ARENA_CONTROLLER_URL', 'http://controller:9000').rstrip('/')
+            parsed = urlparse(self.url)
+            if parsed.scheme != 'http' or parsed.hostname != 'controller' or parsed.port != 9000 or parsed.path:
+                raise ValueError('Controller must be http://controller:9000 on the private Compose network')
+            self.token = os.environ.get('ARENA_RUNNER_TOKEN', '')
+            if len(self.token) < 32:
+                raise ValueError('ARENA_RUNNER_TOKEN requires at least 32 characters')
         self.owner = uuid.uuid4().hex
         self.epoch = self.lease = None
         self.lease_lock = threading.RLock()

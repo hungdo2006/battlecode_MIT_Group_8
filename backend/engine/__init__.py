@@ -9,6 +9,8 @@ def create_registry() -> GameRegistry:
     registry = GameRegistry()
     registry.register(RobotBattleAdapter())
     registry.register(OTTAdapter())
+    from .ott_advanced import OTTAdvancedAdapter
+    registry.register(OTTAdvancedAdapter())
     if os.environ.get("ARENA_BATTLECODE26") == "1":
         from .battlecode import BattlecodeAdapter
         registry.register(BattlecodeAdapter())

@@ -107,7 +107,7 @@ class ArtifactStore:
         temporary = self.root / f'{artifact_id}.bc.tmp'
         temporary.write_bytes(payload)
         os.replace(temporary, self.root / f'{artifact_id}.bc.json')
-        return {'artifact_id': artifact_id, 'artifact_digest': hashlib.sha256(payload).hexdigest()}
+        return {'artifact_id': artifact_id, 'artifact_digest': hashlib.sha256(payload).hexdigest(), 'image': image}
 
     def load_battlecode(self, artifact_id, digest, image):
         artifact_id = identifier(artifact_id)

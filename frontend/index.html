@@ -319,37 +319,38 @@
       </section>
 
       <section class="view" id="view-scrimmage" aria-label="Đấu luyện">
-        <div class="page-intro"><h1 id="scrimmage-title">Đấu luyện</h1><p id="scrimmage-intro">Thử chiến thuật với đội khác trong một trận tự động. Không tính điểm giải đấu; bạn có thể rời trang sau khi đã ghép trận.</p></div>
+        <div class="page-intro">
+          <h1 id="scrimmage-title">Đấu luyện</h1>
+          <p id="scrimmage-intro">Chọn đội bạn muốn đối đầu và nhấn Đấu thử. Hệ thống tự chạy trận với bot của hai đội, không tính điểm giải đấu.</p>
+        </div>
         <section class="panel practice-workspace hidden" id="scrimmage-create-panel" aria-labelledby="practice-panel-heading">
           <div class="practice-panel-heading">
-            <div><span class="eyebrow">ĐẤU LUYỆN TỰ ĐỘNG</span><h2 id="practice-panel-heading">Tìm một đối thủ</h2><p>Chỉ ghép với đội đã chủ động tìm trận cùng trò chơi. Bạn không phải mời hoặc chờ đối thủ trực tuyến.</p></div>
-            <span class="tag" id="matchmaking-state" role="status" aria-live="polite">Đang kiểm tra…</span>
+            <div><span class="eyebrow">ĐẤU LUYỆN CÙNG CÁC ĐỘI</span>
+              <h2 id="practice-panel-heading">Chọn đội để đấu thử</h2>
+              <p>Không cần ghép trận ngẫu nhiên hay chờ đội kia online. Những đội bên dưới đã có bot đại diện sẵn sàng cho game bạn chọn.</p>
+            </div>
+            <button class="button ghost small" id="practice-refresh-teams" type="button">Cập nhật đội ↻</button>
           </div>
-          <div class="practice-flow" aria-label="Ba bước đấu luyện">
-            <div><span class="practice-flow-number">01</span><strong>Chọn trò chơi</strong><small>Đội cần bot đại diện hợp lệ.</small></div>
-            <div><span class="practice-flow-number">02</span><strong>Tìm đối thủ</strong><small>Tối đa 5 phút; ghép tự động.</small></div>
-            <div><span class="practice-flow-number">03</span><strong>Xem trận</strong><small>Xem trực tiếp hoặc replay khi có trận.</small></div>
-          </div>
-          <form id="scrimmage-create" class="practice-form">
-            <label for="scrimmage-game">Trò chơi muốn đấu luyện<select name="game_id" id="scrimmage-game" required></select></label>
+          <div class="practice-form">
+            <label for="scrimmage-game">Trò chơi<select id="scrimmage-game" name="game_id" required></select></label>
             <div class="practice-state" id="practice-state" data-state="loading">
               <span class="practice-state-symbol" aria-hidden="true"><svg class="nav-icon"><use href="#i-swords"/></svg></span>
               <div class="practice-state-body">
-                <strong id="practice-state-title" role="status" aria-live="polite">Đang kiểm tra khả năng đấu luyện…</strong>
-                <p id="scrimmage-eligibility" class="form-note">Đang xác minh đội và bot đại diện.</p>
-                <p id="matchmaking-detail" class="form-note"></p>
-                <span id="matchmaking-clock" class="practice-clock"></span>
+                <strong id="practice-state-title" role="status" aria-live="polite">Đang kiểm tra đội của bạn…</strong>
+                <p id="scrimmage-eligibility" class="form-note">Trận đấu thử cần hai đội có bot đại diện hợp lệ.</p>
+                <a class="text-button hidden" id="scrimmage-bot-link" href="#upload">Chuẩn bị đội &amp; bot →</a>
               </div>
             </div>
-            <div class="practice-actions">
-              <button class="button primary" type="submit" disabled>Tìm đối thủ <span aria-hidden="true">↗</span></button>
-              <button class="button ghost hidden" id="matchmaking-cancel" type="button">Ngừng tìm</button>
-              <button class="button ghost hidden" id="matchmaking-watch" type="button">Xem trận đấu →</button>
-              <a class="text-button hidden" id="scrimmage-bot-link" href="?focus=bots#upload">Chuẩn bị bot đại diện →</a>
+            <div class="practice-opponent-heading">
+              <h3>Danh sách đội có thể đấu</h3>
+              <label for="practice-opponent-filter">Tìm đội<input id="practice-opponent-filter" type="search" placeholder="Nhập tên đội…" autocomplete="off"></label>
             </div>
-            <p class="practice-fineprint">Lượt tìm trận vẫn được giữ khi tải lại trang hoặc mất kết nối tạm thời. Nếu máy chủ khởi động lại, cần tìm lại. Bot hai đội được chốt ngay khi ghép.</p>
+            <div id="practice-opponents" class="practice-opponent-list" aria-live="polite">
+              <div class="empty-state">Đang tải danh sách đội…</div>
+            </div>
+            <p class="practice-fineprint">Khi nhấn <strong>Đấu thử</strong>, hệ thống chốt bot hai đội và xếp trận vào hàng đợi. Đối thủ không cần xác nhận. Bạn có thể rời trang; xem trạng thái và replay ở danh sách phía dưới.</p>
             <div id="scrimmage-feedback" class="feedback hidden" role="status"></div>
-          </form>
+          </div>
         </section>
         <section class="panel practice-history" aria-labelledby="practice-history-heading">
           <div class="panel-heading"><h2 id="practice-history-heading">Các trận đấu luyện</h2><div class="practice-history-actions"><label for="practice-match-filter">Hiển thị<select id="practice-match-filter"><option value="all">Tất cả</option><option value="active">Đang chờ / đang đấu</option><option value="done">Đã kết thúc</option></select></label><button class="button ghost small" id="refresh-scrimmages" type="button">Cập nhật ↻</button></div></div>

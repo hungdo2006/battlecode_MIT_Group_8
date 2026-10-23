@@ -44,7 +44,10 @@ def test_direct_challenge_uses_existing_authorized_endpoints():
         "setInterval(() => {\n  if (!document.hidden && app.accountOnly", 1
     )[0]
     assert "/api/player/scrimmage-opponents?game_id=" in practice
-    assert "/api/player/active-bot?game_id=" in practice
+    assert "opponents.own_ready" in practice
+    endpoint = (ROOT / "backend" / "scrimmage_http.py").read_text(encoding="utf-8")
+    assert "service.frozen(mine['id'],game_id)" in endpoint
+    assert "'own_ready':ready" in endpoint
     assert 'api("/api/player/scrimmages",jsonOptions("POST"' in practice
     assert "opponent_team_id:opponent.id" in practice
     assert 'app.team?.team?.status!=="ACTIVE"' in practice

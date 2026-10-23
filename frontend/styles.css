@@ -1032,3 +1032,9 @@ body[data-account-mode=player] .stat-card strong, body[data-account-mode=admin] 
 .setup-journey > .button { width: fit-content; }
 @media(max-width:950px) { .journey-steps { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 @media(max-width:480px) { .setup-journey { padding: 16px; } .journey-steps { grid-template-columns: minmax(0,1fr); } .setup-journey > .button { width: 100%; } }
+
+.journey-actions { display: flex; align-items: center; gap: 12px 24px; flex-wrap: wrap; }
+.tournament-signup-shortcut { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; padding: 20px 22px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); margin-bottom: 20px; }
+.tournament-signup-shortcut strong { font-size: 15px; font-weight: 600; }
+.tournament-signup-shortcut p { max-width: 600px; margin-top: 4px; color: var(--muted); font-size: 12px; line-height: 1.65; }
+@media(max-width:480px) { .tournament-signup-shortcut > .button { width: 100%; } }

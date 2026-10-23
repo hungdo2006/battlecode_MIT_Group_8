@@ -197,8 +197,11 @@ def run():
                 expect(member.locator("#overview-primary")).to_have_text("Xem bot của đội ↗")
                 expect(member.locator("#overview-note")).to_contain_text("Trưởng đội cần chọn")
                 view(member, "scrimmage")
-                expect(member.locator("#scrimmage-eligibility")).to_contain_text("Liên hệ Captain")
-                expect(member.locator("#scrimmage-bot-link")).to_be_hidden()
+                expect(member.locator("#scrimmage-eligibility")).to_contain_text("Nhờ trưởng đội chọn bot")
+                expect(member.locator("#scrimmage-bot-link")).to_be_visible()
+                expect(member.locator("#scrimmage-bot-link")).to_contain_text("Xem bot của đội")
+                assert not member.locator("#scrimmage-bot-link").get_attribute("href").startswith("/api/")
+                expect(member.locator("#scrimmage-create [type=submit]")).to_be_disabled()
                 view(member, "upload")
                 assert member.get_by_role("button", name="Chọn làm bot đại diện", exact=True).count() == 0
                 player.locator("#bot-library").get_by_role("button", name="Chọn làm bot đại diện", exact=True).click()

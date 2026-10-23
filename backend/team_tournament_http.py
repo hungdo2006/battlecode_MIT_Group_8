@@ -4,6 +4,9 @@ from pydantic import Field
 
 from .auth_http import StrictBody, authenticate_account, runtime_for
 from .official_service import OfficialConflict, OfficialNotFound, OfficialSchedule
+from .offline_results import (OfflineResultsError, export_package, preview,
+                              publish_import, imported_results)
+from .account_database import require_writer
 from .team_tournament_service import (
     TeamTournamentService, TournamentConflict, TournamentNotFound,
 )
@@ -35,6 +38,14 @@ class VisibilityBody(StrictBody):
     visibility: str = Field(pattern=r"^(PRIVATE|SIGNED_IN|PUBLIC)$")
 
 
+class OfflinePackageBody(StrictBody):
+    package: dict
+
+
+class OfflineImportBody(OfflinePackageBody):
+    confirm_publish: bool = False
+
+
 def install_team_tournament_http(app):
     router = APIRouter()
 
@@ -52,6 +63,8 @@ def install_team_tournament_http(app):
                 raise HTTPException(409, "Tournament operation conflicts with current state") from None
             except OfficialNotFound:
                 raise HTTPException(404, "Tournament fixture or Team not found") from None
+            except OfflineResultsError as exc:
+                raise HTTPException(422, str(exc)) from None
             except ValueError as exc:
                 raise HTTPException(422, str(exc)) from None
 
@@ -118,13 +131,40 @@ def install_team_tournament_http(app):
             lambda service, auth, connection, actor, runtime:
                 service.set_visibility(actor,tournament_id,body.visibility), mutation=True)}
 
+    @router.get("/api/admin/team-tournaments/{tournament_id}/offline-export")
+    async def offline_export(tournament_id: str, request: Request):
+        # Export only confirmed results, projected to a public allowlist.
+        return {"package": await execute(request, "ADMIN",
+            lambda service, auth, connection, actor, runtime:
+                export_package(service.detail(actor, tournament_id, admin=True)))}
+
+    @router.post("/api/admin/offline-results/preview")
+    async def offline_preview(body: OfflinePackageBody, request: Request):
+        return {"preview": await execute(request, "ADMIN",
+            lambda service, auth, connection, actor, runtime:
+                (auth.require_actor(actor, auth._now(), admin=True), preview(body.package))[1],
+            mutation=True)}
+
+    @router.post("/api/admin/offline-results/import")
+    async def offline_import(body: OfflineImportBody, request: Request):
+        if not body.confirm_publish:
+            raise HTTPException(422, "Admin cần xác nhận công bố giải offline.")
+        def write(service, auth, connection, actor, runtime):
+            auth.require_actor(actor, auth._now(), admin=True)
+            require_writer(runtime.writer, runtime.writer.path.parent)
+            return publish_import(app.state.store, body.package)
+        return {"publication": await execute(request, "ADMIN", write, mutation=True)}
+
     @router.get("/api/public/standings")
     async def public_standings(request: Request):
         # Allowlist: only tournament metadata and score, never source/replay.
         runtime = runtime_for(request)
-        return {"tournaments": await runtime.run(
-            lambda auth, connection: TeamTournamentService(
-                connection,runtime.writer,auth,app.state.registry).public_standings())}
+        return await runtime.run(
+            lambda auth, connection: {
+                "tournaments": TeamTournamentService(
+                    connection,runtime.writer,auth,app.state.registry).public_standings(),
+                "offline_tournaments": imported_results(app.state.store)
+            })
 
     @router.get("/api/admin/team-tournaments/{tournament_id}")
     async def admin_detail(tournament_id: str, request: Request):

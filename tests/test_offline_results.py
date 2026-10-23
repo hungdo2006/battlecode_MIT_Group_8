@@ -170,3 +170,10 @@ def test_bad_local_results_rejected_before_signature(keys):
     control_char["name"] = "Event\nspoofed"
     with pytest.raises(OfflineResultsError):
         export_package(control_char)
+
+
+def test_malformed_signature_type_fails_as_validation_error(keys):
+    package = export_package(complete_event())
+    package["signature"] = int("1" * 64)
+    with pytest.raises(OfflineResultsError, match="chữ ký"):
+        verify_package(package)

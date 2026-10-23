@@ -32,6 +32,8 @@ Kiểm tra bố cục theo vai trò, tab, menu avatar, Team/bot, mùa/giải và
 
 Sửa và kiểm thử lại R01–R12 (reset phiên/replay, history, CTA bot, lịch quá hạn và metadata): [Khắc phục kiểm thử lại](RETEST_FIXES.md), chạy thêm `python scripts/check_retest_regressions.py`.
 
+Team capacity, archive bot, tìm trận FIFO, heartbeat và hồi quy PR #17/CI: [Team/Bot/Đấu luyện/Session](TEAM_MATCHMAKING_SESSION.md). Playwright MCP dùng `scripts/serve_feature_qa.py` với dữ liệu tạm và runner fixture; kiểm tra Docker thật vẫn là release gate riêng.
+
 Đối chiếu từng phát hiện và phạm vi kiểm tra bổ sung: [Khắc phục báo cáo UI/UX](UI_UX_REVIEW_FIXES.md).
 
 ## Docker và end-to-end

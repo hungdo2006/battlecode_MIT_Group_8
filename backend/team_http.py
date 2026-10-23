@@ -30,6 +30,10 @@ class TransferCaptainBody(StrictBody):
     new_captain_user_id: str = Field(min_length=1, max_length=128)
 
 
+class TeamPolicyBody(StrictBody):
+    max_members: int = Field(strict=True, ge=2, le=20)
+
+
 def require_empty(body):
     if body:
         raise HTTPException(422, "Request body must be an empty JSON object")
@@ -46,6 +50,7 @@ def team_json(team: Team) -> dict:
         "updated_at": team.updated_at,
         "captain_id": team.captain_id,
         "member_count": team.member_count,
+        "max_members": team.max_members,
     }
 
 
@@ -99,6 +104,25 @@ async def run_team(runtime, operation):
 
 def install_team_http(app):
     router = APIRouter()
+
+    async def policy_operation(request, audience, limit=None):
+        actor, _ = await authenticate_account(request, audience, csrf=limit is not None)
+        runtime = runtime_for(request)
+        return await run_team(runtime, lambda auth, conn: (
+            TeamService(conn, runtime.writer, auth_service=auth, clock=runtime.settings.clock).policy(actor)
+            if limit is None else TeamService(conn, runtime.writer, auth_service=auth, clock=runtime.settings.clock).set_member_limit(actor, limit)))
+
+    @router.get('/api/admin/team-policy')
+    async def admin_policy(request: Request):
+        return await policy_operation(request, 'ADMIN')
+
+    @router.get('/api/player/team-policy')
+    async def player_policy(request: Request):
+        return await policy_operation(request, 'PLAYER')
+
+    @router.put('/api/admin/team-policy')
+    async def change_policy(body: TeamPolicyBody, request: Request):
+        return await policy_operation(request, 'ADMIN', body.max_members)
 
     # --- Player Endpoints ---
 
@@ -316,7 +340,8 @@ def install_team_http(app):
                 principal
             )
         )
-        return {"teams": [team_json(t) for t in teams]}
+        policy = await run_team(runtime,lambda auth,conn:TeamService(conn,runtime.writer,auth_service=auth,clock=runtime.settings.clock).policy(principal))
+        return {"teams": [team_json(t) for t in teams], "policy": policy}
 
     @router.get("/api/admin/teams/{team_id}")
     async def admin_get_team(team_id: str, request: Request):

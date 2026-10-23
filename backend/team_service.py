@@ -63,6 +63,7 @@ class Team:
     updated_at: int
     captain_id: str | None = None
     member_count: int = 1
+    max_members: int = 5
 
 
 @dataclass(frozen=True)
@@ -141,6 +142,30 @@ class TeamService:
             "SELECT count(*) FROM team_memberships WHERE team_id = ? AND left_at IS NULL",
             (team_id,)).fetchone()[0]
 
+    def member_limit(self):
+        return self._db.execute("SELECT max_members FROM team_policy WHERE id=1").fetchone()[0]
+
+    def policy(self, actor):
+        self._ready()
+        self._auth.require_actor(actor, self._now(), touch=False)
+        return {"max_members": self.member_limit()}
+
+    def set_member_limit(self, actor, limit):
+        self._ready()
+        if type(limit) is not int or not 2 <= limit <= 20:
+            raise TeamValidationError("Giới hạn đội phải từ 2 đến 20 người, tính cả Captain.")
+        with transaction(self._db):
+            now = self._now()
+            user = self._auth.require_actor(actor, now, admin=True)
+            previous = self.member_limit()
+            self._db.execute("UPDATE team_policy SET max_members=?,updated_at=?,updated_by=? WHERE id=1", (limit, now, user['id']))
+            self._audit(now, user['id'], 'TEAM_MEMBER_LIMIT_CHANGED', 'team_policy', '1', previous=previous, max_members=limit)
+        return {"max_members": limit}
+
+    def _require_space(self, team_id):
+        if self._active_team_member_count(team_id) >= self.member_limit():
+            raise TeamConflict("Đội đã đủ thành viên. Liên hệ Admin hoặc chờ đội có chỗ trống.")
+
     def _team_dto(self, row) -> Team:
         captain_id = self._active_team_captain(row["id"])
         count = self._active_team_member_count(row["id"])
@@ -148,7 +173,7 @@ class TeamService:
             id=row["id"], slug=row["slug"], display_name=row["display_name"],
             status=row["status"], created_by=row["created_by"],
             created_at=row["created_at"], updated_at=row["updated_at"],
-            captain_id=captain_id, member_count=count)
+            captain_id=captain_id, member_count=count, max_members=self.member_limit())
 
     def create_team(self, actor: Principal, slug: str, display_name: str) -> Team:
         self._ready()
@@ -180,7 +205,7 @@ class TeamService:
                         slug=canonical_slug, display_name=canonical_name, captain_id=user["id"])
             return Team(id=team_id, slug=canonical_slug, display_name=canonical_name,
                         status="DRAFT", created_by=user["id"], created_at=now, updated_at=now,
-                        captain_id=user["id"], member_count=1)
+                        captain_id=user["id"], member_count=1, max_members=self.member_limit())
 
     def get_my_team(self, actor: Principal) -> MyTeam | None:
         self._ready()
@@ -238,7 +263,7 @@ class TeamService:
                 id=team_row["id"], slug=team_row["slug"], display_name=canonical_name,
                 status=team_row["status"], created_by=team_row["created_by"],
                 created_at=team_row["created_at"], updated_at=now,
-                captain_id=user["id"], member_count=self._active_team_member_count(team_id))
+                captain_id=user["id"], member_count=self._active_team_member_count(team_id), max_members=self.member_limit())
 
     def activate_team(self, actor: Principal, team_id: str) -> Team:
         self._ready()
@@ -263,7 +288,7 @@ class TeamService:
                 id=team_row["id"], slug=team_row["slug"], display_name=team_row["display_name"],
                 status="ACTIVE", created_by=team_row["created_by"],
                 created_at=team_row["created_at"], updated_at=now,
-                captain_id=user["id"], member_count=self._active_team_member_count(team_id))
+                captain_id=user["id"], member_count=self._active_team_member_count(team_id), max_members=self.member_limit())
 
     def archive_team(self, actor: Principal, team_id: str) -> Team:
         self._ready()
@@ -296,7 +321,7 @@ class TeamService:
                 id=team_row["id"], slug=team_row["slug"], display_name=team_row["display_name"],
                 status="ARCHIVED", created_by=team_row["created_by"],
                 created_at=team_row["created_at"], updated_at=now,
-                captain_id=None, member_count=0)
+                captain_id=None, member_count=0, max_members=self.member_limit())
 
     def list_members(self, actor: Principal, team_id: str, *, include_history: bool = False) -> list[TeamMember]:
         self._ready()
@@ -349,6 +374,7 @@ class TeamService:
                 (team_id, user["id"])).fetchone()
             if not captain_row:
                 raise TeamPermissionDenied("Only the Team Captain may invite members")
+            self._require_space(team_id)
             # Lookup target player
             target = self._db.execute(
                 "SELECT * FROM users WHERE username = ?", (canonical_target_username,)).fetchone()
@@ -451,6 +477,9 @@ class TeamService:
                                               (user["id"],)).fetchone()
                     if active:
                         raise TeamConflict("Player already has an active team membership")
+                    # BEGIN IMMEDIATE serializes capacity check + insertion,
+                    # including accepts made through different browser tabs.
+                    self._require_space(team_row['id'])
                     membership_id = uuid.uuid4().hex
                     self._db.execute("UPDATE team_invitations SET status='ACCEPTED', responded_at=? WHERE id=? AND status='PENDING'",
                                      (now, invitation_id))

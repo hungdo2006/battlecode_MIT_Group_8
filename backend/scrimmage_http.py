@@ -10,7 +10,7 @@ from pydantic import Field
 from .auth_http import StrictBody, authenticate_account, runtime_for
 from .auth_service import PermissionDenied
 from .models import MatchRequest
-from .scrimmage_service import Scrimmages
+from .matchmaking_service import Matchmaking
 from .team_service import TeamConflict, TeamNotFound
 
 log = logging.getLogger(__name__)
@@ -21,17 +21,23 @@ class ChallengeBody(StrictBody):
     opponent_team_id: str = Field(min_length=1,max_length=128)
 
 
+class FindBody(StrictBody):
+    game_id: str = Field(min_length=1,max_length=64)
+
+
 class ScrimmageDispatcher:
     def __init__(self, runtime, store, registry, manager):
         self.runtime, self.store, self.registry, self.manager = runtime, store, registry, manager
 
     async def execute(self, operation):
-        return await self.runtime.run(lambda auth,db: operation(Scrimmages(auth,db,self.runtime.writer,self.store,self.registry)))
+        return await self.runtime.run(lambda auth,db: operation(Matchmaking(auth,db,self.runtime.writer,self.store,self.registry)))
 
     async def recover(self):
         await self.execute(lambda service: service.reconcile(self.manager,recover=True))
+        await self.execute(lambda service: service.maintain(restart=True))
 
     async def tick(self):
+        await self.execute(lambda service: service.maintain())
         await self.execute(lambda service: service.reconcile(self.manager))
         if getattr(self.manager.runner,'mode',None) != 'sandbox' or len(self.manager.live) >= 2:
             return
@@ -57,7 +63,7 @@ def install_scrimmage_http(app):
         actor,_ = await authenticate_account(request,audience,csrf=mutation,touch=mutation)
         runtime = runtime_for(request)
         def call(auth,db):
-            service = Scrimmages(auth,db,runtime.writer,app.state.store,app.state.registry)
+            service = Matchmaking(auth,db,runtime.writer,app.state.store,app.state.registry)
             try:
                 return operation(service,actor)
             except PermissionDenied:
@@ -69,6 +75,24 @@ def install_scrimmage_http(app):
             except ValueError as error:
                 raise HTTPException(422,str(error)) from None
         return await runtime.run(call)
+
+    @router.get('/api/player/matchmaking')
+    async def matchmaking_status(request: Request, game_id: str):
+        result = await execute(request,'PLAYER',lambda service,actor:service.status(actor,game_id))
+        if getattr(app.state.runner,'mode',None) != 'sandbox':
+            result.update(can_search=False, reason=(result['reason']+' ' if result['reason'] else '')+'Máy chủ chưa bật đấu luyện tự động. Liên hệ Admin.')
+        return result
+
+    @router.post('/api/player/matchmaking/find')
+    async def find(body: FindBody, request: Request):
+        if getattr(app.state.runner,'mode',None) != 'sandbox':
+            await authenticate_account(request,'PLAYER',csrf=True)
+            raise HTTPException(503,'Máy chủ chưa bật đấu luyện tự động.')
+        return {'search':await execute(request,'PLAYER',lambda service,actor:service.find(actor,body.game_id),mutation=True)}
+
+    @router.post('/api/player/matchmaking/{search_id}/cancel')
+    async def cancel_search(search_id: str, body: StrictBody, request: Request):
+        return {'search':await execute(request,'PLAYER',lambda service,actor:service.cancel_search(actor,search_id),mutation=True)}
 
     @router.get('/api/player/scrimmage-opponents')
     async def opponents(request:Request,game_id:str):

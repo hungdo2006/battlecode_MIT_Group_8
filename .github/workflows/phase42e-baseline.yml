@@ -24,6 +24,7 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     env:
       PYTHONUTF8: '1'
+      PYTHONUNBUFFERED: '1'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -53,7 +54,7 @@ jobs:
           python scripts/version_frontend.py --check
       - name: Full Python and controller regression
         run: |
-          python -m pytest tests controller_tests -ra --tb=short --junitxml=qa-ci/pytest.xml
+          python -m pytest tests controller_tests -v -ra --tb=short --durations=20 -o faulthandler_timeout=60 --junitxml=qa-ci/pytest.xml
       - name: Verify clean generated file state
         if: always()
         run: git diff --check

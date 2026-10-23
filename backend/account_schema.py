@@ -435,4 +435,36 @@ MIGRATIONS = (
             PRIMARY KEY (season_id,team_id)
         ) STRICT""",
     )),
+    (18, "team_capacity_and_submission_archive", (
+        """CREATE TABLE team_policy (
+            id INTEGER PRIMARY KEY CHECK (id=1),
+            max_members INTEGER NOT NULL CHECK (max_members BETWEEN 2 AND 20),
+            updated_at INTEGER NOT NULL CHECK (updated_at>=0),
+            updated_by TEXT REFERENCES users(id) ON DELETE RESTRICT
+        ) STRICT""",
+        "INSERT INTO team_policy(id,max_members,updated_at) VALUES (1,5,0)",
+        """CREATE TABLE submission_archives (
+            bot_id TEXT PRIMARY KEY REFERENCES submission_ownership(bot_id) ON DELETE RESTRICT,
+            archived_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+            archived_at INTEGER NOT NULL CHECK (archived_at>=0)
+        ) STRICT""",
+    )),
+    (19, "opt_in_practice_matchmaking", (
+        """CREATE TABLE matchmaking_searches (
+            id TEXT PRIMARY KEY NOT NULL,
+            team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE RESTRICT,
+            requested_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+            game_id TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('SEARCHING','MATCHED','CANCELLED','EXPIRED','ERROR')),
+            created_at INTEGER NOT NULL CHECK (created_at>=0),
+            expires_at INTEGER NOT NULL CHECK (expires_at>created_at),
+            updated_at INTEGER NOT NULL CHECK (updated_at>=created_at),
+            request_id TEXT REFERENCES scrimmage_requests(id) ON DELETE RESTRICT,
+            status_reason TEXT,
+            CHECK ((status='MATCHED' AND request_id IS NOT NULL) OR (status!='MATCHED' AND request_id IS NULL))
+        ) STRICT""",
+        "CREATE UNIQUE INDEX matchmaking_one_search ON matchmaking_searches(team_id) WHERE status='SEARCHING'",
+        "CREATE INDEX matchmaking_waiting ON matchmaking_searches(status,game_id,created_at,id)",
+        "CREATE INDEX matchmaking_team_history ON matchmaking_searches(team_id,created_at DESC,id DESC)",
+    )),
 )

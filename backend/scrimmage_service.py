@@ -28,6 +28,8 @@ class Scrimmages:
         row = self.db.execute("""SELECT a.bot_id,a.game_id,s.source_sha256 FROM team_game_bots a
             JOIN submission_ownership o ON o.bot_id=a.bot_id AND o.team_id=a.team_id AND o.game_id=a.game_id
             JOIN official_source_attestations s ON s.bot_id=a.bot_id WHERE a.team_id=? AND a.game_id=?""", (team_id,game_id)).fetchone()
+        if row and self.db.execute("SELECT 1 FROM submission_archives WHERE bot_id=?", (row['bot_id'],)).fetchone():
+            raise TeamConflict('Active Bot has been archived')
         bot = self.store.get_bot(row['bot_id']) if row else None
         if (not team or not bot or bot.get('team_id') != team_id or bot.get('game_id') != game_id
             or bot.get('status') != 'ready' or bot.get('execution_backend') != 'sandbox'
@@ -98,18 +100,30 @@ class Scrimmages:
             if self.db.execute("""SELECT 1 FROM scrimmage_requests WHERE game_id=? AND team_a_id=? AND team_b_id=?
                 AND status IN ('QUEUED','DISPATCHING','RUNNING')""", (game_id,mine['id'],opponent_id)).fetchone():
                 raise TeamConflict('This challenge is already pending')
-            if self.db.execute("SELECT count(*) FROM scrimmage_requests WHERE status='QUEUED'").fetchone()[0] >= 100:
-                raise TeamConflict('Practice queue is full')
-            request_id = uuid.uuid4().hex
-            plan = {'id':request_id,'game_id':game_id,
-                    'rules_snapshot':self.registry.get(game_id).validate_rules(self.store.get_rules(game_id)),
-                    'slots':{'A':self.frozen(mine['id'],game_id), 'B':self.frozen(opponent_id,game_id)}}
-            self.db.execute("""INSERT INTO scrimmage_requests
-                (id,requested_by,team_a_id,team_b_id,game_id,status,created_at,updated_at,plan_json)
-                VALUES (?,?,?,?,?,'QUEUED',?,?,?)""", (request_id,user['id'],mine['id'],opponent_id,game_id,now,now,json.dumps(plan)))
-            self.db.execute("""INSERT INTO audit_events(occurred_at,actor_user_id,action,target_type,target_id,details_json)
-                VALUES (?,?,'SCRIMMAGE_REQUESTED','scrimmage',?,'{}')""", (now,user['id'],request_id))
+            # Keep the legacy challenge API, but do not interfere with a Team
+            # that has opted into the new exclusive matchmaking flow.
+            if self.db.execute("""SELECT 1 FROM matchmaking_searches s LEFT JOIN scrimmage_requests r ON r.id=s.request_id
+                WHERE s.team_id IN (?,?) AND (s.status='SEARCHING' OR (s.status='MATCHED' AND r.status IN ('QUEUED','DISPATCHING','RUNNING')))""", (mine['id'],opponent_id)).fetchone():
+                raise TeamConflict('A Team is already matchmaking')
+            request_id = self.enqueue(user['id'], mine['id'], opponent_id, game_id, now)
         return self.public(self.detail(actor,request_id))
+
+    def enqueue(self, user_id, team_a, team_b, game_id, now):
+        """Called within the caller's serialized writer transaction."""
+        if not self.db.in_transaction:
+            raise RuntimeError('Enqueue requires the matchmaking transaction')
+        if self.db.execute("SELECT count(*) FROM scrimmage_requests WHERE status='QUEUED'").fetchone()[0] >= 100:
+            raise TeamConflict('Hàng đợi đấu luyện đã đầy. Hãy thử lại sau.')
+        request_id = uuid.uuid4().hex
+        plan = {'id':request_id,'game_id':game_id,
+                'rules_snapshot':self.registry.get(game_id).validate_rules(self.store.get_rules(game_id)),
+                'slots':{'A':self.frozen(team_a,game_id), 'B':self.frozen(team_b,game_id)}}
+        self.db.execute("""INSERT INTO scrimmage_requests
+            (id,requested_by,team_a_id,team_b_id,game_id,status,created_at,updated_at,plan_json)
+            VALUES (?,?,?,?,?,'QUEUED',?,?,?)""", (request_id,user_id,team_a,team_b,game_id,now,now,json.dumps(plan)))
+        self.db.execute("""INSERT INTO audit_events(occurred_at,actor_user_id,action,target_type,target_id,details_json)
+            VALUES (?,?,'SCRIMMAGE_REQUESTED','scrimmage',?,'{}')""", (now,user_id,request_id))
+        return request_id
 
     def cancel(self, actor, request_id, *, admin=False):
         require_writer(self.writer, self.writer.path.parent)

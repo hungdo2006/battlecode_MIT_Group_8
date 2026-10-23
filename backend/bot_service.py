@@ -99,26 +99,52 @@ class TeamBots:
     def list_owned(self, actor, *, game_id=None):
         now = self.auth._now()
         user, member = self._member(actor, now, touch=False)
-        records = self.db.execute("""SELECT bot_id, game_id FROM submission_ownership
-            WHERE team_id=? ORDER BY created_at DESC, bot_id DESC""", (member["id"],)).fetchall()
+        records = self.db.execute("""SELECT bot_id,game_id,uploaded_by FROM submission_ownership o
+            WHERE team_id=? AND NOT EXISTS (SELECT 1 FROM submission_archives a WHERE a.bot_id=o.bot_id)
+            ORDER BY created_at DESC, bot_id DESC""", (member["id"],)).fetchall()
         result = []
         for record in records:
             if game_id and record["game_id"] != game_id:
                 continue
             bot = self.store.get_bot(record["bot_id"])
             if bot and bot.get("team_id") == member["id"] and bot.get("game_id") == record["game_id"]:
-                result.append(bot_compiler_detail(bot))
+                result.append({**bot_compiler_detail(bot), "uploaded_by": record['uploaded_by'],
+                               "is_active": self.db.execute('SELECT 1 FROM team_game_bots WHERE bot_id=?',(record['bot_id'],)).fetchone() is not None,
+                               "can_delete": member['team_role']=='CAPTAIN' or record['uploaded_by']==user['id']})
         return result
 
     def bot_detail(self, actor, bot_id):
         now = self.auth._now()
         _, member = self._member(actor, now, touch=False)
-        record = self.db.execute("""SELECT game_id FROM submission_ownership
-            WHERE bot_id=? AND team_id=?""", (bot_id,member["id"])).fetchone()
+        record = self.db.execute("""SELECT game_id FROM submission_ownership o
+            WHERE bot_id=? AND team_id=? AND NOT EXISTS (SELECT 1 FROM submission_archives a WHERE a.bot_id=o.bot_id)""", (bot_id,member["id"])).fetchone()
         bot = self.store.get_bot(bot_id)
         if not record or not bot or bot.get("team_id") != member["id"] or bot.get("game_id") != record["game_id"]:
             raise TeamNotFound("Team bot not found")
         return bot_compiler_detail(bot)
+
+    def archive(self, actor, bot_id):
+        """Retain source/artifacts and immutable ownership for frozen matches.
+
+        Only the normal library and new selections observe the tombstone.
+        Historical match slots never depend on the live library's visibility.
+        """
+        require_writer(self.writer, self.writer.path.parent)
+        with transaction(self.db):
+            now = self.auth._now()
+            user, member = self._member(actor, now)
+            row = self.db.execute("SELECT * FROM submission_ownership WHERE bot_id=? AND team_id=?", (bot_id, member['id'])).fetchone()
+            if not row:
+                raise TeamNotFound('Team bot not found')
+            if member['team_role'] != 'CAPTAIN' and row['uploaded_by'] != user['id']:
+                raise TeamPermissionDenied('Only the uploader or Captain can delete this bot')
+            if self.db.execute("SELECT 1 FROM team_game_bots WHERE bot_id=?", (bot_id,)).fetchone():
+                raise TeamConflict('Bot đang là Active Bot. Captain cần chọn bot khác trước khi xóa.')
+            if not self.db.execute("SELECT 1 FROM submission_archives WHERE bot_id=?", (bot_id,)).fetchone():
+                self.db.execute("INSERT INTO submission_archives VALUES (?,?,?)", (bot_id,user['id'],now))
+                self.db.execute("""INSERT INTO audit_events(occurred_at,actor_user_id,action,target_type,target_id,details_json)
+                    VALUES (?,?,'TEAM_BOT_ARCHIVED','bot',?,'{}')""", (now,user['id'],bot_id))
+        return {"archived": True, "bot_id": bot_id}
 
     def source(self, actor, bot_id):
         # Only authorized same-Team members can obtain source. Construct the
@@ -145,6 +171,8 @@ class TeamBots:
             WHERE team_id=? AND game_id=?""", (member["id"],game_id)).fetchone()
         if not row:
             return None
+        if self.db.execute("SELECT 1 FROM submission_archives WHERE bot_id=?", (row['bot_id'],)).fetchone():
+            return None
         bot = self.store.get_bot(row["bot_id"])
         if not bot or bot.get("team_id") != member["id"] or bot.get("game_id") != game_id or bot.get("status") != "ready":
             return None  # Fail closed; never advertise stale/incompatible active bot.
@@ -162,8 +190,8 @@ class TeamBots:
             lock_due_matches(self.db, self.store, now)
             if member["status"] != "ACTIVE":
                 raise TeamConflict("Activate Team before selecting official active bot")
-            row = self.db.execute("""SELECT 1 FROM submission_ownership
-                WHERE bot_id=? AND team_id=? AND game_id=?""", (bot_id,member["id"],game_id)).fetchone()
+            row = self.db.execute("""SELECT 1 FROM submission_ownership o
+                WHERE bot_id=? AND team_id=? AND game_id=? AND NOT EXISTS (SELECT 1 FROM submission_archives a WHERE a.bot_id=o.bot_id)""", (bot_id,member["id"],game_id)).fetchone()
             bot = self.store.get_bot(bot_id)
             if not row or not bot or bot.get("team_id") != member["id"] or bot.get("game_id") != game_id:
                 raise TeamNotFound("Bot is not owned by your Team and game")

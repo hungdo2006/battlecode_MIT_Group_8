@@ -1,0 +1,43 @@
+# ONLY for a dedicated LAN host without an Internet uplink.
+# Run with: docker compose -f compose.yaml -f compose.exam.yaml ...
+# HTTPS requires installing Caddy local CA on managed client machines.
+# Never combine with compose.public.yaml.
+services:
+  arena:
+    ports: !reset []
+    networks: [ingress_private, runner_private]
+    environment:
+      ARENA_READ_ONLY: "0"
+      ARENA_ACCOUNT_AUTH: "1"
+      ARENA_ACCOUNT_ONLY: "1"
+      ARENA_PUBLIC_GATEWAY: "1"
+      ARENA_AUTH_ALLOW_HTTP: "0"
+      ARENA_AUTH_ORIGINS: "https://${ARENA_PUBLIC_DOMAIN:?Set LAN DNS name}"
+      ARENA_ALLOWED_HOSTS: "${ARENA_PUBLIC_DOMAIN:?Set LAN DNS name}"
+      ARENA_PROXY_SECRET: "${ARENA_PROXY_SECRET:?Set a private random 48+ character token}"
+      ARENA_SELF_REGISTRATION: "0"
+      ARENA_EMAIL_VERIFICATION: "0"
+      ARENA_PUBLIC_USERNAME_SIGNUP: "0"
+      ARENA_ADMIN_TOTP_REQUIRED: "1"
+      ARENA_PUBLIC_ADMIN_PASSWORD_ONLY: "0"
+  gateway:
+    image: caddy:2.9.1-alpine
+    depends_on: [arena]
+    restart: unless-stopped
+    ports:
+      - "${ARENA_LAN_BIND_IP:?Set the LAN-only IPv4 address}:443:443"
+    networks: [default, ingress_private]
+    environment:
+      ARENA_PUBLIC_DOMAIN: "${ARENA_PUBLIC_DOMAIN:?Set LAN DNS name}"
+      ARENA_PROXY_SECRET: "${ARENA_PROXY_SECRET:?Set private proxy secret}"
+    volumes:
+      - ./deploy/Caddyfile.exam:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    security_opt: [no-new-privileges:true]
+networks:
+  ingress_private:
+    internal: true
+volumes:
+  caddy_data:
+  caddy_config:

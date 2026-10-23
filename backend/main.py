@@ -217,7 +217,11 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
             return JSONResponse({"detail": "Origin không được phép."}, status_code=403)
         mutation = request.method not in {"GET", "HEAD", "OPTIONS"}
         if account_settings.account_only:
-            if request.url.path.startswith("/api/") and request.url.path != "/api/health":
+            # A narrow read-only spectator endpoint is safe without account
+            # cookies; keep every legacy mutation and all other APIs gated.
+            spectator = (request.url.path == "/api/public/standings"
+                         and request.method == "GET")
+            if request.url.path.startswith("/api/") and request.url.path != "/api/health" and not spectator:
                 return JSONResponse({"detail": "Legacy API disabled in account-only mode"}, status_code=410)
             response = await call_next(request)
             if request.url.path.startswith("/api/"):
@@ -1233,6 +1237,11 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
     @app.get("/", include_in_schema=False)
     async def index():
         return FileResponse(PROJECT / "frontend" / "index.html")
+
+    @app.get("/results", include_in_schema=False)
+    async def public_results():
+        return FileResponse(PROJECT / "frontend" / "results.html",
+                            headers={"Cache-Control": "no-store"})
 
     @app.get("/lan", include_in_schema=False)
     async def lan_guide():

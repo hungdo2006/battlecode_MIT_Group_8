@@ -33,6 +33,7 @@ def test_new_database_creates_current_schema_with_team_official_email_and_totp(t
             (17, "competition_season_registration"),
             (18, "team_capacity_and_submission_archive"),
             (19, "opt_in_practice_matchmaking"),
+            (20, "tournament_round_rules_and_visibility"),
         ]
         indexes = {row[0] for row in connection.execute("SELECT name FROM sqlite_schema WHERE type='index'")}
         assert "membership_active_user_global" in indexes
@@ -85,7 +86,10 @@ def test_v17_upgrade_atomic_failure_recovery_and_data_preservation(tmp_path,monk
     with db.read() as conn:
         for table,rows in before.items():
             result = [tuple(row) for row in conn.execute(f'SELECT * FROM "{table}"')]
-            assert result[:len(rows)] == rows
+            # Append-only migrations may add default-valued columns.
+            # Validate every originally persisted value without discarding new ones.
+            assert [tuple(actual[:len(original)]) for actual,original
+                    in zip(result[:len(rows)],rows)] == rows
         assert conn.execute('SELECT max_members FROM team_policy').fetchone()[0] == 5
         check_integrity(conn)
     assert replay.read_bytes() == b'{"fixture":"unchanged replay"}\n'

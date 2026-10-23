@@ -216,6 +216,18 @@ class OfficialSchedule:
                     or {fixture["team_a_id"], fixture["team_b_id"]} != {team_a_id, team_b_id}):
                     raise OfficialConflict("Tournament fixture is unavailable or does not match this schedule")
             rules=self.registry.get(game_id).validate_rules(self.store.get_rules(game_id))
+            if fixture is not None:
+                round_policy = self.db.execute("""SELECT rules_json,status,published_at,editing_minutes
+                    FROM team_tournament_round_rules
+                    WHERE tournament_id=? AND stage=? AND round_number=?""",
+                    (fixture["tournament_id"], fixture["stage"], fixture["round_number"])).fetchone()
+                if round_policy:
+                    if round_policy["status"] != "PUBLISHED":
+                        raise OfficialConflict("Round rules have not been published")
+                    edit_deadline = round_policy["published_at"] + round_policy["editing_minutes"] * 60
+                    if bot_lock_at < edit_deadline:
+                        raise OfficialConflict("Bot lock must be after the round's editing window")
+                    rules=self.registry.get(game_id).validate_rules(json.loads(round_policy["rules_json"]))
             request_id=uuid4().hex
             self.db.execute("""INSERT INTO official_match_requests
                 (id,created_by,team_a_id,team_b_id,game_id,rules_json,

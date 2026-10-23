@@ -59,6 +59,10 @@ class OTTAdapter(GameAdapter):
                 board[row][col] = {"id": f"{owner.lower()}-{kind}-{index}", "owner": owner, "type": kind}
         return board
 
+    def initial_board_from_rules(self, rules):
+        """Extension hook: standard OTT always uses its historical 9x9 setup."""
+        return self.initial_board()
+
     @staticmethod
     def count_pieces(state):
         counts = {p: dict.fromkeys(TYPES, 0) for p in ("A", "B")}
@@ -175,7 +179,7 @@ class OTTAdapter(GameAdapter):
         if state["pending_round"]:
             if actions:
                 raise InvalidAction("Chuyển ván không nhận hành động bot.")
-            next_state.update(board=self.initial_board(), current_player="A", round=state["round"] + 1,
+            next_state.update(board=self.initial_board_from_rules(next_state["rules"]), current_player="A", round=state["round"] + 1,
                               round_turn=0, pending_round=False, last_move=None, round_result=None, actions={})
             next_state["events"] = [{"type": "round_start", "round": next_state["round"]}]
             return self.serialize_state(next_state)

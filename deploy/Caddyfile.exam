@@ -1,0 +1,23 @@
+# LAN TLS from Caddy's *local* CA. Trust root on each managed client.
+# No ACME/Internet validation. A trusted local DNS record must match the host.
+{$ARENA_PUBLIC_DOMAIN} {
+    tls internal
+    encode gzip zstd
+    header {
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "no-referrer"
+        -Server
+    }
+    reverse_proxy arena:8000 {
+        header_up -X-Forwarded-For
+        header_up -X-Forwarded-Proto
+        header_up -X-Forwarded-Host
+        header_up -Forwarded
+        header_up -X-Real-IP
+        header_up Host {host}
+        header_up X-Arena-Proxy-Secret {$ARENA_PROXY_SECRET}
+        header_up X-Arena-Client-IP {remote_host}
+        header_up X-Arena-HTTPS 1
+    }
+}

@@ -769,6 +769,103 @@ class TeamTournamentService:
                 VALUES (?,?,'STARTED',?)""", (tournament_id, admin["id"], now))
             return self.detail(actor, tournament_id, admin=True)
 
+    def _round_guard(self, tournament_id, stage, round_number):
+        if stage not in ("GROUP", "KNOCKOUT") or type(round_number) is not int or round_number < 1:
+            raise ValueError("Invalid Tournament round")
+        row = self.db.execute("SELECT * FROM team_tournaments WHERE id=?", (tournament_id,)).fetchone()
+        if not row:
+            raise TournamentNotFound("Tournament not found")
+        if row["status"] != "ACTIVE":
+            raise TournamentConflict("Tournament must be active to configure round rules")
+        if not self.db.execute("""SELECT 1 FROM team_tournament_fixtures
+                WHERE tournament_id=? AND stage=? AND round_number=? LIMIT 1""",
+                (tournament_id,stage,round_number)).fetchone():
+            raise TournamentConflict("Round fixtures have not been generated yet")
+        # Even cancelled/rescheduled matches keep an immutable attempt record.
+        if self.db.execute("""SELECT 1 FROM team_tournament_fixtures f
+                JOIN team_tournament_fixture_matches m ON m.fixture_id=f.id
+                WHERE f.tournament_id=? AND f.stage=? AND f.round_number=? LIMIT 1""",
+                (tournament_id,stage,round_number)).fetchone():
+            raise TournamentConflict("Round already scheduled; its rules are immutable")
+        return row
+
+    def save_round_draft(self, actor, tournament_id, stage, round_number, rules, editing_minutes):
+        self._ready()
+        with transaction(self.db):
+            admin = self.auth.require_actor(actor,self.auth._now(),admin=True)
+            if editing_minutes not in (15,20) or type(editing_minutes) is not int:
+                raise ValueError("Choose 15 or 20 minutes")
+            tournament = self._round_guard(tournament_id,stage,round_number)
+            old = self.db.execute("""SELECT status FROM team_tournament_round_rules
+                WHERE tournament_id=? AND stage=? AND round_number=?""",
+                (tournament_id,stage,round_number)).fetchone()
+            if old and old["status"] == "PUBLISHED":
+                raise TournamentConflict("Published rules cannot be changed")
+            validated = self.registry.get(tournament["game_id"]).validate_rules(rules)
+            now = self.auth._now()
+            self.db.execute("""INSERT INTO team_tournament_round_rules
+                (tournament_id,stage,round_number,rules_json,status,editing_minutes,published_at,updated_by,updated_at)
+                VALUES (?,?,?,?,'DRAFT',?,NULL,?,?)
+                ON CONFLICT(tournament_id,stage,round_number) DO UPDATE SET
+                rules_json=excluded.rules_json,editing_minutes=excluded.editing_minutes,
+                updated_by=excluded.updated_by,updated_at=excluded.updated_at""",
+                (tournament_id,stage,round_number,json.dumps(validated,sort_keys=True,separators=(",",":")),
+                 editing_minutes,admin["id"],now))
+            return self.detail(actor,tournament_id,admin=True)
+
+    def publish_round(self, actor, tournament_id, stage, round_number):
+        self._ready()
+        with transaction(self.db):
+            admin = self.auth.require_actor(actor,self.auth._now(),admin=True)
+            self._round_guard(tournament_id,stage,round_number)
+            now = self.auth._now()
+            result = self.db.execute("""UPDATE team_tournament_round_rules
+                SET status='PUBLISHED',published_at=?,updated_at=?,updated_by=?
+                WHERE tournament_id=? AND stage=? AND round_number=? AND status='DRAFT'""",
+                (now,now,admin["id"],tournament_id,stage,round_number))
+            if result.rowcount != 1:
+                raise TournamentConflict("No unpublished rules draft for this round")
+            self.db.execute("""INSERT INTO team_tournament_audit
+                (tournament_id,actor_user_id,action,occurred_at)
+                VALUES (?,?,'ROUND_RULES_PUBLISHED',?)""", (tournament_id,admin["id"],now))
+            return self.detail(actor,tournament_id,admin=True)
+
+    def set_visibility(self, actor, tournament_id, visibility):
+        self._ready()
+        if visibility not in ("PRIVATE","SIGNED_IN","PUBLIC"):
+            raise ValueError("Invalid scoreboard visibility")
+        with transaction(self.db):
+            admin = self.auth.require_actor(actor,self.auth._now(),admin=True)
+            result = self.db.execute("UPDATE team_tournaments SET visibility=? WHERE id=?",
+                                     (visibility,tournament_id))
+            if result.rowcount != 1:
+                raise TournamentNotFound("Tournament not found")
+            self.db.execute("""INSERT INTO team_tournament_audit
+                (tournament_id,actor_user_id,action,occurred_at)
+                VALUES (?,?,'VISIBILITY_CHANGED',?)""",
+                (tournament_id,admin["id"],self.auth._now()))
+            return self.detail(actor,tournament_id,admin=True)
+
+    def public_standings(self):
+        # Explicit projection: NEVER expose team IDs, fixture IDs, source,
+        # bot revisions, private replay links or participant account data.
+        allowed = ("rank","team_name","played","wins","draws","losses",
+                   "points","score_for","score_difference","byes","buchholz")
+        def scores(rows):
+            return [{key:item[key] for key in allowed if key in item} for item in rows]
+        result = []
+        ids = [row[0] for row in self.db.execute("""SELECT id FROM team_tournaments
+            WHERE visibility='PUBLIC' ORDER BY created_at DESC,id DESC LIMIT 100""")]
+        for tournament_id in ids:
+            detail = self._detail(tournament_id)
+            result.append({
+                **{key:detail[key] for key in ("id","name","game_id","status","format")},
+                "standings":scores(detail["standings"]),
+                "groups":[{"name":g["name"],"standings":scores(g["standings"])}
+                          for g in detail["groups"]],
+            })
+        return result
+
     def list(self, actor, *, admin=False):
         user = self._user(actor, admin=admin)
         if admin:
@@ -776,20 +873,24 @@ class TeamTournamentService:
                 "SELECT id FROM team_tournaments ORDER BY created_at DESC,id DESC LIMIT 100")]
         else:
             ids = [row[0] for row in self.db.execute("""SELECT DISTINCT t.id,t.created_at
-                FROM team_tournaments t JOIN team_tournament_entries e ON e.tournament_id=t.id
-                JOIN team_memberships m ON m.team_id=e.team_id
-                WHERE m.user_id=? AND m.left_at IS NULL
+                FROM team_tournaments t
+                LEFT JOIN team_tournament_entries e ON e.tournament_id=t.id
+                LEFT JOIN team_memberships m ON m.team_id=e.team_id
+                WHERE t.visibility IN ('SIGNED_IN','PUBLIC')
+                    OR (m.user_id=? AND m.left_at IS NULL)
                 ORDER BY t.created_at DESC,t.id DESC LIMIT 100""", (user["id"],))]
-        return [self._detail(tournament_id) for tournament_id in ids]
+        return [self._detail(tournament_id, admin=admin) for tournament_id in ids]
 
     def detail(self, actor, tournament_id, *, admin=False):
         user = self._user(actor, admin=admin)
-        if not admin and not self.db.execute("""SELECT 1 FROM team_tournament_entries e
-            JOIN team_memberships m ON m.team_id=e.team_id
-            WHERE e.tournament_id=? AND m.user_id=? AND m.left_at IS NULL LIMIT 1""",
+        if not admin and not self.db.execute("""SELECT 1 FROM team_tournaments t
+            LEFT JOIN team_tournament_entries e ON e.tournament_id=t.id
+            LEFT JOIN team_memberships m ON m.team_id=e.team_id
+            WHERE t.id=? AND (t.visibility IN ('SIGNED_IN','PUBLIC')
+                OR (m.user_id=? AND m.left_at IS NULL)) LIMIT 1""",
             (tournament_id, user["id"])).fetchone():
             raise TournamentNotFound("Tournament not found")
-        return self._detail(tournament_id)
+        return self._detail(tournament_id,admin=admin)
 
     def resolve_tie(self, actor, tournament_id, fixture_id, winner_team_id):
         self._ready()
@@ -810,7 +911,7 @@ class TeamTournamentService:
             advance_single_elimination(self.db, tournament_id, now, admin["id"])
             return self.detail(actor, tournament_id, admin=True)
 
-    def _detail(self, tournament_id):
+    def _detail(self, tournament_id, *, admin=False):
         row = self.db.execute("""SELECT t.*,coalesce(f.format,t.format) AS effective_format
             FROM team_tournaments t LEFT JOIN team_tournament_format_overrides f
             ON f.tournament_id=t.id WHERE t.id=?""", (tournament_id,)).fetchone()
@@ -868,7 +969,19 @@ class TeamTournamentService:
                     item["rank"] = position
                 groups.append({"id": group["id"], "name": group["name"],
                     "group_number": group["group_number"], "standings": group_rows})
-        result = {key: row[key] for key in ("id", "name", "game_id", "status", "created_at", "started_at")}
+        result = {key: row[key] for key in ("id", "name", "game_id", "status", "created_at", "started_at", "visibility")}
+        round_rules = []
+        for record in self.db.execute("""SELECT stage,round_number,rules_json,status,
+                editing_minutes,published_at FROM team_tournament_round_rules
+                WHERE tournament_id=? ORDER BY round_number,stage""", (tournament_id,)):
+            if record["status"] != "PUBLISHED" and not admin:
+                continue
+            value = dict(record)
+            value["rules"] = json.loads(value.pop("rules_json"))
+            value["bot_lock_at"] = (value["published_at"] + value["editing_minutes"]*60
+                                    if value["published_at"] is not None else None)
+            round_rules.append(value)
+        result["round_rules"] = round_rules
         result["format"] = row["effective_format"]
         result["qualifier_target"] = row["qualifier_target"]
         result["qualifier_rounds_total"] = self.db.execute("SELECT coalesce(max(round_number),0) FROM team_tournament_bracket_slots WHERE tournament_id=? AND bracket='WINNERS'",

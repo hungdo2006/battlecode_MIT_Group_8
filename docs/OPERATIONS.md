@@ -4,7 +4,7 @@
 
 ## Migration và Admin
 
-Schema hiện tại: **19**, xác định bởi `backend/account_schema.py` và `SCHEMA_VERSION`. Migration 18 thêm giới hạn đội và tombstone bot; migration 19 thêm lượt tìm trận. Không sửa các migration 1–17. DB cũ phải migrate offline; không tự sửa `PRAGMA user_version`. Trước cập nhật: đóng admission, đợi/hủy công việc hợp lệ, dừng writer và sao lưu. Rehearse trên bản sao trước dữ liệu thật.
+Schema hiện tại: **20**, xác định bởi `backend/account_schema.py` và `SCHEMA_VERSION`. Migration 18 thêm giới hạn đội và tombstone bot; migration 19 thêm lượt tìm trận; migration 20 thêm luật theo vòng và quyền công bố bảng điểm. Không sửa các migration 1–19. DB cũ phải migrate offline (kể cả đang ở schema 19); không tự sửa `PRAGMA user_version`. Trước cập nhật: đóng admission, đợi/hủy công việc hợp lệ, dừng writer và sao lưu. Rehearse trên bản sao trước dữ liệu thật.
 
 Với image đã build cho phiên bản đích và Arena đã dừng:
 
@@ -70,3 +70,11 @@ docker compose -f compose.yaml -f compose.public.yaml config -q
 ```
 
 Trước go-live: chạy browser/Docker/HTTPS/WebSocket QA trên staging, kiểm tra quyền Team/CSRF/rate limit, backup/restore, recovery khi crash và giới hạn tải. Ban tổ chức giữ domain, cloud, MFA, backup, giám sát và quy trình sự cố. Không suy nghiệm thu public từ unit test hoặc local QA; việc triển khai cần ủy quyền riêng.
+
+## Luật theo vòng và điểm công khai (schema 20)
+
+Admin có thể tạo nháp luật cho từng cặp `stage + round_number` đã có fixture, chọn 15 hoặc 20 phút rồi công bố. Ngay khi công bố, bộ luật là bất biến; cùng vòng phải dùng đúng một snapshot đã công bố. Official Match tiếp theo có `bot_lock_at` không được sớm hơn `published_at + editing_minutes*60`. Một khi vòng đã từng được xếp lịch, kể cả lịch đã hủy, không cho sửa luật vòng.
+
+Trận Official đã tạo giữ `rules_json` riêng bất biến; sửa luật toàn cục không cập nhật lịch cũ. Nếu Tournament chưa có luật theo vòng, tiếp tục dùng luật toàn cục như bản trước để tương thích. Admin có thể chọn PRIVATE (mặc định), SIGNED_IN hoặc PUBLIC cho bảng điểm. Endpoint `/api/public/standings` và trang `/results` chỉ hiện điểm Team ở Tournament PUBLIC; không cấp source bot hoặc replay.
+
+Bản này có migration 20, do đó *không sử dụng lệnh git pull + compose up trực tiếp trên production*. Cần backup + restore drill, dừng writer, build image mới, chạy offline migrate/check rồi mới khởi động.

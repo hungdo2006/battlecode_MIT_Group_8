@@ -2657,6 +2657,125 @@ function renderTeamTournaments() {
       actions.append(start);
     }
     card.append(heading, meta, chips);
+    if (app.accountAudience === "admin") {
+      const visibility = el("label", "form-note", "Quyền xem bảng điểm · ");
+      const control = document.createElement("select");
+      control.setAttribute("aria-label", "Quyền xem bảng điểm " + tournament.name);
+      for (const [value, label] of [["PRIVATE", "Chỉ đội dự giải"], ["SIGNED_IN", "Tài khoản đăng nhập"], ["PUBLIC", "Công khai"]]) {
+        const option = document.createElement("option"); option.value = value; option.textContent = label; control.append(option);
+      }
+      control.value = tournament.visibility || "PRIVATE";
+      control.onchange = async () => {
+        control.disabled = true;
+        try {
+          await api(`/api/admin/team-tournaments/${encodeURIComponent(tournament.id)}/visibility`, jsonOptions("PUT", {visibility: control.value}));
+          await refreshTeamTournaments();
+          toast("Đã cập nhật quyền xem bảng điểm.");
+        } catch (error) { control.disabled = false; toast(error.message, true); }
+      };
+      visibility.append(control);
+      card.append(visibility);
+    }
+    if (tournament.round_rules?.length) {
+      const published = tournament.round_rules.filter(item => item.status === "PUBLISHED");
+      for (const policy of published) {
+        card.append(el("p", "tournament-feedback",
+          `Luật ${policy.stage === "GROUP" ? "vòng bảng" : "loại trực tiếp"} ${policy.round_number}: đã công bố · Hạn chọn bot ${new Date(policy.bot_lock_at * 1000).toLocaleString("vi-VN")} · ${JSON.stringify(policy.rules)}`));
+      }
+    }
+    if (app.accountAudience === "admin" && tournament.status === "ACTIVE") {
+      const keys = [...new Set(tournament.fixtures.map(f => `${f.stage}:${f.round_number}`))].sort();
+      for (const key of keys) {
+        const [stage, n] = key.split(":"); const roundNumber = Number(n);
+        const policy = tournament.round_rules?.find(p => p.stage === stage && p.round_number === roundNumber);
+        if (policy?.status === "PUBLISHED") continue;
+        const details = el("details", "workflow-disclosure");
+        details.append(el("summary", "", `Cấu hình luật ${stage === "GROUP" ? "vòng bảng" : "vòng đấu"} ${roundNumber}${policy ? " · Bản nháp" : ""}`));
+        const form = el("form", "padded-form");
+        const game = app.games.find(g => g.game_id === tournament.game_id);
+        const currentRules = policy?.rules || game?.rules || game?.default_rules || {};
+        const schemas = game?.rules_schema?.properties || {};
+        const fields = el("div", "rules-fields");
+        if (Object.keys(schemas).length) {
+          for (const [name, schema] of Object.entries(schemas)) {
+            const label = el("label", "", schema.title || name);
+            let input;
+            if (schema.enum) {
+              input = document.createElement("select");
+              for (const value of schema.enum) {
+                const option = document.createElement("option"); option.value = String(value);
+                option.textContent = String(value); input.append(option);
+              }
+            } else if (schema.type === "object" || schema.type === "array") {
+              input = document.createElement("textarea"); input.rows = 2;
+            } else {
+              input = document.createElement("input");
+              input.type = schema.type === "boolean" ? "checkbox"
+                : ["integer", "number"].includes(schema.type) ? "number" : "text";
+              if (schema.minimum !== undefined) input.min = String(schema.minimum);
+              if (schema.maximum !== undefined) input.max = String(schema.maximum);
+              if (input.type === "number") input.step = schema.type === "integer" ? "1" : "any";
+            }
+            input.name = name; input.required = schema.type !== "boolean";
+            const value = currentRules[name] ?? schema.default ?? "";
+            if (input.type === "checkbox") input.checked = Boolean(value);
+            else input.value = schema.type === "object" || schema.type === "array" ? JSON.stringify(value, null, 2) : String(value);
+            label.append(input);
+            if (schema.description) label.append(el("small", "field-description", schema.description));
+            fields.append(label);
+          }
+        } else {
+          const label = el("label", "", "Luật JSON (adapter chưa có schema biểu mẫu)");
+          const textarea = document.createElement("textarea"); textarea.name = "raw_rules";
+          textarea.rows = 4; textarea.value = JSON.stringify(currentRules, null, 2);
+          label.append(textarea); fields.append(label);
+        }
+        const minuteLabel = el("label", "", "Thời gian chỉnh bot sau công bố");
+        const minutes = document.createElement("select");
+        for (const value of [15, 20]) {
+          const option = document.createElement("option"); option.value = String(value); option.textContent = value + " phút"; minutes.append(option);
+        }
+        minutes.value = String(policy?.editing_minutes || 20); minuteLabel.append(minutes);
+        const save = el("button", "button ghost small", "Lưu nháp"); save.type = "submit";
+        form.onsubmit = async event => {
+          event.preventDefault(); save.disabled = true;
+          try {
+            const rules = {};
+            if (!Object.keys(schemas).length) {
+              Object.assign(rules, JSON.parse(fields.querySelector('[name="raw_rules"]').value));
+            } else {
+              for (const [name, schema] of Object.entries(schemas)) {
+                const input = [...fields.querySelectorAll("input,select,textarea")].find(el => el.name === name);
+                rules[name] = schema.type === "boolean" ? input.checked
+                  : ["integer", "number"].includes(schema.type) ? Number(input.value)
+                  : ["object", "array"].includes(schema.type) ? JSON.parse(input.value)
+                  : input.value;
+              }
+            }
+            if (!rules || Array.isArray(rules) || typeof rules !== "object") throw new Error("JSON luật phải là object.");
+            await api(`/api/admin/team-tournaments/${encodeURIComponent(tournament.id)}/rounds/${stage}/${roundNumber}/rules`,
+              jsonOptions("PUT", {rules, editing_minutes: Number(minutes.value)}));
+            await refreshTeamTournaments(); toast("Đã lưu nháp luật, chưa công bố.");
+          } catch (error) { save.disabled = false; toast(error.message, true); }
+        };
+        form.append(fields, minuteLabel, save);
+        if (policy?.status === "DRAFT") {
+          const publish = el("button", "button primary small", "Công bố luật và bắt đầu giờ chỉnh bot");
+          publish.type = "button";
+          publish.onclick = async () => {
+            if (!await confirmAction("Công bố luật vòng?", "Sau khi công bố không thể sửa. Các đội có 15 hoặc 20 phút để chỉnh bot trước thời hạn khóa.", "Công bố")) return;
+            publish.disabled = true;
+            try {
+              await api(`/api/admin/team-tournaments/${encodeURIComponent(tournament.id)}/rounds/${stage}/${roundNumber}/publish`, jsonOptions("POST", {}));
+              await refreshTeamTournaments(); toast("Đã công bố luật vòng.");
+            } catch (error) { publish.disabled = false; toast(error.message, true); }
+          };
+          form.append(publish);
+        }
+        details.append(form);
+        card.append(details);
+      }
+    }
     if (tournament.qualifier_target) {
       const qualifierRounds = [...new Set(tournament.bracket.filter(slot => slot.bracket === "WINNERS").map(slot => slot.round_number))].sort((a, b) => a - b);
       const done = (roundNumber) => tournament.bracket.filter(slot => slot.bracket === "WINNERS" && slot.round_number === roundNumber).every(slot => ["COMPLETED", "BYE"].includes(slot.status));
@@ -2796,8 +2915,10 @@ function renderTeamTournaments() {
       }
       if (app.accountAudience === "admin" && tournament.status === "ACTIVE" && !fixture.official_request_id) {
         const controls = el("div", "form-buttons");
-        const lockInput = document.createElement("input"); lockInput.type = "datetime-local"; lockInput.setAttribute("aria-label", "Thời điểm khóa bot"); lockInput.value = officialLocalInput(Date.now() + 120000);
-        const scheduledInput = document.createElement("input"); scheduledInput.type = "datetime-local"; scheduledInput.setAttribute("aria-label", "Thời điểm thi đấu"); scheduledInput.value = officialLocalInput(Date.now() + 300000);
+        const roundPolicy = tournament.round_rules?.find(p => p.stage === fixture.stage && p.round_number === fixture.round_number);
+        const defaultLockAt = Math.max(Date.now() + 120000, (roundPolicy?.bot_lock_at || 0) * 1000 + 60000);
+        const lockInput = document.createElement("input"); lockInput.type = "datetime-local"; lockInput.setAttribute("aria-label", "Thời điểm khóa bot"); lockInput.value = officialLocalInput(defaultLockAt);
+        const scheduledInput = document.createElement("input"); scheduledInput.type = "datetime-local"; scheduledInput.setAttribute("aria-label", "Thời điểm thi đấu"); scheduledInput.value = officialLocalInput(defaultLockAt + 180000);
         const schedule = el("button", "button ghost small", "XẾP LỊCH"); schedule.type = "button";
         schedule.onclick = async () => {
           schedule.disabled = true;

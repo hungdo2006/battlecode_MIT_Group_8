@@ -4134,7 +4134,7 @@ function renderAccountBotLibrary() {
     row.append(name,el("span","tag",bot.game_id));
     if (outdated) row.append(el("p","form-note","Sandbox đã thay đổi. Hãy nộp lại mã nguồn bot, rồi nhờ trưởng đội chọn bản mới."));
     const active=bot.is_active || app.activeTeamBot?.bot?.id===bot.id;
-    const btn=el("button","button ghost small",active?"Đang đại diện ✓":"Chọn làm bot đại diện");
+    const btn=el("button","button ghost small",outdated && active ? "Cần thay bot đại diện" : active ? "Đang đại diện ✓" : "Chọn làm bot đại diện");
     btn.disabled=app.team?.my_role!=="CAPTAIN" || app.team?.team?.status!=="ACTIVE" || bot.status!=="ready" || active;
     btn.hidden=app.team?.my_role!=="CAPTAIN";
     btn.title=active ? "Bot đang đại diện cho đội ở game này" : app.team?.team?.status!=="ACTIVE" ? "Trưởng đội cần xác nhận đội sẵn sàng" : outdated ? "Hãy nộp lại mã nguồn để biên dịch với Sandbox hiện tại" : bot.status!=="ready" ? "Bot cần biên dịch thành công" : "Chọn bot đại diện cho game này";

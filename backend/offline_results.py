@@ -194,7 +194,7 @@ def verify_package(package):
     if not isinstance(package, dict) or set(package) != {"payload", "signature"}:
         raise OfflineResultsError("Gói kết quả không có chữ ký hợp lệ.")
     raw = _canonical(package["payload"])
-    if len(raw) > MAX_BYTES or not re.fullmatch(r"[a-f0-9]{64}", str(package["signature"])):
+    if len(raw) > MAX_BYTES or not isinstance(package["signature"], str) or not re.fullmatch(r"[a-f0-9]{64}", package["signature"]):
         raise OfflineResultsError("Gói kết quả vượt giới hạn hoặc sai chữ ký.")
     expected = hmac.new(_key(), raw, hashlib.sha256).hexdigest()
     if not hmac.compare_digest(expected, package["signature"]):

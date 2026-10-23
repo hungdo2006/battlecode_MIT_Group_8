@@ -7,6 +7,7 @@ through a CSRF-protected Admin operation when connectivity returns.
 import hashlib
 import hmac
 import json
+import math
 import os
 import re
 import threading
@@ -46,7 +47,8 @@ def _source():
 
 
 def _text(value, length=128):
-    if not isinstance(value, str) or not value.strip() or len(value) > length:
+    if (not isinstance(value, str) or not value.strip() or len(value) > length
+            or any(ord(character) < 32 or ord(character) == 127 for character in value)):
         raise OfflineResultsError("Tên hoặc định danh giải offline không hợp lệ.")
     return value
 
@@ -65,6 +67,8 @@ def _score(row, *, strict=False):
             continue
         if type(value) not in (int, float) or (key in _SCORE_COUNTS and type(value) is not int):
             raise OfflineResultsError("Điểm số giải offline không hợp lệ.")
+        if not math.isfinite(value):
+            raise OfflineResultsError("Điểm số phải là số hữu hạn.")
         if key not in ("score_difference",) and value < 0:
             raise OfflineResultsError("Điểm số âm không hợp lệ.")
     return result
@@ -79,6 +83,8 @@ def _project(detail):
     team_names = {t["team_id"]: _text(t["team_name_snapshot"]) for t in detail["teams"]}
     if len(team_names) < 2 or len(team_names) > 128:
         raise OfflineResultsError("Số đội không hợp lệ.")
+    if len(set(team_names.values())) != len(team_names):
+        raise OfflineResultsError("Tên đội trong giải phải là duy nhất để công bố kết quả.")
     def name(team_id):
         return team_names.get(team_id) if team_id is not None else None
 
@@ -120,7 +126,7 @@ def _project(detail):
 def _validate(payload):
     if not isinstance(payload, dict) or set(payload) != {"version", "source", "tournament"}:
         raise OfflineResultsError("Gói kết quả không đúng định dạng.")
-    if payload["version"] != VERSION or not re.fullmatch(r"[a-zA-Z0-9_-]{3,48}", str(payload["source"])):
+    if payload["version"] != VERSION or not isinstance(payload["source"], str) or not re.fullmatch(r"[a-zA-Z0-9_-]{3,48}", payload["source"]):
         raise OfflineResultsError("Phiên bản hoặc mã điểm thi không hợp lệ.")
     tournament = payload["tournament"]
     fields = {"id", "name", "game_id", "format", "status", "teams", "standings",
@@ -135,11 +141,16 @@ def _validate(payload):
         raise OfflineResultsError("Danh sách đội không hợp lệ.")
     for team in tournament["teams"]:
         _text(team)
+    teams = set(tournament["teams"])
+    if len(teams) != len(tournament["teams"]):
+        raise OfflineResultsError("Tên đội trong gói công bố bị trùng.")
     for key, maximum in (("standings", 128), ("groups", 64), ("matches", 4096), ("bracket", 4096)):
         if not isinstance(tournament[key], list) or len(tournament[key]) > maximum:
             raise OfflineResultsError("Gói kết quả vượt giới hạn.")
     for score in tournament["standings"]:
         _score(score, strict=True)
+        if score["team_name"] not in teams:
+            raise OfflineResultsError("Bảng điểm chứa đội không tham dự giải.")
     for group in tournament["groups"]:
         if not isinstance(group, dict) or set(group) != {"name", "standings"}:
             raise OfflineResultsError("Bảng đấu sai định dạng.")
@@ -148,6 +159,8 @@ def _validate(payload):
             raise OfflineResultsError("Bảng điểm nhóm không hợp lệ.")
         for score in group["standings"]:
             _score(score, strict=True)
+            if score["team_name"] not in teams:
+                raise OfflineResultsError("Bảng điểm nhóm chứa đội không tham dự giải.")
     for key, names in (("matches", {"round","stage","team_a","team_b","winner"}),
                        ("bracket", {"round","status","team_a","team_b","winner"})):
         for row in tournament[key]:
@@ -157,6 +170,10 @@ def _validate(payload):
             for side in ("team_a", "team_b", "winner"):
                 if row[side] is not None:
                     _text(row[side])
+                    if row[side] not in teams:
+                        raise OfflineResultsError("Trận đấu chứa đội không tham dự giải.")
+            if row["winner"] is not None and row["winner"] not in (row["team_a"], row["team_b"]):
+                raise OfflineResultsError("Đội thắng không thuộc cặp đấu.")
     if not tournament["matches"]:
         raise OfflineResultsError("Gói giải đấu không có trận hoàn tất.")
     return payload

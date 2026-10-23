@@ -1,81 +1,89 @@
-"""Scrimmage UX is guided, while server-side matchmaking stays authoritative."""
+"""Player practice is a list of direct challenges, not automatic matchmaking."""
 from html.parser import HTMLParser
 from pathlib import Path
 
-
-FRONTEND = Path(__file__).resolve().parents[1] / "frontend"
+ROOT = Path(__file__).resolve().parents[1]
+FRONTEND = ROOT / "frontend"
 
 
 class Audit(HTMLParser):
     def __init__(self):
         super().__init__()
         self.ids = []
-        self.links = []
-        self.details = []
+
     def handle_starttag(self, tag, attrs):
-        args = dict(attrs)
-        if "id" in args:
-            self.ids.append(args["id"])
-        if tag == "a":
-            self.links.append(args.get("href", ""))
-        if tag == "details":
-            self.details.append(args.get("id", ""))
+        props = dict(attrs)
+        if props.get("id"):
+            self.ids.append(props["id"])
 
 
-def test_practice_screen_exposes_guidance_and_live_actions():
-    doc = (FRONTEND / "index.html").read_text(encoding="utf-8")
+def test_practice_page_lists_teams_and_a_direct_trial_action():
+    html = (FRONTEND / "index.html").read_text(encoding="utf-8")
     parser = Audit()
-    parser.feed(doc)
+    parser.feed(html)
     assert len(parser.ids) == len(set(parser.ids))
-    expected = [
-        "view-scrimmage", "scrimmage-create-panel", "practice-state",
-        "practice-state-title", "scrimmage-eligibility", "scrimmage-game",
-        "matchmaking-state", "matchmaking-detail", "matchmaking-clock",
-        "matchmaking-cancel", "matchmaking-watch", "scrimmage-bot-link",
-        "practice-match-filter", "scrimmage-list", "refresh-scrimmages"
-    ]
-    assert all(key in parser.ids for key in expected)
-    assert "Không tính điểm giải đấu" in doc
-    assert "Tối đa 5 phút" in doc
-    assert "Chọn trò chơi" in doc
-    assert "Tìm đối thủ" in doc
-    assert "Xem trận" in doc
+    expected = (
+        "view-scrimmage", "scrimmage-create-panel", "scrimmage-game",
+        "practice-state", "practice-state-title", "scrimmage-eligibility",
+        "scrimmage-bot-link", "practice-opponents", "practice-opponent-filter",
+        "practice-refresh-teams", "practice-match-filter", "scrimmage-list",
+        "refresh-scrimmages",
+    )
+    assert set(expected) <= set(parser.ids)
+    assert "Đấu thử" in html and "Danh sách đội" in html
+    assert "Không cần ghép trận ngẫu nhiên" in html
+    assert "Đối thủ không cần xác nhận" in html
+    assert "Tối đa 5 phút" not in html
+    assert "matchmaking-cancel" not in parser.ids
+    assert "matchmaking-state" not in parser.ids
 
 
-def test_practice_state_is_driven_by_real_matchmaking_api():
+def test_direct_challenge_uses_existing_authorized_endpoints():
     js = (FRONTEND / "app.js").read_text(encoding="utf-8")
-    status = js.split("function renderMatchmaking() {", 1)[1].split(
-        "\nfunction updateMatchmakingClock()", 1
+    practice = js.split("async function refreshPracticeOpponents() {", 1)[1].split(
+        "setInterval(() => {\n  if (!document.hidden && app.accountOnly", 1
     )[0]
-    assert 'const pending=["SEARCHING","MATCHED","RUNNING"].includes(state);' in status
-    assert 'app.team?.my_role==="CAPTAIN"' in status
-    assert 'data.can_search && !pending' in status
-    assert 'ready' in status and 'searching' in status and 'playing' in status
-    assert 'data.ready_bot' in status
-    assert 'search?.request?.match_id' in status
-    assert 'team.status!=="ACTIVE"' in status
-    assert 'workspaceLink("upload",{focus:"bots"})' in status
-    assert 'app.matchmaking=null' in js  # Changing game clears stale state.
-    assert '"/api/player/matchmaking/find"' in js
-    assert "/api/player/matchmaking?game_id=" in js
-    assert '"/cancel"' not in status  # No mutations in view rendering.
+    assert "/api/player/scrimmage-opponents?game_id=" in practice
+    assert "/api/player/active-bot?game_id=" in practice
+    assert 'api("/api/player/scrimmages",jsonOptions("POST"' in practice
+    assert "opponent_team_id:opponent.id" in practice
+    assert 'app.team?.team?.status!=="ACTIVE"' in practice
+    assert "practiceOwnBotReady" in practice
+    assert "practiceFetchedGame" in practice
+    assert "practiceRefreshSeq" in practice  # Ignores stale game responses.
+    assert "myPending.length>=3" in practice
+    assert "involved" in practice
+    assert "renderPracticeHistory()" in practice
+    assert "/api/player/matchmaking/find" not in js  # No automatic matcher in frontend.
+    assert "/api/player/matchmaking?game_id=" not in js
 
 
-def test_practice_history_filter_is_frontend_only():
+def test_history_filters_and_trial_button_state():
     js = (FRONTEND / "app.js").read_text(encoding="utf-8")
-    code = js.split("function renderPracticeHistory() {", 1)[1].split(
-        '$("#scrimmage-create").addEventListener', 1
+    history = js.split("function renderPracticeHistory() {", 1)[1].split(
+        "setInterval(() => {\n  if (!document.hidden && app.accountOnly", 1
     )[0]
-    assert 'filter==="active"' in code
-    assert 'filter==="done"' in code
-    assert 'renderPracticeRows($("#scrimmage-list"),entries)' in code
-    assert 'app.scrimmages.filter(' in code
-    assert '/api/' not in code
+    assert 'filter==="active"' in history
+    assert 'filter==="done"' in history
+    assert 'renderPracticeRows($("#scrimmage-list"),entries)' in history
+    assert "app.scrimmages.filter(" in history
+    assert '/api/' not in history
 
 
-def test_responsive_practice_layout():
+def test_direct_team_challenges_keep_existing_backend_constraints():
+    service = (ROOT / "backend" / "scrimmage_service.py").read_text(encoding="utf-8")
+    assert "def opponents(self, actor, game_id):" in service
+    assert "def create(self, actor, game_id, opponent_id):" in service
+    assert "if mine['id'] == opponent_id:" in service
+    assert "count >= 3:" in service
+    assert "self.frozen(team_a,game_id)" in service
+    assert "self.frozen(team_b,game_id)" in service
+    assert "Only queued practice matches can be cancelled" in service
+
+
+def test_practice_responsive_layout():
     css = (FRONTEND / "styles.css").read_text(encoding="utf-8")
-    assert ".practice-workspace" in css
-    assert ".practice-state" in css
-    assert ".practice-flow" in css
-    assert "@media (max-width: 480px)" in css
+    assert ".practice-opponent-row" in css
+    assert ".practice-opponent-heading" in css
+    assert ".practice-opponent-list" in css
+    assert "@media (max-width:480px)" in css

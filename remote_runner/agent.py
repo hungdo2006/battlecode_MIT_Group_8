@@ -44,8 +44,10 @@ class WorkerAgent:
 
     def _request(self, url, *, payload=None, session=None, is_controller=False, timeout=15, limit=MAX_REPLY):
         body = None if payload is None else json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
-        if body is not None and len(body) > MAX_INPUT + 1024:
-            raise AgentError("Controller request exceeds allowed size")
+        # A match result can include a large replay; work assignments are small.
+        maximum = MAX_INPUT + 1024 if is_controller else MAX_REPLY + 1024
+        if body is not None and len(body) > maximum:
+            raise AgentError("Runner request exceeds allowed size")
         headers = {"Accept": "application/json"}
         if body is not None:
             headers["Content-Type"] = "application/json"

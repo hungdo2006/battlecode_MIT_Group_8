@@ -1234,6 +1234,11 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
     async def index():
         return FileResponse(PROJECT / "frontend" / "index.html")
 
+    @app.get("/results", include_in_schema=False)
+    async def public_results():
+        return FileResponse(PROJECT / "frontend" / "results.html",
+                            headers={"Cache-Control": "no-store"})
+
     @app.get("/lan", include_in_schema=False)
     async def lan_guide():
         return FileResponse(PROJECT / "frontend" / "lan.html")

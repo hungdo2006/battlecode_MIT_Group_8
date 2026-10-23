@@ -86,7 +86,10 @@ def test_v17_upgrade_atomic_failure_recovery_and_data_preservation(tmp_path,monk
     with db.read() as conn:
         for table,rows in before.items():
             result = [tuple(row) for row in conn.execute(f'SELECT * FROM "{table}"')]
-            assert result[:len(rows)] == rows
+            # Append-only migrations may add default-valued columns.
+            # Validate every originally persisted value without discarding new ones.
+            assert [tuple(actual[:len(original)]) for actual,original
+                    in zip(result[:len(rows)],rows)] == rows
         assert conn.execute('SELECT max_members FROM team_policy').fetchone()[0] == 5
         check_integrity(conn)
     assert replay.read_bytes() == b'{"fixture":"unchanged replay"}\n'

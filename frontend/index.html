@@ -332,10 +332,10 @@
           </div>
           <form id="scrimmage-create" class="practice-form">
             <label for="scrimmage-game">Trò chơi muốn đấu luyện<select name="game_id" id="scrimmage-game" required></select></label>
-            <div class="practice-state" id="practice-state" data-state="loading" role="status" aria-live="polite" aria-atomic="true">
+            <div class="practice-state" id="practice-state" data-state="loading">
               <span class="practice-state-symbol" aria-hidden="true"><svg class="nav-icon"><use href="#i-swords"/></svg></span>
               <div class="practice-state-body">
-                <strong id="practice-state-title">Đang kiểm tra khả năng đấu luyện…</strong>
+                <strong id="practice-state-title" role="status" aria-live="polite">Đang kiểm tra khả năng đấu luyện…</strong>
                 <p id="scrimmage-eligibility" class="form-note">Đang xác minh đội và bot đại diện.</p>
                 <p id="matchmaking-detail" class="form-note"></p>
                 <span id="matchmaking-clock" class="practice-clock"></span>

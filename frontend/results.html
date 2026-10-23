@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>NEON ARENA · Bảng điểm công khai</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,-apple-system,sans-serif;background:#0d101b;color:#edf1ff}
+body{max-width:1050px;margin:0 auto;padding:24px 16px;line-height:1.5}
+a{color:#8be4ef}h1{font-size:clamp(1.5rem,4vw,2.6rem)}
+header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
+article{border:1px solid #394158;border-radius:14px;padding:20px;margin:18px 0;background:#171c29}
+h2{margin:0 0 8px;font-size:1.3rem}p{color:#b8c1d8}
+.scroller{overflow-x:auto}table{border-collapse:collapse;width:100%;min-width:510px}
+th,td{padding:10px 12px;border-bottom:1px solid #353d51;text-align:left}
+th{color:#9dacc7}caption{text-align:left;color:#c1cee8;padding:10px 0;font-weight:600}
+button{background:#223449;color:#edf1ff;border:1px solid #546579;border-radius:8px;padding:10px 16px;cursor:pointer}
+</style>
+</head>
+<body>
+<header><h1>NEON ARENA · Bảng điểm công khai</h1><a href="/">Trang chủ</a></header>
+<p>Chỉ những giải mà Ban tổ chức đã bật chế độ công khai mới xuất hiện. Không hiển thị mã nguồn hay replay riêng tư.</p>
+<button id="reload" type="button">Làm mới</button>
+<p id="status" role="status"></p><main id="results"></main>
+<script>
+"use strict";
+const root=document.getElementById("results");
+const status=document.getElementById("status");
+function el(tag,value){const n=document.createElement(tag);if(value!==undefined)n.textContent=String(value);return n;}
+function drawTable(parent,rows,name){
+ if(!rows.length)return;
+ const wrap=el("div");wrap.className="scroller";
+ const table=el("table"),cap=el("caption",name);table.append(cap);
+ const header=el("tr");for(const col of ["Hạng","Đội","Đã đấu","Thắng","Hòa","Thua","Điểm"])header.append(el("th",col));
+ const head=el("thead");head.append(header);table.append(head);
+ const body=el("tbody");
+ for(const row of rows){const tr=el("tr");for(const key of ["rank","team_name","played","wins","draws","losses","points"])tr.append(el("td",row[key]??"—"));body.append(tr);}
+ table.append(body);wrap.append(table);parent.append(wrap);
+}
+async function load(){
+ status.textContent="Đang tải...";root.replaceChildren();
+ try{
+  const response=await fetch("/api/public/standings",{credentials:"omit",cache:"no-store"});
+  if(!response.ok)throw new Error("Không tải được dữ liệu: HTTP "+response.status);
+  const payload=await response.json();if(!Array.isArray(payload.tournaments))throw new Error("Dữ liệu không hợp lệ");
+  status.textContent=payload.tournaments.length?"Dữ liệu được công bố bởi Ban tổ chức.":"Chưa có giải đấu công khai.";
+  for(const t of payload.tournaments){
+   const box=el("article");box.append(el("h2",t.name),el("p",`${t.game_id} · ${t.format} · ${t.status}`));
+   drawTable(box,t.standings||[],"Bảng điểm");
+   for(const group of t.groups||[])drawTable(box,group.standings||[],group.name);
+   if(!box.querySelector("table"))box.append(el("p","Giải này chưa có bảng điểm; xem nhánh đấu sau khi Ban tổ chức công bố."));
+   root.append(box);
+  }
+ }catch(error){status.textContent=error.message;}
+}
+document.getElementById("reload").addEventListener("click",load);load();
+</script>
+</body>
+</html>

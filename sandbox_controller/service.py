@@ -475,7 +475,7 @@ def create_app():
         app.state.controller.engine.client.ping()
         return {'ready': True, 'epoch': app.state.controller.epoch,
                 'sandbox_image': app.state.controller.engine.image,
-                'battlecode_image': app.state.controller.engine.battlecode_image,
+                'battlecode_image': getattr(app.state.controller.engine, 'battlecode_image', None),
                 'battlecode26': bool(getattr(app.state.controller.engine, 'battlecode_image', None)),
                 'toolchains': {'python': 'sandbox', 'cpp': 'sandbox', 'javac': 'sandbox', 'java': 'sandbox'}}
 

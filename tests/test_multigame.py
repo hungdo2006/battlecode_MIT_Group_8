@@ -44,7 +44,7 @@ def test_registry_game_specific_schema_selection_validation_and_reset(client):
     catalog = client.get("/api/games").json()
     assert catalog["selected_game_id"] == "robot_battle"
     games = {game["game_id"]: game for game in catalog["games"]}
-    assert set(games) == {"robot_battle", "ott_v2"}
+    assert set(games) == {"robot_battle", "ott_v2", "ott_advanced"}
     assert set(games["robot_battle"]["rules_schema"]["properties"]) == {"map_size", "initial_hp", "damage", "max_turns"}
     assert set(games["ott_v2"]["rules_schema"]["properties"]) == {"max_turns", "rounds"}
     assert games["ott_v2"]["preview_state"]["board_size"] == 9

@@ -46,7 +46,9 @@ class OTTAdvancedAdapter(OTTAdapter):
     }
     # Original samples consume legal_actions from the observation and remain
     # compatible with the extended protocol.
-    samples = OTTAdapter.samples
+    # Python example reads dynamic legal_actions/goals. The OTT v2 C++/Java
+    # samples assume 0..8 coordinates and must not be advertised here.
+    samples = {"python": OTTAdapter.samples["python"]}
 
     @staticmethod
     def advanced_board(size):

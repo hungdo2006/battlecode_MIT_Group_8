@@ -218,6 +218,17 @@
               <label id="team-tournament-qualifier-target-row" class="hidden">Số đội vào vòng bảng<select name="qualifier_target"><option value="64">64 đội</option><option value="16">16 đội</option></select></label>
               <div class="feedback hidden" id="team-tournament-feedback" role="status"></div><button class="button primary" type="submit">Tạo giải</button>
             </form></details>
+            <details class="panel workflow-disclosure hidden" id="offline-import-panel">
+              <summary>Nhập kết quả giải offline</summary>
+              <div class="padded-form">
+                <p class="form-note">Dành cho Ban tổ chức. Chọn file kết quả đã ký từ NEON ARENA tại trường. Hệ thống kiểm tra chữ ký và hiển thị bản xem trước trước khi công bố lên trang /results.</p>
+                <label>File kết quả (.json)<input id="offline-import-file" type="file" accept=".json,application/json"></label>
+                <button id="offline-import-preview" class="button ghost" type="button">Kiểm tra &amp; xem trước</button>
+                <div id="offline-import-summary" class="form-note" role="status">Chưa chọn file.</div>
+                <button id="offline-import-confirm" class="button primary" type="button" disabled>Xác nhận công bố giải offline</button>
+                <div id="offline-import-feedback" class="feedback hidden" role="status"></div>
+              </div>
+            </details>
             <section class="panel tournament-list-panel"><div class="panel-heading"><h2>Danh sách giải đấu</h2><button class="button ghost small" id="refresh-team-tournaments" type="button">Làm mới</button></div><div id="team-tournaments-list" class="match-list"><div class="empty-state">Đang tải giải đấu…</div></div></section>
           </div></section>
 

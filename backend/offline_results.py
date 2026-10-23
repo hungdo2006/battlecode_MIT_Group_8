@@ -67,7 +67,7 @@ def _score(row, *, strict=False):
             continue
         if type(value) not in (int, float) or (key in _SCORE_COUNTS and type(value) is not int):
             raise OfflineResultsError("Điểm số giải offline không hợp lệ.")
-        if not math.isfinite(value):
+        if type(value) is float and not math.isfinite(value):
             raise OfflineResultsError("Điểm số phải là số hữu hạn.")
         if key not in ("score_difference",) and value < 0:
             raise OfflineResultsError("Điểm số âm không hợp lệ.")
@@ -172,6 +172,8 @@ def _validate(payload):
                     _text(row[side])
                     if row[side] not in teams:
                         raise OfflineResultsError("Trận đấu chứa đội không tham dự giải.")
+            if key == "matches" and (row["team_a"] is None or row["team_b"] is None or row["team_a"] == row["team_b"]):
+                raise OfflineResultsError("Trận đã hoàn thành phải có hai đội khác nhau.")
             if row["winner"] is not None and row["winner"] not in (row["team_a"], row["team_b"]):
                 raise OfflineResultsError("Đội thắng không thuộc cặp đấu.")
     if not tournament["matches"]:

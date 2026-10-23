@@ -1,4 +1,7 @@
 """Offline competition packages can be signed on a laptop and imported later."""
+import hashlib
+import hmac
+import os
 from copy import deepcopy
 from types import SimpleNamespace
 
@@ -6,7 +9,7 @@ import pytest
 
 from backend.offline_results import (
     OfflineResultsError, export_package, imported_results,
-    preview, publish_import, verify_package,
+    preview, publish_import, verify_package, _canonical,
 )
 
 
@@ -129,3 +132,41 @@ def test_schema_rejects_unsigned_injected_fields(keys):
     body["payload"]["tournament"]["bots"]=[{"source":"private"}]
     with pytest.raises(OfflineResultsError):
         verify_package(body)
+
+
+def test_signed_invalid_team_and_source_payloads_rejected(keys):
+    original = export_package(complete_event())
+    for mutate in (
+        lambda p: p["payload"]["tournament"]["matches"][0].update(winner="Not a participant"),
+        lambda p: p["payload"].update(source=None),
+        lambda p: p["payload"]["tournament"]["standings"][0].update(team_name="Other team"),
+        lambda p: p["payload"]["tournament"]["matches"][0].update(team_b=None),
+    ):
+        body = deepcopy(original)
+        mutate(body)
+        body["signature"] = hmac.new(os.environ["ARENA_OFFLINE_RESULTS_KEY"].encode(),
+                                     _canonical(body["payload"]), hashlib.sha256).hexdigest()
+        with pytest.raises(OfflineResultsError):
+            verify_package(body)
+
+
+def test_bad_local_results_rejected_before_signature(keys):
+    duplicate = complete_event()
+    duplicate["teams"][1]["team_name_snapshot"] = "Đội A"
+    with pytest.raises(OfflineResultsError, match="duy nhất"):
+        export_package(duplicate)
+
+    invalid_pair = complete_event()
+    invalid_pair["fixtures"][0]["team_b_id"] = "not-an-entrant"
+    with pytest.raises(OfflineResultsError, match="hai đội"):
+        export_package(invalid_pair)
+
+    nonfinite = complete_event()
+    nonfinite["standings"][0]["points"] = float("inf")
+    with pytest.raises(OfflineResultsError, match="hữu hạn"):
+        export_package(nonfinite)
+
+    control_char = complete_event()
+    control_char["name"] = "Event\nspoofed"
+    with pytest.raises(OfflineResultsError):
+        export_package(control_char)

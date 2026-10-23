@@ -318,12 +318,43 @@
         </details>
       </section>
 
-      <section class="view" id="view-scrimmage" aria-label="Đấu luyện và tìm trận">
-        <div class="page-intro"><h1 id="scrimmage-title">Đấu luyện</h1><p>Chủ động tìm một đội khác đang chờ cùng game. Bot được chốt khi ghép; trận không cộng điểm giải đấu và tiếp tục chạy khi bạn rời website.</p></div>
-        <section class="panel hidden" id="scrimmage-create-panel"><div class="panel-heading"><h2>Tìm trận đấu luyện</h2><span class="tag" id="matchmaking-state">Chưa sẵn sàng</span></div>
-          <form id="scrimmage-create" class="padded-form account-form"><label>Game<select name="game_id" id="scrimmage-game" required></select></label><p class="form-note" id="scrimmage-eligibility"></p><a class="text-button hidden" id="scrimmage-bot-link" href="?focus=bots#upload">Chọn Active Bot →</a><p class="form-note" id="matchmaking-detail"></p><span class="form-note" id="matchmaking-clock"></span><div class="form-buttons"><button class="button primary" type="submit">Tìm trận <span aria-hidden="true">↗</span></button><button class="button ghost hidden" id="matchmaking-cancel" type="button">Hủy tìm trận</button><button class="button ghost hidden" id="matchmaking-watch" type="button">Xem diễn biến / Replay ↗</button></div><p class="form-note">Tìm tối đa 5 phút, ưu tiên đội chờ lâu. Reload hoặc mất mạng vẫn giữ lượt tìm tới hạn; khi máy chủ khởi động lại, bạn cần tìm lại.</p><div id="scrimmage-feedback" class="feedback hidden" role="status"></div></form>
+      <section class="view" id="view-scrimmage" aria-label="Đấu luyện">
+        <div class="page-intro"><h1 id="scrimmage-title">Đấu luyện</h1><p id="scrimmage-intro">Thử chiến thuật với đội khác trong một trận tự động. Không tính điểm giải đấu; bạn có thể rời trang sau khi đã ghép trận.</p></div>
+        <section class="panel practice-workspace hidden" id="scrimmage-create-panel" aria-labelledby="practice-panel-heading">
+          <div class="practice-panel-heading">
+            <div><span class="eyebrow">ĐẤU LUYỆN TỰ ĐỘNG</span><h2 id="practice-panel-heading">Tìm một đối thủ</h2><p>Chỉ ghép với đội đã chủ động tìm trận cùng trò chơi. Bạn không phải mời hoặc chờ đối thủ trực tuyến.</p></div>
+            <span class="tag" id="matchmaking-state" role="status" aria-live="polite">Đang kiểm tra…</span>
+          </div>
+          <div class="practice-flow" aria-label="Ba bước đấu luyện">
+            <div><span class="practice-flow-number">01</span><strong>Chọn trò chơi</strong><small>Đội cần bot đại diện hợp lệ.</small></div>
+            <div><span class="practice-flow-number">02</span><strong>Tìm đối thủ</strong><small>Tối đa 5 phút; ghép tự động.</small></div>
+            <div><span class="practice-flow-number">03</span><strong>Xem trận</strong><small>Xem trực tiếp hoặc replay khi có trận.</small></div>
+          </div>
+          <form id="scrimmage-create" class="practice-form">
+            <label for="scrimmage-game">Trò chơi muốn đấu luyện<select name="game_id" id="scrimmage-game" required></select></label>
+            <div class="practice-state" id="practice-state" data-state="loading" role="status" aria-live="polite" aria-atomic="true">
+              <span class="practice-state-symbol" aria-hidden="true"><svg class="nav-icon"><use href="#i-swords"/></svg></span>
+              <div class="practice-state-body">
+                <strong id="practice-state-title">Đang kiểm tra khả năng đấu luyện…</strong>
+                <p id="scrimmage-eligibility" class="form-note">Đang xác minh đội và bot đại diện.</p>
+                <p id="matchmaking-detail" class="form-note"></p>
+                <span id="matchmaking-clock" class="practice-clock"></span>
+              </div>
+            </div>
+            <div class="practice-actions">
+              <button class="button primary" type="submit" disabled>Tìm đối thủ <span aria-hidden="true">↗</span></button>
+              <button class="button ghost hidden" id="matchmaking-cancel" type="button">Ngừng tìm</button>
+              <button class="button ghost hidden" id="matchmaking-watch" type="button">Xem trận đấu →</button>
+              <a class="text-button hidden" id="scrimmage-bot-link" href="?focus=bots#upload">Chuẩn bị bot đại diện →</a>
+            </div>
+            <p class="practice-fineprint">Lượt tìm trận vẫn được giữ khi tải lại trang hoặc mất kết nối tạm thời. Nếu máy chủ khởi động lại, cần tìm lại. Bot hai đội được chốt ngay khi ghép.</p>
+            <div id="scrimmage-feedback" class="feedback hidden" role="status"></div>
+          </form>
         </section>
-        <section class="panel"><div class="panel-heading"><h2>Hàng đợi &amp; kết quả</h2><button class="button ghost small" id="refresh-scrimmages" type="button">Làm mới</button></div><div id="scrimmage-list" class="match-list"><div class="empty-state">Đang tải trận thử…</div></div></section>
+        <section class="panel practice-history" aria-labelledby="practice-history-heading">
+          <div class="panel-heading"><h2 id="practice-history-heading">Các trận đấu luyện</h2><div class="practice-history-actions"><label for="practice-match-filter">Hiển thị<select id="practice-match-filter"><option value="all">Tất cả</option><option value="active">Đang chờ / đang đấu</option><option value="done">Đã kết thúc</option></select></label><button class="button ghost small" id="refresh-scrimmages" type="button">Cập nhật ↻</button></div></div>
+          <div id="scrimmage-list" class="match-list"><div class="empty-state">Đang tải danh sách trận đấu luyện…</div></div>
+        </section>
       </section>
       <section class="view" id="view-watch" aria-label="Lịch sử và replay"><div class="page-intro"><h1>Lịch sử &amp; Replay</h1><p>Xem trực tiếp hoặc khám phá lại từng lượt. Replay sử dụng dữ liệu đã lưu, không chạy lại bot.</p></div><section class="panel"><div class="panel-heading"><h2>Lịch sử trận đấu</h2><button class="text-button" id="refresh-matches">Làm mới ↻</button></div><div id="all-matches" class="match-list"></div></section></section>
 

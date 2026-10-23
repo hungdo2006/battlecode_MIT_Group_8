@@ -3296,13 +3296,17 @@ $("#refresh-bots").addEventListener("click", () => refreshBots().catch(e => toas
 $("#refresh-matches").addEventListener("click", () => refreshMatches().catch(e => toast(e.message, true)));
 $("#refresh-tournaments").addEventListener("click", () => refreshTournaments().catch(e => toast(e.message, true)));
 let offlinePackage=null;
+let offlinePreviewGeneration=0;
 $("#offline-import-file").addEventListener("change",()=>{
+  ++offlinePreviewGeneration;
+  $("#offline-import-preview").disabled=false;
   offlinePackage=null;
   $("#offline-import-confirm").disabled=true;
   setText("#offline-import-summary","Chưa xác minh chữ ký. Nhấn Kiểm tra & xem trước.");
   $("#offline-import-feedback").classList.add("hidden");
 });
 $("#offline-import-preview").addEventListener("click",async()=>{
+  const generation=++offlinePreviewGeneration;
   offlinePackage=null;
   $("#offline-import-confirm").disabled=true;
   const file=$("#offline-import-file").files[0];
@@ -3312,13 +3316,20 @@ $("#offline-import-preview").addEventListener("click",async()=>{
   try{
     const parsed=JSON.parse(await file.text());
     const response=await api("/api/admin/offline-results/preview",jsonOptions("POST",{package:parsed}));
+    if(generation!==offlinePreviewGeneration || $("#offline-import-file").files[0]!==file)return;
     const info=response.preview;
     offlinePackage=parsed;
     setText("#offline-import-summary",`Điểm thi: ${info.source} · Giải: ${info.name} · ${info.teams} đội · ${info.matches} trận · ${info.game_id}`);
     $("#offline-import-confirm").disabled=false;
     feedback("#offline-import-feedback","Chữ ký hợp lệ. Kiểm tra kỹ tên giải trước khi công bố.");
-  }catch(error){setText("#offline-import-summary","Chưa thể xác minh file kết quả.");feedback("#offline-import-feedback",error.message,true);}
-  finally{button.disabled=false;}
+  }catch(error){
+    if(generation===offlinePreviewGeneration){
+      setText("#offline-import-summary","Chưa thể xác minh file kết quả.");
+      feedback("#offline-import-feedback",error.message,true);
+    }
+  }finally{
+    if(generation===offlinePreviewGeneration)button.disabled=false;
+  }
 });
 $("#offline-import-confirm").addEventListener("click",async()=>{
   if(!offlinePackage || app.accountAudience!=="admin")return;

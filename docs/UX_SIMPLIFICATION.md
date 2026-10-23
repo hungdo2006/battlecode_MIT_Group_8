@@ -59,3 +59,24 @@ Các thẻ này dùng duy nhất API Admin hiện có `/api/admin/system`; khôn
 - Ngắt mạng / hết phiên: hiển thị lỗi tải trạng thái, không khẳng định dữ liệu cũ là hiện tại.
 - Desktop/mobile 1440, 768, 390, 360 px: nội dung không tràn và mục kỹ thuật đóng mặc định.
 - Sau đổi JS/CSS cập nhật fingerprint mọi trang HTML tham chiếu.
+
+
+## Đấu luyện (Scrimmage) — trải nghiệm Player
+
+Đấu luyện là trận tự động giữa hai đội **cùng chủ động tìm** đối thủ cho **cùng game**. Kết quả không cộng điểm giải chính thức.
+
+- Trên trang **Đấu luyện**, Player chọn game rồi xem chỉ dẫn điều kiện: có đội ACTIVE và bot đại diện hợp lệ cho game đó. Trưởng đội có đường dẫn tới Bot của đội nếu chưa đủ điều kiện.
+- Nhấn **Tìm đối thủ** chỉ khi backend trả `can_search=true`. Máy chủ giữ yêu cầu đến 5 phút, ghép FIFO và lưu trận. Không thay đổi quyền của Captain/Member.
+- Khi đang tìm: trạng thái, số đội khác đang chờ và đồng hồ đếm ngược hiển thị. Có thể ngừng tìm **trước khi ghép**, không thể ngừng ghép trận chỉ qua nút này.
+- Khi đã ghép: bot được chốt, trận chạy trên server, người dùng có thể rời trang. Liên kết **Xem trận**/replay xuất hiện khi server trả `match_id`.
+- Dưới form là danh sách **Tất cả / Đang chờ-đang đấu / Đã kết thúc** được lọc ở frontend, không thêm endpoint hay tác vụ backend.
+- Nếu Player đổi game trong lúc request trước chưa xong, frontend bắt buộc làm mới dữ liệu game đã chọn trước khi cho phép tìm trận, tránh dùng trạng thái hợp lệ của game cũ.
+
+### QA Đấu luyện
+
+- Không đội, Team DRAFT, Team ACTIVE không có bot ready, có bot ready nhưng chưa chọn đại diện, Member không thể tự chọn bot: đúng thông báo/nút.
+- Captain đã chọn bot đại diện: có thể tìm; hai Team cùng game tạo yêu cầu, ghép, chốt bot, xem live/replay đúng quyền.
+- Trạng thái SEARCHING/MATCHED/RUNNING/COMPLETED/CANCELLED/EXPIRED/ERROR, đồng hồ 5 phút, kết nối lại và thay đổi game giữa lúc fetch.
+- Một Team không thể tạo hai yêu cầu tìm đối thủ; không cho hủy khi trận đã ghép; không thay đổi thứ tự ưu tiên Official.
+- Trang Admin chỉ có danh sách để theo dõi. Mobile 360/390/768 và desktop, tiêu điểm Tab và nhãn các điều khiển.
+- Docker Sandbox end-to-end cần chạy trên môi trường có Docker thật, không coi fixture là kiểm thử thực thi bot.

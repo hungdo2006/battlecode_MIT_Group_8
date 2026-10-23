@@ -1006,3 +1006,29 @@ body[data-account-mode=player] .stat-card strong, body[data-account-mode=admin] 
 @keyframes toast-enter { from { opacity: 0; transform: translate(-50%,4px); } to { opacity: 1; transform: translate(-50%,0); } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
 @media (forced-colors: active) { .button, .landing-action, .icon-button, .panel, .nav-item, .tag, .match-status { border: 1px solid CanvasText; } .hp-track span { background: Highlight; } .landing-copy h1 span { background: none; color: CanvasText; -webkit-text-fill-color: CanvasText; } }
+
+/* 2026 UX: Progressive navigation and guided journeys for Account-Only.
+   Never use presentation state as an authorization boundary. */
+.nav-advanced { margin-top: 2px; border-top: 1px solid var(--border-soft); padding-top: 14px; }
+.nav-advanced > summary { display: flex; justify-content: space-between; align-items: center; min-height: 40px; width: 100%; padding: 9px 12px; border-radius: 10px; color: var(--muted); font-size: 12px; font-weight: 500; list-style: none; }
+.nav-advanced > summary::-webkit-details-marker { display: none; }
+.nav-advanced > summary:hover, .nav-advanced[open] > summary { background: var(--panel-alt); color: var(--text); }
+.nav-advanced > summary span { color: var(--subtle); transition: transform var(--motion-fast); }
+.nav-advanced[open] > summary span { transform: rotate(180deg); }
+.nav-advanced > .nav-group { padding-top: 6px; }
+.setup-journey { margin-bottom: 22px; padding: 24px; background: linear-gradient(125deg, #8660d10e, transparent 72%), var(--panel); }
+.setup-journey-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.setup-journey-heading .eyebrow { font-size: 10px; font-weight: 650; letter-spacing: .11em; color: var(--accent); }
+.setup-journey-heading h2 { margin: 8px 0 4px; font-size: clamp(18px,2.2vw,22px); font-weight: 620; letter-spacing: -.35px; }
+.setup-journey-heading .form-note { margin-top: 4px; }
+.journey-steps { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 10px; margin: 20px 0; padding: 0; list-style: none; }
+.journey-steps li { display: flex; align-items: flex-start; gap: 10px; padding: 14px 12px; background: var(--surface-soft); border: 1px solid var(--border-soft); border-radius: 12px; min-width: 0; }
+.journey-steps li[aria-current="step"] { background: var(--accent-soft); border-color: #b9a0ff77; }
+.journey-steps li[data-state="done"] { border-color: #73e4b538; }
+.journey-steps li .step-number { display: inline-grid; place-items: center; width: 28px; height: 28px; flex-shrink: 0; border-radius: 9px; border: 1px solid var(--border); color: var(--accent); font: 600 12px var(--mono); }
+.journey-steps li[data-state="done"] .step-number { color: var(--success); border-color: #73e4b550; }
+.journey-steps li strong { display: block; font-size: 12px; line-height: 1.5; font-weight: 600; overflow-wrap: anywhere; }
+.journey-steps li small { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; line-height: 1.55; overflow-wrap: anywhere; }
+.setup-journey > .button { width: fit-content; }
+@media(max-width:950px) { .journey-steps { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media(max-width:480px) { .setup-journey { padding: 16px; } .journey-steps { grid-template-columns: minmax(0,1fr); } .setup-journey > .button { width: 100%; } }

@@ -74,4 +74,4 @@ def test_integration_guards_use_the_same_compatibility_predicate():
         assert "artifact_current(" in text, path
     controller = (root / "sandbox_controller/service.py").read_text(encoding="utf-8")
     assert "'sandbox_image': app.state.controller.engine.image" in controller
-    assert "'battlecode_image': app.state.controller.engine.battlecode_image" in controller
+    assert "'battlecode_image': getattr(app.state.controller.engine, 'battlecode_image', None)" in controller

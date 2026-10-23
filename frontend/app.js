@@ -4128,13 +4128,16 @@ function renderAccountBotLibrary() {
   target.replaceChildren();
   if (!app.bots.length) target.append(el("div","empty-state", app.team?.team ? "Đội chưa có bot. Nộp file hoặc chọn bot mẫu để bắt đầu." : "Bạn chưa tham gia đội. Tạo hoặc tham gia đội trước khi nộp bot."));
   for (const bot of app.bots) {
-    const row=el("div","bot-row"), name=el("strong","",`${bot.name} · ${bot.language.toUpperCase()} · ${bot.status}`);
+    const outdated = bot.status === "needs_rebuild";
+    const stateText = outdated ? "Cần biên dịch lại" : bot.status === "ready" ? "Sẵn sàng" : "Biên dịch lỗi";
+    const row=el("div","bot-row"), name=el("strong","",`${bot.name} · ${bot.language.toUpperCase()} · ${stateText}`);
     row.append(name,el("span","tag",bot.game_id));
+    if (outdated) row.append(el("p","form-note","Sandbox đã thay đổi. Hãy nộp lại mã nguồn bot, rồi nhờ trưởng đội chọn bản mới."));
     const active=bot.is_active || app.activeTeamBot?.bot?.id===bot.id;
     const btn=el("button","button ghost small",active?"Đang đại diện ✓":"Chọn làm bot đại diện");
     btn.disabled=app.team?.my_role!=="CAPTAIN" || app.team?.team?.status!=="ACTIVE" || bot.status!=="ready" || active;
     btn.hidden=app.team?.my_role!=="CAPTAIN";
-    btn.title=active ? "Bot đang đại diện cho đội ở game này" : app.team?.team?.status!=="ACTIVE" ? "Captain cần kích hoạt đội trước" : bot.status!=="ready" ? "Bot cần biên dịch thành công" : "Chọn bot đại diện cho game này";
+    btn.title=active ? "Bot đang đại diện cho đội ở game này" : app.team?.team?.status!=="ACTIVE" ? "Trưởng đội cần xác nhận đội sẵn sàng" : outdated ? "Hãy nộp lại mã nguồn để biên dịch với Sandbox hiện tại" : bot.status!=="ready" ? "Bot cần biên dịch thành công" : "Chọn bot đại diện cho game này";
     btn.onclick=async()=>{
       try { await api("/api/player/active-bot",jsonOptions("PUT",{bot_id:bot.id,game_id:bot.game_id})); await refreshAccountTeam(); }
       catch(e){toast(e.message,true);}

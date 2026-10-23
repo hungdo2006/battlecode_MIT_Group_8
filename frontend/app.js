@@ -788,8 +788,6 @@ function applyPermissions() {
   $('.nav-item[data-view="watch"]').classList.remove("hidden");
   $(".docs-link").classList.toggle("hidden", app.accountOnly);
   setText(".workspace-context .context-label", app.accountOnly ? "Game mặc định" : "Game hiện tại");
-  setText('.nav-item[data-view="rules"]', app.accountOnly ? "Cấu hình game mặc định" : "Game & Luật chơi");
-  setText('.nav-item[data-view="upload"]', app.accountOnly ? "Đội & bot của tôi" : "Team & Bot");
   $$("#rules-form [type=submit], #default-rules").forEach(node => node.classList.toggle("hidden", !organizer));
   if (organizer && location.hash === "#upload") location.hash = "create";
   $$("#quick-match [type=submit], #create-match [type=submit]").forEach(node => {
@@ -1718,17 +1716,16 @@ function renderWorkspaceOverview() {
   let action;
   if (admin) {
     action = blocked.length ? ["official", "Kiểm tra trận cần xử lý", `${blocked.length} trận bị chặn, gián đoạn hoặc quá hạn. Kiểm tra lý do trước khi xếp lịch tiếp.`, "Xử lý lịch đấu"]
-      : !app.competition?.competition_locked ? ["rules", "Chốt game và luật thi đấu", "Kiểm tra cấu hình, lưu luật rồi mở cuộc thi khi đã sẵn sàng.", "Thiết lập game & luật"]
-      : app.officialTeams.length < 2 ? ["administration", "Chuẩn bị đội thi đấu", `Hiện có ${app.officialTeams.length} đội ACTIVE. Cần ít nhất hai đội để xếp lịch hoặc tạo giải.`, "Quản lý tài khoản & đội"]
-      : !readyBots.length ? ["administration", "Kiểm tra bot của các đội", "Chưa có bot biên dịch thành công cho game hiện tại. Kiểm tra bot và hướng dẫn các đội chuẩn bị.", "Xem đội & bot"]
-      : ["official", next ? "Theo dõi lịch thi đấu" : "Sẵn sàng xếp lịch", `${app.officialTeams.length} đội ACTIVE · ${readyBots.length} bot hợp lệ cho game hiện tại.`, next ? "Mở lịch đấu" : "Lên lịch thi đấu"];
+      : app.officialTeams.length < 2 ? ["administration", "Chuẩn bị các đội thi đấu", `Hiện có ${app.officialTeams.length} đội sẵn sàng. Cần ít nhất hai đội để tạo giải chính thức.`, "Quản lý đội"]
+      : !app.teamTournaments.length ? ["tournaments", "Tạo giải đấu đầu tiên", "Chọn trò chơi, thể thức và các đội tham gia. Mỗi giải có game và luật riêng.", "Tạo giải đấu"]
+      : ["tournaments", next ? "Theo dõi giải và lịch thi đấu" : "Điều hành giải đấu", "Quản lý các vòng thi, công bố luật và bảng xếp hạng từ một nơi.", "Mở giải đấu"];
   } else {
     action = !app.team ? ["upload", "Đang tải đội của bạn…", "Chờ thông tin đội và bot từ máy chủ.", "Xem Team & Bot"]
       : !team ? ["upload", "Tạo hoặc tham gia đội", "Tạo đội mới hoặc xem lời mời từ Captain. Sau đó, bạn có thể nộp bot và chuẩn bị thi đấu.", "Tạo hoặc tham gia đội"]
-      : team.status !== "ACTIVE" ? ["upload", team.status === "ARCHIVED" ? "Đội đã được lưu trữ" : "Đội chưa được kích hoạt", captain ? "Kích hoạt đội tại Team & Bot để chọn bot đại diện và đăng ký thi đấu." : "Nhờ Captain kích hoạt đội. Bạn có thể chuẩn bị và nộp bot cho đội trước.", captain ? "Kiểm tra đội" : "Chuẩn bị bot cho đội"]
+      : team.status !== "ACTIVE" ? ["upload", team.status === "ARCHIVED" ? "Đội đã được lưu trữ" : "Xác nhận đội đã sẵn sàng", captain ? "Trưởng đội xác nhận một lần để đội được vào giải. Bạn vẫn có thể nộp bot trước đó." : "Nhờ trưởng đội xác nhận. Bạn vẫn có thể chuẩn bị bot.", "Đến trang đội & bot"]
       : !readyBots.length ? ["upload", "Chuẩn bị bot hợp lệ", "Đội chưa có bot biên dịch thành công cho game hiện tại. Nộp code hoặc bắt đầu từ bot mẫu.", "Nộp bot cho đội"]
-      : !app.activeTeamBot?.bot ? ["upload", "Chưa chọn Active Bot", captain ? "Chọn một bot hợp lệ làm đại diện cho game hiện tại trước hạn khóa trận." : "Captain cần chọn bot đại diện trước hạn khóa trận. Bạn có thể xem bot và tiếp tục nộp phiên bản mới.", captain ? "Chọn Active Bot" : "Xem bot của đội"]
-      : [next ? "official" : "scrimmage", "Đội đã sẵn sàng", `Active Bot: ${app.activeTeamBot.bot.name}. ${next ? "Kiểm tra lịch và hạn khóa bot của trận tiếp theo." : "Tìm một đội khác đang chờ để luyện chiến thuật trong khi chờ lịch chính thức."}`, next ? "Xem trận tiếp theo" : "Tìm trận đấu luyện"];
+      : !app.activeTeamBot?.bot ? ["upload", "Cần chọn bot đại diện", captain ? "Chọn bot đã biên dịch thành công cho trò chơi này trước hạn khóa trận." : "Trưởng đội cần chọn bot đại diện. Bạn vẫn có thể nộp bản mới.", "Chọn bot đại diện"]
+      : [next ? "official" : "scrimmage", "Đội đã sẵn sàng", `Bot đại diện: ${app.activeTeamBot.bot.name}. ${next ? "Xem lịch và hạn khóa bot của trận tiếp theo." : "Bạn có thể đấu luyện trong khi chờ giải chính thức."}`, next ? "Xem trận tiếp theo" : "Tìm trận đấu luyện"];
   }
   const [primaryView, title, note, label] = action;
   setText("#overview-title", title);
@@ -1743,13 +1740,13 @@ function renderWorkspaceOverview() {
   setText("#home-description", admin ? "Việc cần xử lý, trạng thái chuẩn bị và lịch thi đấu." : team ? `${team.display_name} · ${team.member_count}/${team.max_members || 5} thành viên` : "Bắt đầu với đội của bạn, rồi chuẩn bị bot cho trận đầu tiên.");
   $("#view-home .hero-actions").hidden = true;
   const steps = (admin ? [
-    ["administration", "Đội & bot", `${app.officialTeams.length} đội ACTIVE · ${app.bots.length} bot đã nộp.`],
-    ["tournaments", "Giải đấu", `${app.teamTournaments.length} giải. Xem thể thức và tiến trình.`],
-    ["rules", "Game & luật", app.competition?.competition_locked ? "Luật đã khóa." : "Đang chuẩn bị cấu hình."]
+    ["administration", "Quản lý đội", `${app.officialTeams.length} đội sẵn sàng.`],
+    ["tournaments", "Giải đấu", `${app.teamTournaments.length} giải. Xếp lịch, công bố luật và điểm.`],
+    ["official", "Trận chính thức", "Theo dõi những trận được lên lịch."]
   ] : team ? [
-    ["upload", "Team & Bot", "Xem thành viên, bot và kết quả biên dịch."],
-    ["seasons", "Mùa thi đấu", "Xem thời hạn đăng ký và trạng thái mùa giải."],
-    ["rules", "Luật thi đấu", "Đọc cấu hình và cách chơi."]
+    ["upload", "Đội & bot", "Chuẩn bị bot đại diện và quản lý thành viên."],
+    ["tournaments", "Giải đấu", "Xem lịch và các vòng thi."],
+    ["rules", "Luật chơi", "Xem cách chơi và quy tắc từng game."]
   ] : [["rules", "Tìm hiểu luật thi đấu", "Đọc cách chơi và cấu hình game hiện tại."]]).filter(([view]) => view !== primaryView).slice(0, 2);
   // Keep links stable during background refresh so keyboard focus is retained.
   const target = $("#overview-steps");

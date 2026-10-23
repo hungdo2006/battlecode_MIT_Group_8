@@ -41,3 +41,7 @@ Sau khi **các image đã được lưu tại máy**, ngắt WAN nhưng **giữ 
 - Diễn tập mất điện, restore, phát lại trận và phương án tổ chức thi khi máy chủ bị lỗi.
 
 **Không dùng lệnh Stop/Start EC2 để thử offline:** máy đặt trên AWS cần đường Internet/đường riêng để thí sinh vào. `compose.exam.yaml` không tự chặn Internet vật lý; bộ phận mạng phải thực hiện. Không kết hợp `compose.exam.yaml` và `compose.public.yaml`.
+
+## Diễn tập kết quả Offline → Online bằng laptop
+
+Giai đoạn thử nghiệm chưa cần server vật lý. Sau khi kiểm thử LAN tại nhà/trường, Admin có thể xuất kết quả giải đã hoàn tất thành gói JSON có chữ ký và thử nhập trên một bản **staging** online. Xem [OFFLINE_RESULTS_TRANSFER.md](OFFLINE_RESULTS_TRANSFER.md) để biết cách thiết lập khóa ký, xác minh, công bố và giới hạn (chưa chuyển replay). Không triển khai gói thử trực tiếp lên AWS production khi chưa nghiệm thu end-to-end.

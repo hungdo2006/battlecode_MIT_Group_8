@@ -2690,6 +2690,8 @@ function updateTeamTournamentPolicy() {
 }
 function renderTeamTournaments() {
   renderAdminTournamentJourney();
+  $("#player-tournament-signup").classList.toggle("hidden",
+    !app.accountOnly || app.accountAudience !== "player");
   const legacyVisible = !app.accountOnly;
   $("#view-tournaments > .page-intro").classList.toggle("hidden", !legacyVisible);
   $("#view-tournaments > .tournament-create-panel").classList.toggle("hidden", !legacyVisible);

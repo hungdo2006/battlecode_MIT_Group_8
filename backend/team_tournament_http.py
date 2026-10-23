@@ -26,6 +26,15 @@ class ResolveTieBody(StrictBody):
     winner_team_id: str = Field(min_length=1, max_length=128)
 
 
+class RoundRulesBody(StrictBody):
+    rules: dict
+    editing_minutes: int = Field(default=20)
+
+
+class VisibilityBody(StrictBody):
+    visibility: str = Field(pattern=r"^(PRIVATE|SIGNED_IN|PUBLIC)$")
+
+
 def install_team_tournament_http(app):
     router = APIRouter()
 
@@ -88,6 +97,34 @@ def install_team_tournament_http(app):
                           request: Request):
         return {"tournament": await execute(request, "ADMIN", lambda service, auth, connection, actor, runtime:
             service.resolve_tie(actor, tournament_id, fixture_id, body.winner_team_id), mutation=True)}
+
+    @router.put("/api/admin/team-tournaments/{tournament_id}/rounds/{stage}/{round_number}/rules")
+    async def set_round_rules(tournament_id: str, stage: str, round_number: int,
+                              body: RoundRulesBody, request: Request):
+        return {"tournament": await execute(request,"ADMIN",
+            lambda service, auth, connection, actor, runtime:
+                service.save_round_draft(actor,tournament_id,stage,round_number,
+                                         body.rules,body.editing_minutes), mutation=True)}
+
+    @router.post("/api/admin/team-tournaments/{tournament_id}/rounds/{stage}/{round_number}/publish")
+    async def publish_round(tournament_id: str, stage: str, round_number: int, request: Request):
+        return {"tournament": await execute(request,"ADMIN",
+            lambda service, auth, connection, actor, runtime:
+                service.publish_round(actor,tournament_id,stage,round_number), mutation=True)}
+
+    @router.put("/api/admin/team-tournaments/{tournament_id}/visibility")
+    async def set_visibility(tournament_id: str,body:VisibilityBody,request:Request):
+        return {"tournament": await execute(request,"ADMIN",
+            lambda service, auth, connection, actor, runtime:
+                service.set_visibility(actor,tournament_id,body.visibility), mutation=True)}
+
+    @router.get("/api/public/standings")
+    async def public_standings(request: Request):
+        # Allowlist: only tournament metadata and score, never source/replay.
+        runtime = runtime_for(request)
+        return {"tournaments": await runtime.run(
+            lambda auth, connection: TeamTournamentService(
+                connection,runtime.writer,auth,app.state.registry).public_standings())}
 
     @router.get("/api/admin/team-tournaments/{tournament_id}")
     async def admin_detail(tournament_id: str, request: Request):

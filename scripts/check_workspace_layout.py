@@ -201,7 +201,8 @@ def run():
                 expect(member.locator("#scrimmage-bot-link")).to_be_visible()
                 expect(member.locator("#scrimmage-bot-link")).to_contain_text("Xem bot của đội")
                 assert not member.locator("#scrimmage-bot-link").get_attribute("href").startswith("/api/")
-                expect(member.locator("#scrimmage-create [type=submit]")).to_be_disabled()
+                expect(member.locator("#practice-state-title")).to_contain_text("Chưa có bot đại diện")
+                assert member.locator("#practice-opponents button:enabled").count() == 0
                 view(member, "upload")
                 assert member.get_by_role("button", name="Chọn làm bot đại diện", exact=True).count() == 0
                 player.locator("#bot-library").get_by_role("button", name="Chọn làm bot đại diện", exact=True).click()

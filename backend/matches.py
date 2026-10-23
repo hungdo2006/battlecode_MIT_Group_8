@@ -10,6 +10,7 @@ from backend.models import MatchRequest
 from backend.runner import BotError
 from backend.execution import LegacyRunner, RunnerUnavailable, Session
 from backend.storage import Store
+from backend.artifact_compat import artifact_current
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +74,8 @@ class MatchManager:
             raise ValueError("Cả hai submission phải thuộc game đã chọn.")
         for bot in bots.values():
             self.runner.compatible(bot)
+            if not artifact_current(self.store, bot):
+                raise ValueError("Bot đã biên dịch bằng Sandbox cũ. Hãy nộp lại mã nguồn và chọn bot đại diện mới.")
         rules = adapter.validate_rules(rules)
         state = adapter.create_initial_state(rules)
         metadata = adapter.get_metadata()

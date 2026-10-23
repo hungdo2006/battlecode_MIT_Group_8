@@ -1,9 +1,11 @@
 """B1 remote HTTP boundary: machine secret, no browser cookies, no Docker fallback."""
 import pytest
 from fastapi.testclient import TestClient
+from concurrent.futures import ThreadPoolExecutor
 
 from backend.auth_http import HTTPAuthSettings
 from backend.main import create_app
+from backend.remote_runner import RemoteSandboxRunner
 from test_team_http import Clock, ORIGIN, PASSWORD, seed_accounts
 
 
@@ -12,6 +14,8 @@ def remote_room(tmp_path, monkeypatch):
     key = "qa-outbound-runner-key-" + "y" * 48
     monkeypatch.setenv("ARENA_RUNNER", "remote_sandbox")
     monkeypatch.setenv("ARENA_REMOTE_RUNNER_KEY", key)
+    # HTTP transport tests drive the RPC mailbox without a real Docker Controller.
+    monkeypatch.setattr(RemoteSandboxRunner, "_control", lambda self: self.stop.wait())
     clock = Clock()
     seed_accounts(tmp_path, clock)
     settings = HTTPAuthSettings(enabled=True, account_only=True,
@@ -67,3 +71,32 @@ def test_remote_http_rejects_large_and_unauthenticated_payloads(remote_room):
         "Content-Length": str(18 * 1024 * 1024),
     })
     assert response.status_code in (400, 413)
+
+
+def test_authenticated_http_worker_roundtrip_to_sandbox_rpc(remote_room):
+    app, client, key = remote_room
+    base = "/api/remote-runner/"
+    auth = {"Authorization": "Bearer " + key}
+    created = client.post(base + "connect", json={}, headers=auth)
+    assert created.status_code == 200, created.text
+    session = created.json()["session"]
+    worker = {**auth, "X-Arena-Runner-Session": session}
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        waiting = pool.submit(app.state.runner.rpc, "/health", timeout=3)
+        claimed = client.get(base + "poll", headers=worker)
+        assert claimed.status_code == 200, claimed.text
+        task = claimed.json()
+        assert task["path"] == "/health"
+        assert task["payload"] is None
+        answer = client.post(base + "respond", json={
+            "id": task["id"], "status": 200,
+            "result": {"epoch": "staging-epoch", "ready": True},
+        }, headers=worker)
+        assert answer.status_code == 200
+        assert waiting.result(timeout=3)["epoch"] == "staging-epoch"
+
+    # Replaying a completed message cannot change a subsequent result.
+    assert client.post(base + "respond", json={
+        "id": task["id"], "status": 200, "result": {"ready": False},
+    }, headers=worker).status_code == 409

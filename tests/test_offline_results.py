@@ -198,3 +198,25 @@ def test_signed_unresolved_or_fabricated_skipped_bracket_rejected(keys, status, 
                                     _canonical(package["payload"]), hashlib.sha256).hexdigest()
     with pytest.raises(OfflineResultsError):
         verify_package(package)
+
+
+def test_swiss_fractional_buchholz_is_a_score_not_a_count(keys, tmp_path):
+    detail = complete_event()
+    detail["format"] = "swiss_single_elimination"
+    # _swiss_standings produces points_half / 2 and buchholz_half / 2,
+    # including float values when the total happens to be a whole number.
+    for row, points, buchholz in zip(detail["standings"], (1.5, 0.5), (0.5, 1.5)):
+        row.update(points=points, buchholz=buchholz)
+    package = export_package(detail)
+    archive = SimpleNamespace(data=tmp_path)
+    publish_import(archive, package)
+    rows = imported_results(archive)[0]["standings"]
+    assert [(r["points"], r["buchholz"]) for r in rows] == [(1.5, 0.5), (0.5, 1.5)]
+
+
+@pytest.mark.parametrize("value", [float("inf"), -0.5, True, "1.5"])
+def test_invalid_buchholz_still_rejected(keys, value):
+    detail = complete_event()
+    detail["standings"][0]["buchholz"] = value
+    with pytest.raises(OfflineResultsError):
+        export_package(detail)

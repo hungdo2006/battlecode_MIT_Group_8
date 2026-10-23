@@ -19,8 +19,9 @@ MAX_BYTES = 1024 * 1024
 _lock = threading.RLock()
 _SCORE_KEYS = ("rank", "team_name", "played", "wins", "draws", "losses",
                "points", "score_for", "score_difference", "byes", "buchholz")
+# Swiss points and Buchholz are half-point scores, not integer counters.
 _SCORE_COUNTS = {"rank", "played", "wins", "draws", "losses", "score_for",
-                 "score_difference", "byes", "buchholz"}
+                 "score_difference", "byes"}
 
 
 class OfflineResultsError(ValueError):

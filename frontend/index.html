@@ -381,11 +381,29 @@
         </section>
         <section id="admin-pane-bots" role="tabpanel" aria-labelledby="admin-tab-bots" tabindex="0" hidden><section class="panel"><div class="panel-heading"><h2>Bot &amp; biên dịch</h2><label class="inline-search">Tìm bot<input id="admin-bot-query" placeholder="Tên, game hoặc trạng thái" maxlength="128"></label><button class="button ghost small" id="admin-refresh-bots" type="button">Làm mới</button></div><div id="admin-submissions-list" class="match-list"></div></section></section>
       </section>
-      <section class="view" id="view-system" aria-label="Giám sát hệ thống">
-        <div class="page-intro"><h1>Giám sát hệ thống</h1><p>Trạng thái runner, hàng đợi và các tác vụ thực tế trên máy chủ.</p></div>
-        <section class="panel"><div class="panel-heading"><h2>Runtime</h2><button class="button ghost small" id="system-refresh" type="button">Kiểm tra lại</button></div><dl id="system-status" class="system-status"></dl><div id="system-feedback" class="feedback hidden" role="status"></div></section>
-        <section class="panel administration-tools"><div class="panel-heading"><h2>Trận đang chạy</h2><span class="tag">Tối đa 2 trận</span></div><div id="system-active" class="match-list"></div></section>
-        <section class="panel administration-tools"><div class="panel-heading"><h2>Gián đoạn gần đây</h2></div><div id="system-interruptions" class="match-list"></div></section>
+      <section class="view" id="view-system" aria-label="Trạng thái hệ thống">
+        <div class="page-intro"><h1>Trạng thái hệ thống</h1><p>Kiểm tra đấu trường đã sẵn sàng, có bao nhiêu trận đang chạy và có sự cố nào cần xử lý.</p></div>
+        <section class="system-health panel" id="system-health" data-status="loading" aria-labelledby="system-health-title">
+          <div class="system-health-indicator" aria-hidden="true"><svg class="nav-icon"><use href="#i-activity"/></svg></div>
+          <div class="system-health-content">
+            <span class="eyebrow">SỨC KHỎE ĐẤU TRƯỜNG</span>
+            <h2 id="system-health-title" role="status" aria-live="polite">Đang kiểm tra hệ thống…</h2>
+            <p id="system-health-note">Đang lấy dữ liệu vận hành từ máy chủ.</p>
+            <small id="system-last-checked" class="form-note">Chưa có dữ liệu mới</small>
+          </div>
+          <button class="button ghost small" id="system-refresh" type="button">Cập nhật trạng thái ↻</button>
+        </section>
+        <section class="panel system-activity" aria-labelledby="system-activity-title">
+          <div class="panel-heading"><h2 id="system-activity-title">Hoạt động thi đấu</h2><a class="text-button" href="#official">Xem lịch thi đấu →</a></div>
+          <dl id="system-status" class="system-status" aria-live="polite"></dl>
+          <div id="system-feedback" class="feedback hidden" role="status"></div>
+        </section>
+        <section class="panel administration-tools"><div class="panel-heading"><h2>Trận đang chạy</h2><a class="text-button" href="#official">Xem trận chính thức →</a></div><div id="system-active" class="match-list"></div></section>
+        <section class="panel administration-tools"><div class="panel-heading"><h2>Sự cố gần đây</h2></div><div id="system-interruptions" class="match-list"></div></section>
+        <details class="panel workflow-disclosure system-advanced" id="system-technical-details"><summary>Chi tiết kỹ thuật (dành cho người vận hành)</summary>
+          <p class="form-note">Thông tin về môi trường chạy bot và các công cụ tùy chọn. Battlecode 2026 không bắt buộc với Robot Battle hoặc OTT.</p>
+          <dl id="system-technical" class="system-status"></dl>
+        </details>
       </section>
       <footer class="main-footer"><strong>neon arena</strong><a href="/static/protocol.html">Tài liệu bot ↗</a></footer>
     </main>

@@ -121,9 +121,11 @@ def validate_models(old, pilot):
     if env.get("ARENA_RUNNER") != "remote_sandbox":
         raise Blocked("PILOT_NOT_REMOTE")
     if any(env.get(k) != "1" for k in ("ARENA_ACCOUNT_AUTH", "ARENA_ACCOUNT_ONLY",
-                                       "ARENA_PUBLIC_GATEWAY", "ARENA_ADMIN_TOTP_REQUIRED")):
-        raise Blocked("PILOT_AUTH_MFA_REQUIRED")
-    if env.get("ARENA_AUTH_ALLOW_HTTP") != "0" or env.get("ARENA_PUBLIC_ADMIN_PASSWORD_ONLY") != "0":
+                                       "ARENA_PUBLIC_GATEWAY", "ARENA_PUBLIC_ADMIN_PASSWORD_ONLY")):
+        raise Blocked("PILOT_ACCOUNT_PASSWORD_AUTH_REQUIRED")
+    # This supervised pilot intentionally uses the project's explicit
+    # password-only Admin opt-in, matching the already running AWS site.
+    if env.get("ARENA_AUTH_ALLOW_HTTP") != "0" or env.get("ARENA_ADMIN_TOTP_REQUIRED") != "0":
         raise Blocked("UNSAFE_PILOT_AUTH")
     if env.get("ARENA_ALLOWED_HOSTS") != DOMAIN or env.get("ARENA_AUTH_ORIGINS") != "https://" + DOMAIN:
         raise Blocked("PILOT_DOMAIN_MISMATCH")
@@ -211,14 +213,13 @@ def prepare(args):
     # Build and initialize only the NEW data volume; no port binding.
     docker([*pilot, "build", "arena"], root, interactive=True)
     for cli in (("migrate",), ("check",),
-                ("create-admin", "--username", "b1.operator"),
-                ("enroll-admin-totp", "--username", "b1.operator")):
+                ("create-admin", "--username", "b1.operator")):
         docker([*pilot, "run", "--rm", "--no-deps", "arena",
                 "python", "-m", "backend.admin_cli", "--data-dir", "/app/data", *cli],
                root, interactive=True)
     marker.write_text("Fresh pilot initialized; old site unchanged.\n", encoding="utf-8")
     os.chmod(marker, 0o600)
-    print("PASS: pilot images built, test DB/Admin/TOTP initialized; old website untouched")
+    print("PASS: pilot images built, test DB/password-only Admin initialized; old website untouched")
 
 
 def switch_to_pilot(args):

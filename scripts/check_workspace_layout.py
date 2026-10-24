@@ -181,7 +181,7 @@ def run():
                 expect(player.locator("#overview-primary")).to_have_text("Nộp bot cho đội ↗")
                 view(player, "upload")
                 player.click("[data-sample=python]")
-                expect(player.locator("#bot-library")).to_contain_text("ready", timeout=30000)
+                expect(player.locator("#bot-library")).to_contain_text("Sẵn sàng", timeout=30000)
                 view(player, "home")
                 expect(player.locator("#overview-primary")).to_have_text("Chọn bot đại diện ↗")
                 view(player, "upload")

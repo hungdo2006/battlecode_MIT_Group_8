@@ -221,9 +221,8 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
             return JSONResponse({"detail": "Origin không được phép."}, status_code=403)
         mutation = request.method not in {"GET", "HEAD", "OPTIONS"}
         if account_settings.account_only:
-            # A separate machine-secret guard authenticates the outbound worker
-            # before any JSON is buffered. Never create browser sessions here.
-            if request.url.path.startswith("/api/remote-runner/"):
+            # The outbound agent authenticates via its private machine-bearer boundary.
+            if os.environ.get("ARENA_RUNNER") == "remote_sandbox" and request.url.path.startswith("/api/remote-runner/"):
                 return await call_next(request)
             # A narrow read-only spectator endpoint is safe without account
             # cookies; keep every legacy mutation and all other APIs gated.

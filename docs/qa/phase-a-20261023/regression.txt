@@ -1,0 +1,95 @@
+Runtime source: 060a412e09ea4be5d45fbde37a3ca30c62dd31c7
+============================= test session starts =============================
+platform win32 -- Python 3.13.12, pytest-9.1.1, pluggy-1.6.0
+rootdir: D:\LTM\.qa-phase-a-20261023\repo
+configfile: pytest.ini
+plugins: anyio-4.15.1
+collected 590 items
+
+tests\test_account_database.py ...................                       [  3%]
+tests\test_account_only.py ...........................                   [  7%]
+tests\test_admin_bootstrap.py ..........................                 [ 12%]
+tests\test_api.py .........                                              [ 13%]
+tests\test_artifact_runtime_compat.py ........                           [ 15%]
+tests\test_auth_http.py ................................................ [ 23%]
+..                                                                       [ 23%]
+tests\test_auth_service.py ............................................. [ 31%]
+............                                                             [ 33%]
+tests\test_backup_restore.py ...........                                 [ 35%]
+tests\test_competition.py .............                                  [ 37%]
+tests\test_docker_qa_config.py ..                                        [ 37%]
+tests\test_engine.py .......................                             [ 41%]
+tests\test_execution.py ........                                         [ 42%]
+tests\test_frontend_logout.py .....                                      [ 43%]
+tests\test_frontend_team_contract.py ...................                 [ 46%]
+tests\test_game_plugins.py ......                                        [ 47%]
+tests\test_lobby.py .....................                                [ 51%]
+tests\test_match_result_correction.py ....                               [ 52%]
+tests\test_match_runner_failures.py .....                                [ 53%]
+tests\test_multigame.py ...........                                      [ 54%]
+tests\test_network_clients.py ........                                   [ 56%]
+tests\test_official_schedule.py ..............                           [ 58%]
+tests\test_offline_results.py ...................                        [ 61%]
+tests\test_offline_results_http.py ......                                [ 62%]
+tests\test_ott.py ...................................                    [ 68%]
+tests\test_ott_advanced.py .............                                 [ 71%]
+tests\test_player_standings_stats.py ..                                  [ 71%]
+tests\test_practice_ux.py .....                                          [ 72%]
+tests\test_public_gateway.py ..                                          [ 72%]
+tests\test_public_results_rendering.py .                                 [ 72%]
+tests\test_reference_rules.py .                                          [ 72%]
+tests\test_review_fixes.py ........                                      [ 74%]
+tests\test_runner.py ...............                                     [ 76%]
+tests\test_sandbox_client.py ......                                      [ 77%]
+tests\test_scrimmages.py ...                                             [ 78%]
+tests\test_seasons.py ..                                                 [ 78%]
+tests\test_session_activity.py ......                                    [ 79%]
+tests\test_storage_atomic_write.py ..                                    [ 80%]
+tests\test_system_monitoring_ux.py ...                                   [ 80%]
+tests\test_team_bots.py ......                                           [ 81%]
+tests\test_team_http.py ............                                     [ 83%]
+tests\test_team_management.py .........                                  [ 85%]
+tests\test_team_migration.py ..........                                  [ 86%]
+tests\test_team_service.py ....................                          [ 90%]
+tests\test_team_tournament_http.py ..                                    [ 90%]
+tests\test_tournament_round_rules.py ..                                  [ 90%]
+tests\test_tournament_standings_tiebreaks.py ....                        [ 91%]
+tests\test_ui_support_contact.py ......                                  [ 92%]
+tests\test_username_only_signup.py .....                                 [ 93%]
+tests\test_ux_journeys.py ...                                            [ 93%]
+tests\test_workspace_http.py .....                                       [ 94%]
+tests\test_writer_lock.py ....                                           [ 95%]
+tests\test_writer_lock_os.py ..                                          [ 95%]
+controller_tests\test_battlecode.py ....                                 [ 96%]
+controller_tests\test_controller.py ...................                  [ 99%]
+controller_tests\test_runner_protocol.py ..                              [100%]
+
+============================== warnings summary ===============================
+..\..\.venv\Lib\site-packages\fastapi\testclient.py:1
+  D:\LTM\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+---- generated xml file: D:\LTM\.qa-phase-a-20261023\repo\qa-ci\pytest.xml ----
+============================ slowest 20 durations =============================
+7.07s call     tests/test_multigame.py::test_cross_language_games_really_complete[ott_v2-python-cpp]
+6.26s call     tests/test_multigame.py::test_cross_language_games_really_complete[robot_battle-python-cpp]
+4.70s call     tests/test_lobby.py::test_invited_multilanguage_games[ott_v2-langs2]
+4.58s call     tests/test_multigame.py::test_cross_language_games_really_complete[ott_v2-cpp-java]
+4.21s call     tests/test_lobby.py::test_invited_multilanguage_games[robot_battle-langs1]
+4.06s call     tests/test_multigame.py::test_cross_language_games_really_complete[robot_battle-cpp-java]
+3.80s call     tests/test_lobby.py::test_invited_multilanguage_games[robot_battle-langs0]
+3.62s call     tests/test_runner.py::test_compiled_sample_uses_same_process_for_multiple_turns[hunter.cpp-g++]
+2.18s call     tests/test_account_only.py::test_account_websocket_auth_logout_and_idle_expiry
+2.11s call     tests/test_account_only.py::test_account_websocket_polls_persistent_revocation[disabled]
+2.11s call     tests/test_account_only.py::test_account_websocket_polls_persistent_revocation[version]
+2.10s call     tests/test_account_only.py::test_account_websocket_polls_persistent_revocation[revoked]
+1.30s call     tests/test_storage_atomic_write.py::test_atomic_write_preserves_old_file_and_cleans_temp_on_persistent_error
+1.07s call     tests/test_lobby.py::test_presence_multitab_heartbeat_reconnect_pending_and_running
+1.01s call     tests/test_lobby.py::test_invitation_terminal_cases_release_players_and_never_start[expiry]
+1.00s call     tests/test_lobby.py::test_invited_multilanguage_games[ott_v2-langs3]
+0.96s call     tests/test_offline_results_http.py::test_independent_import_restart_and_cold_directory_restore
+0.89s call     tests/test_team_management.py::test_three_concurrent_finds_never_claim_a_team_twice
+0.88s call     tests/test_scrimmages.py::test_scrimmage_private_queue_csrf_and_cancellation
+0.85s call     tests/test_team_management.py::test_fifo_selection_and_bot_snapshot_at_pairing
+================= 590 passed, 1 warning in 169.11s (0:02:49) ==================

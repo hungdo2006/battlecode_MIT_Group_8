@@ -24,7 +24,7 @@ class SandboxRunner:
 
     def __init__(self, *, remote=False):
         if remote:
-            # The cloud must never know the PC Controller's Docker authority token.
+            # Cloud is never given the PC Controller's private Docker token.
             self.url, self.token = None, None
         else:
             self.url = os.environ.get('ARENA_CONTROLLER_URL', 'http://controller:9000').rstrip('/')

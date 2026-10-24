@@ -2870,6 +2870,7 @@ function renderTeamTournaments() {
   root.classList.toggle("hidden", legacyVisible);
   if (legacyVisible) return;
   $("#team-tournament-admin-panel").classList.toggle("hidden", app.accountAudience !== "admin");
+  $("#offline-import-panel").classList.toggle("hidden", app.accountAudience !== "admin");
   const gameSelect = $("#team-tournament-game"), previousGame = gameSelect.value;
   gameSelect.replaceChildren(...app.games.map(game => {
     const option = el("option", "", game.name); option.value = game.game_id; return option;
@@ -2915,6 +2916,25 @@ function renderTeamTournaments() {
     const chips = el("div", "tournament-player-chips");
     tournament.teams.forEach(team => chips.append(el("span", "tournament-player-chip", team.team_name_snapshot)));
     const actions = el("div", "tournament-actions");
+    if (app.accountAudience === "admin" && tournament.status === "COMPLETED") {
+      const exportButton=el("button","button ghost small","Xuất kết quả offline");
+      exportButton.type="button";
+      exportButton.onclick=async()=>{
+        exportButton.disabled=true;
+        try{
+          const response=await api(`/api/admin/team-tournaments/${encodeURIComponent(tournament.id)}/offline-export`);
+          const blob=new Blob([JSON.stringify(response.package,null,2)],{type:"application/json"});
+          const url=URL.createObjectURL(blob);
+          const a=document.createElement("a");a.href=url;
+          a.download=`neon-results-${tournament.id}.json`;
+          document.body.append(a);a.click();a.remove();
+          setTimeout(()=>URL.revokeObjectURL(url),1000);
+          toast("Đã tạo gói kết quả offline có chữ ký.");
+        }catch(error){toast(error.message,true);}
+        finally{exportButton.disabled=false;}
+      };
+      actions.append(exportButton);
+    }
     if (app.accountAudience === "admin" && tournament.status === "REGISTRATION") {
       const start = el("button", "button primary small", "BẮT ĐẦU & TẠO LỊCH"); start.type = "button";
       start.onclick = async () => {
@@ -3275,6 +3295,59 @@ async function refreshMatches() {
 $("#refresh-bots").addEventListener("click", () => refreshBots().catch(e => toast(e.message, true)));
 $("#refresh-matches").addEventListener("click", () => refreshMatches().catch(e => toast(e.message, true)));
 $("#refresh-tournaments").addEventListener("click", () => refreshTournaments().catch(e => toast(e.message, true)));
+let offlinePackage=null;
+let offlinePreviewGeneration=0;
+$("#offline-import-file").addEventListener("change",()=>{
+  ++offlinePreviewGeneration;
+  $("#offline-import-preview").disabled=false;
+  offlinePackage=null;
+  $("#offline-import-confirm").disabled=true;
+  setText("#offline-import-summary","Chưa xác minh chữ ký. Nhấn Kiểm tra & xem trước.");
+  $("#offline-import-feedback").classList.add("hidden");
+});
+$("#offline-import-preview").addEventListener("click",async()=>{
+  const generation=++offlinePreviewGeneration;
+  offlinePackage=null;
+  $("#offline-import-confirm").disabled=true;
+  const file=$("#offline-import-file").files[0];
+  if(!file){feedback("#offline-import-feedback","Hãy chọn file .json kết quả.",true);return;}
+  if(file.size>2*1024*1024){feedback("#offline-import-feedback","File kết quả quá lớn.",true);return;}
+  const button=$("#offline-import-preview");button.disabled=true;
+  try{
+    const parsed=JSON.parse(await file.text());
+    const response=await api("/api/admin/offline-results/preview",jsonOptions("POST",{package:parsed}));
+    if(generation!==offlinePreviewGeneration || $("#offline-import-file").files[0]!==file)return;
+    const info=response.preview;
+    offlinePackage=parsed;
+    setText("#offline-import-summary",`Điểm thi: ${info.source} · Giải: ${info.name} · ${info.teams} đội · ${info.matches} trận · ${info.game_id}`);
+    $("#offline-import-confirm").disabled=false;
+    feedback("#offline-import-feedback","Chữ ký hợp lệ. Kiểm tra kỹ tên giải trước khi công bố.");
+  }catch(error){
+    if(generation===offlinePreviewGeneration){
+      setText("#offline-import-summary","Chưa thể xác minh file kết quả.");
+      feedback("#offline-import-feedback",error.message,true);
+    }
+  }finally{
+    if(generation===offlinePreviewGeneration)button.disabled=false;
+  }
+});
+$("#offline-import-confirm").addEventListener("click",async()=>{
+  if(!offlinePackage || app.accountAudience!=="admin")return;
+  if(!await confirmAction("Công bố kết quả giải offline?",
+    "Kết quả đã xác minh sẽ xuất hiện công khai tại /results, tách biệt dữ liệu giải online. Không thể ghi đè một giải đã nhập.",
+    "Công bố"))return;
+  const button=$("#offline-import-confirm");button.disabled=true;
+  try{
+    const response=await api("/api/admin/offline-results/import",jsonOptions("POST",{package:offlinePackage,confirm_publish:true}));
+    feedback("#offline-import-feedback",response.publication.already_imported?
+      "Giải này đã được công bố trước đó.":"Đã công bố kết quả offline lên trang /results.");
+    offlinePackage=null;
+    $("#offline-import-file").value="";
+  }catch(error){
+    feedback("#offline-import-feedback",error.message,true);
+    button.disabled=false;
+  }
+});
 $("#refresh-team-tournaments").addEventListener("click", () => refreshTeamTournaments().catch(e => toast(e.message, true)));
 $("#team-tournament-team-options").addEventListener("change", updateTeamTournamentPolicy);
 $("#team-tournament-create").elements.format.addEventListener("change", updateTeamTournamentPolicy);

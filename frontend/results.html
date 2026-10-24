@@ -44,12 +44,44 @@ async function load(){
   const response=await fetch("/api/public/standings",{credentials:"omit",cache:"no-store"});
   if(!response.ok)throw new Error("Không tải được dữ liệu: HTTP "+response.status);
   const payload=await response.json();if(!Array.isArray(payload.tournaments))throw new Error("Dữ liệu không hợp lệ");
-  status.textContent=payload.tournaments.length?"Dữ liệu được công bố bởi Ban tổ chức.":"Chưa có giải đấu công khai.";
+  const online=payload.tournaments||[],offline=payload.offline_tournaments||[];
+  if(!Array.isArray(offline))throw new Error("Dữ liệu giải offline không hợp lệ");
+  status.textContent=(online.length||offline.length)?"Dữ liệu do Ban tổ chức công bố.":"Chưa có giải đấu công khai.";
   for(const t of payload.tournaments){
    const box=el("article");box.append(el("h2",t.name),el("p",`${t.game_id} · ${t.format} · ${t.status}`));
    drawTable(box,t.standings||[],"Bảng điểm");
    for(const group of t.groups||[])drawTable(box,group.standings||[],group.name);
    if(!box.querySelector("table"))box.append(el("p","Giải này chưa có bảng điểm; xem nhánh đấu sau khi Ban tổ chức công bố."));
+   root.append(box);
+  }
+  for(const t of offline){
+   const box=el("article");
+   box.append(el("h2",t.name),el("p",`Giải thi offline · Điểm thi ${t.source} · ${t.game_id} · ${t.format} · Đã xác minh & công bố`));
+   drawTable(box,t.standings||[],"Bảng xếp hạng offline");
+   for(const group of t.groups||[])drawTable(box,group.standings||[],group.name);
+   if(t.bracket?.length){
+    const details=el("details"),summary=el("summary","Nhánh đấu offline");
+    details.append(summary);
+    const slots=el("ol");
+    for(const slot of t.bracket){
+      const result=slot.status==="SKIPPED"?"Không cần thi đấu":
+        slot.status==="BYE"?`Miễn đấu: ${slot.winner||slot.team_a||slot.team_b||"—"}`:
+        `${slot.team_a||"—"} – ${slot.team_b||"—"} · ${slot.winner?"Thắng: "+slot.winner:"Chưa có đội thắng"}`;
+      slots.append(el("li",`Vòng ${slot.round}: ${result}`));
+    }
+    details.append(slots);box.append(details);
+   }
+   if(t.matches?.length){
+    const details=el("details"),summary=el("summary",`Kết quả ${t.matches.length} trận`);
+    details.append(summary);
+    const matches=el("ol");
+    for(const match of t.matches){
+      const li=el("li",`Vòng ${match.round}: ${match.team_a} – ${match.team_b} · ${match.winner?"Thắng: "+match.winner:"Hòa"}`);
+      matches.append(li);
+    }
+    details.append(matches);box.append(details);
+   }
+   if(!box.querySelector("table"))box.append(el("p","Giải không có bảng điểm dạng bảng; xem lịch sử trận bên dưới."));
    root.append(box);
   }
  }catch(error){status.textContent=error.message;}

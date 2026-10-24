@@ -1,0 +1,42 @@
+Baseline: 839afa6ed917d9fc59a1a0e85298710025a36248 + new regression only (before runtime fix)
+Command: python -m pytest tests/test_offline_results_http.py::test_double_elimination_skipped_reset_can_be_exported -ra --tb=short
+
+FAILED test_double_elimination_skipped_reset_can_be_exported
+assert exported.status_code == 200, exported.text
+AssertionError: {"detail":"Đội thắng không thuộc cặp đấu."}
+assert 422 == 200
+1 failed, 1 warning in 1.55s
+
+Reproduction creates a real two-Team Double Elimination Tournament and schedules
+Official requests in isolated SQLite. Terminal Official outcomes are synthetic;
+the existing OfficialSchedule advancement code produces the skipped reset.
+This is not Docker execution evidence.
+
+After fix: ca2acb3e48fe17167366d60145989ccfdc579b91
+python -m pytest tests/test_offline_results.py tests/test_offline_results_http.py -ra --tb=short
+20 passed, 1 warning in 8.03s
+Additional strengthened existing-online-data preservation check + Node regression:
+2 passed, 1 warning in 2.10s
+
+Signing-key process isolation regression before fbb33b1:
+python -m pytest tests/test_runner.py::test_offline_signing_key_is_not_in_bot_or_compiler_environment -ra --tb=short
+AssertionError: assert {'has_signing_key': True} == {'has_signing_key': False}
+1 failed in 0.25s
+The test creates an ephemeral random key and inspects only its presence.
+No key value is printed or stored.
+After fbb33b1 runner/offline/frontend focused regression:
+36 passed, 1 warning in 18.95s
+
+Windows CI first attempt (ca2acb3), job 120527990503:
+test_invited_multilanguage_games[robot_battle-langs0]
+AssertionError: Biên dịch vượt quá giới hạn 30 giây.
+1 failed, 583 passed, 1 warning in 439.94s
+The compile deadline remains 30 seconds. No tests were skipped/retried internally.
+
+Swiss numeric-score regression before 060a412:
+python -m pytest tests/test_offline_results.py::test_swiss_fractional_buchholz_is_a_score_not_a_count -ra --tb=short
+OfflineResultsError: Điểm số giải offline không hợp lệ.
+1 failed in 0.18s
+The service scorer divides points_half and buchholz_half by 2; Buchholz is not
+an integer-only counter. After correction, runner/offline/frontend focused tests:
+41 passed, 1 warning in 10.96s

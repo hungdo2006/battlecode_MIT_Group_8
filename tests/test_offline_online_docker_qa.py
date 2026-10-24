@@ -94,7 +94,7 @@ def test_qa_get_respects_retry_after_but_never_retries_mutation(monkeypatch):
     requests = []
     def handler(request):
         requests.append(request.method)
-        if len(requests) == 1:
+        if request.method == "POST" or len(requests) == 1:
             return httpx.Response(429, headers={"Retry-After": "2"},
                                   json={"detail": "Too many authentication requests"})
         return httpx.Response(200, json={"request": {"status": "COMPLETED"}})

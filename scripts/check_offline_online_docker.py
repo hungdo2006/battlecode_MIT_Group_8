@@ -26,6 +26,21 @@ import httpx
 
 ROOT = Path(__file__).resolve().parents[1]
 QA_IMAGE_PREFIX = "neon-arena-qa"
+
+# Unlike the public hunter.py sample, this test bot never waits at distance 2.
+# A stationary opponent would otherwise cause a valid draw and automatic
+# tie-breaks, leaving the first Official Match completed but the event active.
+QA_AGGRESSIVE_BOT = """import json, sys
+def choose(state):
+    you, enemy = state["you"], state["enemy"]
+    dx, dy = enemy["x"] - you["x"], enemy["y"] - you["y"]
+    if abs(dx) + abs(dy) == 1:
+        return {"type": "attack"}
+    direction = ("right" if dx > 0 else "left") if dx else ("down" if dy > 0 else "up")
+    return {"type": "move", "direction": direction}
+for line in sys.stdin:
+    print(json.dumps(choose(json.loads(line)), separators=(",", ":")), flush=True)
+"""
 SEED = """
 import json,sys
 from pathlib import Path
@@ -217,19 +232,38 @@ def wait_for_official_complete(admin, tournament_id, request_id, *, timeout=240,
     """
     deadline = time.monotonic() + timeout
     status = "SCHEDULED"
+    current_id = request_id
+    tournament_status = "ACTIVE"
+    bracket_status = "READY"
     while time.monotonic() < deadline:
         request = admin.call(
-            "GET", f"/api/admin/official-matches/{request_id}", retry_429=True)["request"]
+            "GET", f"/api/admin/official-matches/{current_id}", retry_429=True)["request"]
         status = request["status"]
         if status in ("BLOCKED", "INTERRUPTED", "CANCELLED"):
             raise AssertionError(f"Real Official request did not complete: {status}")
         if status == "COMPLETED":
             detail = admin.call(
                 "GET", f"/api/admin/team-tournaments/{tournament_id}", retry_429=True)["tournament"]
-            if detail["status"] == "COMPLETED":
+            tournament_status = detail["status"]
+            if tournament_status == "COMPLETED":
                 return request, detail
+            bracket = detail.get("bracket", [])
+            bracket_status = bracket[-1]["status"] if bracket else "MISSING"
+            if any(slot.get("status") == "TIE" for slot in bracket):
+                raise AssertionError("Official Match tied; Admin must resolve bracket after tie-breaks")
+            # After a tied Official attempt, follow the replacement scheduled
+            # against the SAME fixture, not the already completed request ID.
+            next_id = next((fixture.get("official_request_id")
+                           for fixture in detail.get("fixtures", [])
+                           if fixture.get("official_request_id")
+                           and fixture["official_request_id"] != current_id), None)
+            if next_id:
+                print("QA Official: observing scheduled tie-break rematch", flush=True)
+                current_id = next_id
         time.sleep(poll_interval)
-    raise AssertionError(f"Real Official Match did not complete before QA deadline (Official status={status})")
+    raise AssertionError(
+        f"Official QA deadline: Official={status}, tournament={tournament_status}, "
+        f"bracket={bracket_status}. Check tie-breaks/fixture scheduling.")
 
 
 def run_qa(offline, online, password):
@@ -253,8 +287,8 @@ def run_qa(offline, online, password):
             team_id = created["team"]["id"]
             actor.call("POST", f"/api/player/teams/{team_id}/activate", {})
             teams.append(team_id)
-            source = ((ROOT / "samples" / "hunter.py").read_bytes() if actor is alice
-                      else b'import json,sys\nfor line in sys.stdin: print(json.dumps({"type":"wait"}),flush=True)\n')
+            source = (QA_AGGRESSIVE_BOT.encode("utf-8") if actor is alice
+                      else b'import json,sys\\nfor line in sys.stdin: print(json.dumps({"type":"wait"}),flush=True)\\n')
             uploaded = actor.call("POST", "/api/player/bots", {
                 "filename": "bot.py", "name": "QA Hunter" if actor is alice else "QA Wait",
                 "game_id": "robot_battle", "source_base64": base64.b64encode(source).decode("ascii"),

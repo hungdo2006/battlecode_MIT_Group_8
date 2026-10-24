@@ -27,3 +27,14 @@ def test_lan_qa_requires_explicit_interface():
     for invalid in ('0.0.0.0', '8.8.8.8', '224.0.0.1', '::1', 'localhost'):
         with pytest.raises(ValueError):
             DockerCheck(invalid)
+
+
+def test_docker_homepage_assertion_matches_current_shipped_landing():
+    from pathlib import Path
+    from scripts.check_docker import verify_homepage
+
+    page = (Path(__file__).resolve().parents[1] / "frontend" / "index.html").read_text(encoding="utf-8")
+    verify_homepage(page)
+
+    with pytest.raises(AssertionError, match="login action"):
+        verify_homepage(page.replace('id="landing-login"', 'id="deleted-login"'))

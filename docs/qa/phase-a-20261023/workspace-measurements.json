@@ -1,0 +1,842 @@
+[
+  {
+    "role": "new-player",
+    "width": 1366,
+    "view": "home",
+    "h1_y": 150.6,
+    "height": 900
+  },
+  {
+    "role": "new-player",
+    "width": 1366,
+    "view": "upload",
+    "h1_y": 160.6,
+    "height": 1204
+  },
+  {
+    "role": "new-player",
+    "width": 1366,
+    "view": "official",
+    "h1_y": 160.6,
+    "height": 900
+  },
+  {
+    "role": "new-player",
+    "width": 1366,
+    "view": "scrimmage",
+    "h1_y": 161.5,
+    "height": 1163
+  },
+  {
+    "role": "new-player",
+    "width": 1366,
+    "view": "profile",
+    "h1_y": 108.0,
+    "height": 1061
+  },
+  {
+    "role": "new-player",
+    "width": 1366,
+    "view": "rules",
+    "h1_y": 160.6,
+    "height": 900
+  },
+  {
+    "role": "new-player",
+    "width": 1440,
+    "view": "home",
+    "h1_y": 148.8,
+    "height": 900
+  },
+  {
+    "role": "new-player",
+    "width": 1440,
+    "view": "upload",
+    "h1_y": 162.5,
+    "height": 1204
+  },
+  {
+    "role": "new-player",
+    "width": 1440,
+    "view": "official",
+    "h1_y": 160.6,
+    "height": 900
+  },
+  {
+    "role": "new-player",
+    "width": 1440,
+    "view": "scrimmage",
+    "h1_y": 161.6,
+    "height": 1204
+  },
+  {
+    "role": "new-player",
+    "width": 1440,
+    "view": "profile",
+    "h1_y": 108.1,
+    "height": 1061
+  },
+  {
+    "role": "new-player",
+    "width": 1440,
+    "view": "rules",
+    "h1_y": 161.6,
+    "height": 900
+  },
+  {
+    "role": "new-player",
+    "width": 360,
+    "view": "home",
+    "h1_y": 170.5,
+    "height": 1014
+  },
+  {
+    "role": "new-player",
+    "width": 360,
+    "view": "upload",
+    "h1_y": 181.4,
+    "height": 1770
+  },
+  {
+    "role": "new-player",
+    "width": 360,
+    "view": "official",
+    "h1_y": 180.5,
+    "height": 900
+  },
+  {
+    "role": "new-player",
+    "width": 360,
+    "view": "scrimmage",
+    "h1_y": 179.6,
+    "height": 1585
+  },
+  {
+    "role": "new-player",
+    "width": 360,
+    "view": "profile",
+    "h1_y": 96.1,
+    "height": 1245
+  },
+  {
+    "role": "new-player",
+    "width": 360,
+    "view": "rules",
+    "h1_y": 181.4,
+    "height": 1158
+  },
+  {
+    "role": "new-player",
+    "width": 390,
+    "view": "home",
+    "h1_y": 170.5,
+    "height": 973
+  },
+  {
+    "role": "new-player",
+    "width": 390,
+    "view": "upload",
+    "h1_y": 181.4,
+    "height": 1727
+  },
+  {
+    "role": "new-player",
+    "width": 390,
+    "view": "official",
+    "h1_y": 181.4,
+    "height": 900
+  },
+  {
+    "role": "new-player",
+    "width": 390,
+    "view": "scrimmage",
+    "h1_y": 180.5,
+    "height": 1562
+  },
+  {
+    "role": "new-player",
+    "width": 390,
+    "view": "profile",
+    "h1_y": 96.1,
+    "height": 1245
+  },
+  {
+    "role": "new-player",
+    "width": 390,
+    "view": "rules",
+    "h1_y": 181.4,
+    "height": 1139
+  },
+  {
+    "role": "new-player",
+    "width": 768,
+    "view": "home",
+    "h1_y": 150.6,
+    "height": 900
+  },
+  {
+    "role": "new-player",
+    "width": 768,
+    "view": "upload",
+    "h1_y": 160.6,
+    "height": 1275
+  },
+  {
+    "role": "new-player",
+    "width": 768,
+    "view": "official",
+    "h1_y": 160.6,
+    "height": 900
+  },
+  {
+    "role": "new-player",
+    "width": 768,
+    "view": "scrimmage",
+    "h1_y": 159.7,
+    "height": 1204
+  },
+  {
+    "role": "new-player",
+    "width": 768,
+    "view": "profile",
+    "h1_y": 107.1,
+    "height": 1061
+  },
+  {
+    "role": "new-player",
+    "width": 768,
+    "view": "rules",
+    "h1_y": 161.5,
+    "height": 900
+  },
+  {
+    "role": "admin",
+    "width": 1366,
+    "view": "home",
+    "h1_y": 148.0,
+    "height": 900
+  },
+  {
+    "role": "admin",
+    "width": 1366,
+    "view": "profile",
+    "h1_y": 106.2,
+    "height": 1061
+  },
+  {
+    "role": "admin",
+    "width": 1366,
+    "view": "administration",
+    "h1_y": 106.2,
+    "height": 900
+  },
+  {
+    "role": "admin",
+    "width": 1366,
+    "view": "seasons",
+    "h1_y": 159.7,
+    "height": 1385
+  },
+  {
+    "role": "admin",
+    "width": 1366,
+    "view": "tournaments",
+    "h1_y": 159.7,
+    "height": 2504
+  },
+  {
+    "role": "admin",
+    "width": 1366,
+    "view": "official",
+    "h1_y": 159.7,
+    "height": 1384
+  },
+  {
+    "role": "admin",
+    "width": 1366,
+    "view": "rules",
+    "h1_y": 159.7,
+    "height": 1175
+  },
+  {
+    "role": "admin",
+    "width": 1440,
+    "view": "home",
+    "h1_y": 148.9,
+    "height": 900
+  },
+  {
+    "role": "admin",
+    "width": 1440,
+    "view": "profile",
+    "h1_y": 107.1,
+    "height": 1061
+  },
+  {
+    "role": "admin",
+    "width": 1440,
+    "view": "administration",
+    "h1_y": 107.1,
+    "height": 900
+  },
+  {
+    "role": "admin",
+    "width": 1440,
+    "view": "seasons",
+    "h1_y": 160.5,
+    "height": 1385
+  },
+  {
+    "role": "admin",
+    "width": 1440,
+    "view": "tournaments",
+    "h1_y": 159.6,
+    "height": 2504
+  },
+  {
+    "role": "admin",
+    "width": 1440,
+    "view": "official",
+    "h1_y": 159.7,
+    "height": 1384
+  },
+  {
+    "role": "admin",
+    "width": 1440,
+    "view": "rules",
+    "h1_y": 159.7,
+    "height": 1175
+  },
+  {
+    "role": "admin",
+    "width": 360,
+    "view": "home",
+    "h1_y": 169.6,
+    "height": 1108
+  },
+  {
+    "role": "admin",
+    "width": 360,
+    "view": "profile",
+    "h1_y": 95.1,
+    "height": 1245
+  },
+  {
+    "role": "admin",
+    "width": 360,
+    "view": "administration",
+    "h1_y": 95.1,
+    "height": 900
+  },
+  {
+    "role": "admin",
+    "width": 360,
+    "view": "seasons",
+    "h1_y": 180.5,
+    "height": 1911
+  },
+  {
+    "role": "admin",
+    "width": 360,
+    "view": "tournaments",
+    "h1_y": 179.6,
+    "height": 3253
+  },
+  {
+    "role": "admin",
+    "width": 360,
+    "view": "official",
+    "h1_y": 179.5,
+    "height": 1924
+  },
+  {
+    "role": "admin",
+    "width": 360,
+    "view": "rules",
+    "h1_y": 179.6,
+    "height": 1713
+  },
+  {
+    "role": "admin",
+    "width": 390,
+    "view": "home",
+    "h1_y": 170.5,
+    "height": 1068
+  },
+  {
+    "role": "admin",
+    "width": 390,
+    "view": "profile",
+    "h1_y": 94.2,
+    "height": 1245
+  },
+  {
+    "role": "admin",
+    "width": 390,
+    "view": "administration",
+    "h1_y": 92.5,
+    "height": 900
+  },
+  {
+    "role": "admin",
+    "width": 390,
+    "view": "seasons",
+    "h1_y": 177.9,
+    "height": 1911
+  },
+  {
+    "role": "admin",
+    "width": 390,
+    "view": "tournaments",
+    "h1_y": 180.5,
+    "height": 3232
+  },
+  {
+    "role": "admin",
+    "width": 390,
+    "view": "official",
+    "h1_y": 178.7,
+    "height": 1880
+  },
+  {
+    "role": "admin",
+    "width": 390,
+    "view": "rules",
+    "h1_y": 179.6,
+    "height": 1641
+  },
+  {
+    "role": "admin",
+    "width": 768,
+    "view": "home",
+    "h1_y": 149.7,
+    "height": 900
+  },
+  {
+    "role": "admin",
+    "width": 768,
+    "view": "profile",
+    "h1_y": 108.0,
+    "height": 1061
+  },
+  {
+    "role": "admin",
+    "width": 768,
+    "view": "administration",
+    "h1_y": 107.1,
+    "height": 900
+  },
+  {
+    "role": "admin",
+    "width": 768,
+    "view": "seasons",
+    "h1_y": 158.8,
+    "height": 1430
+  },
+  {
+    "role": "admin",
+    "width": 768,
+    "view": "tournaments",
+    "h1_y": 157.2,
+    "height": 2611
+  },
+  {
+    "role": "admin",
+    "width": 768,
+    "view": "official",
+    "h1_y": 159.7,
+    "height": 1405
+  },
+  {
+    "role": "admin",
+    "width": 768,
+    "view": "rules",
+    "h1_y": 160.6,
+    "height": 1195
+  },
+  {
+    "role": "captain",
+    "width": 1366,
+    "view": "home",
+    "h1_y": 141.5,
+    "height": 900
+  },
+  {
+    "role": "captain",
+    "width": 1366,
+    "view": "upload",
+    "h1_y": 162.5,
+    "height": 2480
+  },
+  {
+    "role": "captain",
+    "width": 1366,
+    "view": "official",
+    "h1_y": 160.6,
+    "height": 900
+  },
+  {
+    "role": "captain",
+    "width": 1366,
+    "view": "scrimmage",
+    "h1_y": 161.6,
+    "height": 1204
+  },
+  {
+    "role": "captain",
+    "width": 1366,
+    "view": "rules",
+    "h1_y": 161.6,
+    "height": 900
+  },
+  {
+    "role": "captain",
+    "width": 1366,
+    "view": "profile",
+    "h1_y": 109.0,
+    "height": 1061
+  },
+  {
+    "role": "captain",
+    "width": 1440,
+    "view": "home",
+    "h1_y": 149.7,
+    "height": 900
+  },
+  {
+    "role": "captain",
+    "width": 1440,
+    "view": "upload",
+    "h1_y": 158.8,
+    "height": 2480
+  },
+  {
+    "role": "captain",
+    "width": 1440,
+    "view": "official",
+    "h1_y": 160.6,
+    "height": 900
+  },
+  {
+    "role": "captain",
+    "width": 1440,
+    "view": "scrimmage",
+    "h1_y": 160.6,
+    "height": 1163
+  },
+  {
+    "role": "captain",
+    "width": 1440,
+    "view": "rules",
+    "h1_y": 162.5,
+    "height": 900
+  },
+  {
+    "role": "captain",
+    "width": 1440,
+    "view": "profile",
+    "h1_y": 107.1,
+    "height": 1061
+  },
+  {
+    "role": "captain",
+    "width": 360,
+    "view": "home",
+    "h1_y": 170.5,
+    "height": 1129
+  },
+  {
+    "role": "captain",
+    "width": 360,
+    "view": "upload",
+    "h1_y": 180.5,
+    "height": 3935
+  },
+  {
+    "role": "captain",
+    "width": 360,
+    "view": "official",
+    "h1_y": 180.5,
+    "height": 900
+  },
+  {
+    "role": "captain",
+    "width": 360,
+    "view": "scrimmage",
+    "h1_y": 180.5,
+    "height": 1608
+  },
+  {
+    "role": "captain",
+    "width": 360,
+    "view": "rules",
+    "h1_y": 181.5,
+    "height": 1158
+  },
+  {
+    "role": "captain",
+    "width": 360,
+    "view": "profile",
+    "h1_y": 96.0,
+    "height": 1245
+  },
+  {
+    "role": "captain",
+    "width": 390,
+    "view": "home",
+    "h1_y": 168.7,
+    "height": 1092
+  },
+  {
+    "role": "captain",
+    "width": 390,
+    "view": "upload",
+    "h1_y": 179.6,
+    "height": 3842
+  },
+  {
+    "role": "captain",
+    "width": 390,
+    "view": "official",
+    "h1_y": 179.6,
+    "height": 900
+  },
+  {
+    "role": "captain",
+    "width": 390,
+    "view": "scrimmage",
+    "h1_y": 180.5,
+    "height": 1584
+  },
+  {
+    "role": "captain",
+    "width": 390,
+    "view": "rules",
+    "h1_y": 180.5,
+    "height": 1139
+  },
+  {
+    "role": "captain",
+    "width": 390,
+    "view": "profile",
+    "h1_y": 94.2,
+    "height": 1245
+  },
+  {
+    "role": "captain",
+    "width": 768,
+    "view": "home",
+    "h1_y": 149.7,
+    "height": 900
+  },
+  {
+    "role": "captain",
+    "width": 768,
+    "view": "upload",
+    "h1_y": 161.5,
+    "height": 2639
+  },
+  {
+    "role": "captain",
+    "width": 768,
+    "view": "official",
+    "h1_y": 160.6,
+    "height": 900
+  },
+  {
+    "role": "captain",
+    "width": 768,
+    "view": "scrimmage",
+    "h1_y": 160.6,
+    "height": 1204
+  },
+  {
+    "role": "captain",
+    "width": 768,
+    "view": "rules",
+    "h1_y": 161.6,
+    "height": 900
+  },
+  {
+    "role": "captain",
+    "width": 768,
+    "view": "profile",
+    "h1_y": 107.1,
+    "height": 1061
+  },
+  {
+    "role": "member",
+    "width": 1366,
+    "view": "home",
+    "h1_y": 147.3,
+    "height": 900
+  },
+  {
+    "role": "member",
+    "width": 1366,
+    "view": "upload",
+    "h1_y": 159.7,
+    "height": 2048
+  },
+  {
+    "role": "member",
+    "width": 1366,
+    "view": "official",
+    "h1_y": 160.6,
+    "height": 900
+  },
+  {
+    "role": "member",
+    "width": 1366,
+    "view": "scrimmage",
+    "h1_y": 160.6,
+    "height": 1163
+  },
+  {
+    "role": "member",
+    "width": 1366,
+    "view": "profile",
+    "h1_y": 107.1,
+    "height": 1061
+  },
+  {
+    "role": "member",
+    "width": 1440,
+    "view": "home",
+    "h1_y": 151.6,
+    "height": 900
+  },
+  {
+    "role": "member",
+    "width": 1440,
+    "view": "upload",
+    "h1_y": 161.6,
+    "height": 2048
+  },
+  {
+    "role": "member",
+    "width": 1440,
+    "view": "official",
+    "h1_y": 160.6,
+    "height": 900
+  },
+  {
+    "role": "member",
+    "width": 1440,
+    "view": "scrimmage",
+    "h1_y": 160.6,
+    "height": 1204
+  },
+  {
+    "role": "member",
+    "width": 1440,
+    "view": "profile",
+    "h1_y": 107.1,
+    "height": 1061
+  },
+  {
+    "role": "member",
+    "width": 360,
+    "view": "home",
+    "h1_y": 169.6,
+    "height": 1129
+  },
+  {
+    "role": "member",
+    "width": 360,
+    "view": "upload",
+    "h1_y": 179.6,
+    "height": 3405
+  },
+  {
+    "role": "member",
+    "width": 360,
+    "view": "official",
+    "h1_y": 177.9,
+    "height": 900
+  },
+  {
+    "role": "member",
+    "width": 360,
+    "view": "scrimmage",
+    "h1_y": 179.6,
+    "height": 1608
+  },
+  {
+    "role": "member",
+    "width": 360,
+    "view": "profile",
+    "h1_y": 96.0,
+    "height": 1245
+  },
+  {
+    "role": "member",
+    "width": 390,
+    "view": "home",
+    "h1_y": 170.5,
+    "height": 1092
+  },
+  {
+    "role": "member",
+    "width": 390,
+    "view": "upload",
+    "h1_y": 181.4,
+    "height": 3330
+  },
+  {
+    "role": "member",
+    "width": 390,
+    "view": "official",
+    "h1_y": 180.5,
+    "height": 900
+  },
+  {
+    "role": "member",
+    "width": 390,
+    "view": "scrimmage",
+    "h1_y": 179.6,
+    "height": 1584
+  },
+  {
+    "role": "member",
+    "width": 390,
+    "view": "profile",
+    "h1_y": 94.2,
+    "height": 1245
+  },
+  {
+    "role": "member",
+    "width": 768,
+    "view": "home",
+    "h1_y": 149.7,
+    "height": 900
+  },
+  {
+    "role": "member",
+    "width": 768,
+    "view": "upload",
+    "h1_y": 160.6,
+    "height": 2208
+  },
+  {
+    "role": "member",
+    "width": 768,
+    "view": "official",
+    "h1_y": 160.6,
+    "height": 900
+  },
+  {
+    "role": "member",
+    "width": 768,
+    "view": "scrimmage",
+    "h1_y": 160.6,
+    "height": 1204
+  },
+  {
+    "role": "member",
+    "width": 768,
+    "view": "profile",
+    "h1_y": 108.0,
+    "height": 1061
+  }
+]

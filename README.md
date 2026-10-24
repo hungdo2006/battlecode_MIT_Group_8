@@ -24,6 +24,7 @@ Mở **http://localhost:8000**. Mặc định là demo LAN dùng mã Organizer t
 | Season, Official Match, Scrimmage và bảng điểm | [Giải đấu](docs/TEAM_TOURNAMENTS.md) |
 | Migration, backup/restore, public HTTPS | [Vận hành](docs/OPERATIONS.md) |
 | Thi trực tiếp trong phòng máy không Internet | [Exam LAN](docs/EXAM_MODE.md) |
+| Chuyển kết quả giải offline lên website online | [Offline Results Transfer](docs/OFFLINE_RESULTS_TRANSFER.md) |
 | Luật theo từng vòng và công bố kết quả | [Round Rules](docs/ROUND_RULES.md) |
 | Cài thêm game đã qua kiểm duyệt | [Game Adapter](docs/NEW_GAME_ADAPTER.md) |
 | Protocol bot và thêm game | [Adapter](docs/ADAPTERS.md) |

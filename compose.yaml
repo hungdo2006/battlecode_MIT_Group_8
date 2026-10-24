@@ -93,6 +93,9 @@ services:
       ARENA_AUTH_ORIGINS: "${ARENA_AUTH_ORIGINS:-}"
       ARENA_AUTH_ALLOW_HTTP: "${ARENA_AUTH_ALLOW_HTTP:-0}"
       ARENA_SUPPORT_URL: "${ARENA_SUPPORT_URL:-mailto:hungdonxqvbn@gmail.com}"
+      # Explicit opt-in: shared offline/online signing key for result packages.
+      ARENA_OFFLINE_RESULTS_KEY: "${ARENA_OFFLINE_RESULTS_KEY:-}"
+      ARENA_OFFLINE_SITE_ID: "${ARENA_OFFLINE_SITE_ID:-}"
     volumes:
       - arena_data:/app/data
       - arena_uploads:/app/uploads

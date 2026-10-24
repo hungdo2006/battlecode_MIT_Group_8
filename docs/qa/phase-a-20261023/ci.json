@@ -1,0 +1,47 @@
+{
+  "runtime_sha": "060a412e09ea4be5d45fbde37a3ca30c62dd31c7",
+  "pr_merge_sha": "0c4183b6db84390de46034b3c97d9488ee4dd553",
+  "base_sha": "2f1cdd92251d986dca44c28a331c8edc4a280d3a",
+  "run_id": 39988981149,
+  "run_attempt": 1,
+  "url": "https://github.com/hungdo2006/battlecode_MIT_Group_8/actions/runs/39988981149",
+  "status": "completed",
+  "conclusion": "success",
+  "jobs": [
+    {
+      "id": 120535639166,
+      "name": "Python 3.13 and Node 24 (ubuntu-latest)",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/hungdo2006/battlecode_MIT_Group_8/actions/runs/39988981149/job/120535639166",
+      "summary": "2026-10-23T16:45:35.8109193Z ================== 590 passed, 1 warning in 165.82s (0:02:45) =================="
+    },
+    {
+      "id": 120535639760,
+      "name": "Python 3.13 and Node 24 (windows-latest)",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/hungdo2006/battlecode_MIT_Group_8/actions/runs/39988981149/job/120535639760",
+      "summary": "2026-10-23T16:48:28.7176808Z ================= 590 passed, 1 warning in 310.53s (0:05:10) =================="
+    }
+  ],
+  "previous_attempts": [
+    {
+      "run_id": 39986808290,
+      "sha": "ca2acb3e48fe17167366d60145989ccfdc579b91",
+      "conclusion": "failure",
+      "ubuntu": "584 passed",
+      "windows": "583 passed, 1 failed: native sample C++ compile exceeded unchanged 30-second deadline",
+      "windows_job_url": "https://github.com/hungdo2006/battlecode_MIT_Group_8/actions/runs/39986808290/job/120527990503"
+    },
+    {
+      "run_id": 39988308393,
+      "sha": "fbb33b1e2db4c558f6b817b30fbfd7e99e0a8b0b",
+      "conclusion": "cancelled",
+      "ubuntu": "success",
+      "windows": "cancelled by workflow concurrency when Swiss fix was pushed"
+    }
+  ],
+  "scope": "Python/Controller/frontend baseline only. No Docker, browser, independent online staging or physical LAN execution in these CI jobs.",
+  "release_verdict": "BLOCKED. Final green CI does not close intermittent Windows compiler timing risk or the unavailable infrastructure gates."
+}

@@ -1,0 +1,41 @@
+Date: 2026-10-23 Asia/Saigon
+Status: BLOCKED for Docker execution, independent online staging, and physical LAN isolation.
+
+docker --config <QA-config> -H npipe:////./pipe/dockerDesktopLinuxEngine version --format '{{json .}}'
+Client Version 29.8.2, API 1.56, windows/amd64; Server null
+failed to connect to the docker API at npipe:////./pipe/dockerDesktopLinuxEngine;
+open //./pipe/dockerDesktopLinuxEngine: The system cannot find the file specified.
+
+docker --config <QA-config> -H npipe:////./pipe/docker_engine version --format '{{json .}}'
+Client Version 29.8.2, API 1.56, windows/amd64; Server null
+open //./pipe/docker_engine: The system cannot find the file specified.
+Same read-only results outside the execution sandbox; no Docker process found.
+
+Docker Compose version v5.6.0
+Custom QA config includes only cliPluginsExtraDirs for the existing installation.
+No personal Docker credentials were copied.
+
+python scripts/check_docker.py --build
+QA project: neon-arena-qa-369bbbc818 (separate named volumes)
+QA image tags: neon-arena-qa-{bot-image,controller,arena}:local
+Build failed: missing dockerDesktopLinuxEngine named pipe. Exit 1.
+python scripts/check_sandbox_lifecycle.py
+QA random project, up --no-build --wait failed to connect to daemon. Exit 1.
+Cleanup also cannot connect; no images, containers or volumes were created/deleted.
+Image IDs and actual CPU/RAM observations: unavailable (BLOCKED).
+
+docker compose --env-file .env.example -p neon-arena-qa-phase-a-config -f compose.yaml -f compose.exam.yaml config -q
+PASS exit 0. Variables supplied only in process memory:
+domain arena.qa.test; bind 127.0.0.1; ephemeral random proxy/runner values (not retained).
+No interpolated config was printed.
+
+Reviewed source: TLS internal, account-only, HTTP disabled in Exam overlay,
+Admin TOTP required, Arena published ports reset, only gateway 443 published,
+Controller on private internal network, bot jobs network_mode=none, no socket
+mount into bot, read-only/cap-drop/no-new-privileges and resource checks.
+The two-match cap in matches.py/official_dispatcher.py/scrimmage_http.py is unchanged.
+
+NOT TESTED: CA trust, real HTTPS handshake, venue DNS/clock, WAN isolation,
+IPv6/proxy/VPN/hotspot, client port reachability, bot DNS/HTTP egress,
+real Sandbox matches/replay, Docker crash/restart, three-volume + image restore.
+Compose syntax and source review do not establish any of these release gates.

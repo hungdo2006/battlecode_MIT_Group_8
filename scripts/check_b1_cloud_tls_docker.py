@@ -5,7 +5,7 @@ arena-qa.test on a Docker-only transport network; the worker trusts only this
 ephemeral CA via SSL_CERT_FILE. Production TLS verification is never disabled.
 
 Run from project root:
-  .\.venv\Scripts\python.exe scripts/check_b1_cloud_tls_docker.py --build
+  python scripts/check_b1_cloud_tls_docker.py --build
 
 Prerequisites: Docker Desktop Linux containers, Python requirements-dev.txt.
 Production Compose projects/images, .env secrets and volumes are never reused.
@@ -71,7 +71,9 @@ class HTTP:
                                    RejectRedirects())
     def call(self, method, path, body=None, expected=200):
         data = None if body is None else json.dumps(body).encode("utf-8")
-        headers = {"Origin": origin, "Accept": "application/json"}
+        headers = {"Accept": "application/json"}
+        if method not in ("GET", "HEAD"):
+            headers["Origin"] = origin
         if data is not None:
             headers["Content-Type"] = "application/json"
         if hasattr(self, "csrf") and method in ("POST", "PUT", "DELETE", "PATCH"):
@@ -92,6 +94,7 @@ class HTTP:
             "username": username, "password": config["password"]})
         self.csrf = self.call("GET", "/api/%s/auth/csrf" % role)["csrf_token"]
 
+print("QA_STAGE: cloud-health", flush=True)
 health = HTTP()
 deadline = time.monotonic() + 105
 while time.monotonic() < deadline:
@@ -108,11 +111,13 @@ else:
     raise AssertionError("Cloud did not become healthy after the PC connected")
 print("PASS HTTPS: trusted QA Caddy certificate, cloud remote sandbox ready", flush=True)
 
+print("QA_STAGE: account-login", flush=True)
 admin = HTTP()
 alice, bob = HTTP(), HTTP()
 admin.login("admin", "qa.admin")
 alice.login("player", "qa.alice")
 bob.login("player", "qa.bob")
+print("QA_STAGE: remote-bot-compile", flush=True)
 teams = []
 for client, slug, source in (
     (alice, "qa-b1-aggressive", config["attacker"]),
@@ -132,6 +137,7 @@ for client, slug, source in (
         "game_id": "robot_battle", "bot_id": bot["id"]})
 print("PASS cloud-to-PC: compiled two bot sources on remote Docker Controller", flush=True)
 
+print("QA_STAGE: official-tournament", flush=True)
 event = admin.call("POST", "/api/admin/team-tournaments", {
     "name": "QA B1 Remote Championship", "game_id": "robot_battle",
     "team_ids": teams, "format": "single_elimination",
@@ -159,6 +165,7 @@ else:
     raise AssertionError("Remote Official Match timed out")
 
 assert request["outcome"]["winner_team_id"] in teams
+print("QA_STAGE: replay", flush=True)
 replay = admin.call("GET", "/api/admin/official-matches/%s/replay" % scheduled["id"])
 assert replay["match"]["status"] == "completed"
 assert len(replay["frames"]) >= 2
@@ -177,7 +184,7 @@ from urllib.request import ProxyHandler, Request, build_opener
 status = None
 try:
     with build_opener(ProxyHandler({})).open(Request(
-        "https://arena-qa.test/api/health", headers={"Origin": "https://arena-qa.test"}),
+        "https://arena-qa.test/api/health"),
         timeout=16) as result:
         status = result.status
 except HTTPError as error:
@@ -303,8 +310,17 @@ def make_worker_override(folder, transport, ca_file):
 
 def run_client(worker, code, payload=None, *, one_off=False):
     args = ("run", "--rm", "--no-deps", "-T", "agent") if one_off else ("exec", "-T", "agent")
+    # Container traces may contain credentials: disclose stage IDs only.
     result = worker.compose(*args, "python", "-c", code,
-                            input_data=json.dumps(payload) if payload is not None else None)
+                            input_data=json.dumps(payload) if payload is not None else None,
+                            check=False)
+    if result.returncode:
+        stages = [line.split(":", 1)[1].strip()
+                  for line in result.stdout.splitlines()
+                  if line.startswith("QA_STAGE: ")]
+        phase = stages[-1] if stages else "startup-before-first-stage"
+        raise RuntimeError("B1 QA client failed at stage " + phase
+                           + " (exit " + str(result.returncode) + ")")
     return result.stdout
 
 
@@ -376,11 +392,13 @@ def main(build=False):
             assert verified["tls_verified"] is True
             # Agent disconnected: after bounded stale session expiry, the cloud
             # must report unavailable; no local / legacy execution fallback.
+            print("QA_STAGE: disconnect", flush=True)
             worker.compose("stop", "agent")
             time.sleep(24)
             remote_health = run_client(worker, CHECK_HEALTH, one_off=True)
             assert "PASS fail-closed" in remote_health
             print("PASS fail-closed: cloud rejects work without PC Runner", flush=True)
+            print("QA_STAGE: reconnect", flush=True)
             worker.compose("start", "agent")
             recovered = run_client(worker, r"""
 import json, time
@@ -389,8 +407,7 @@ deadline = time.monotonic() + 100
 while time.monotonic() < deadline:
     try:
         with build_opener(ProxyHandler({})).open(
-            Request("https://arena-qa.test/api/health",
-                    headers={"Origin": "https://arena-qa.test"}), timeout=12) as resp:
+            Request("https://arena-qa.test/api/health"), timeout=12) as resp:
             result = json.load(resp)
         if result["runner"]["ready"]:
             print("PASS recovery: remote Controller became healthy again", flush=True)

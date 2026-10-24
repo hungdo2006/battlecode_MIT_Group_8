@@ -315,9 +315,12 @@ def run_client(worker, code, payload=None, *, one_off=False):
                             input_data=json.dumps(payload) if payload is not None else None,
                             check=False)
     if result.returncode:
-        stages = [line.split(":", 1)[1].strip()
-                  for line in result.stdout.splitlines()
-                  if line.startswith("QA_STAGE: ")]
+        allowed = {"cloud-health", "account-login", "remote-bot-compile",
+                   "official-tournament", "replay"}
+        stages = [stage for line in result.stdout.splitlines()
+                  if line.startswith("QA_STAGE: ")
+                  for stage in [line.split(":", 1)[1].strip()]
+                  if stage in allowed]
         phase = stages[-1] if stages else "startup-before-first-stage"
         raise RuntimeError("B1 QA client failed at stage " + phase
                            + " (exit " + str(result.returncode) + ")")

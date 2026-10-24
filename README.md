@@ -178,7 +178,30 @@ docker compose --env-file .b1-pilot/worker.env -p neon-b1-worker -f compose.remo
 
 `agent` và `controller` chạy/healthy; `bot-image` build xong thoát là bình thường. PC chỉ kết nối **outbound HTTPS 443** tới AWS; **không port-forward** router, không expose Controller 9000 hoặc Docker API.
 
-### 3.2. Đổi từ laptop cũ sang PC của trường
+### 3.2. Cài đặt Worker trên Ubuntu Server (thay cho Windows)
+
+Nếu PC chuyên dụng chạy Ubuntu, dùng Docker Engine và Compose, không cần Docker Desktop. Trên PC đó:
+
+~~~bash
+git clone https://github.com/hungdo2006/battlecode_MIT_Group_8.git neon-arena-school-worker
+cd neon-arena-school-worker
+mkdir -p .b1-pilot
+chmod 700 .b1-pilot
+cp deploy/b1-ec2-pilot-worker.env.example .b1-pilot/worker.env
+chmod 600 .b1-pilot/worker.env
+stat -c '%g' /var/run/docker.sock
+~~~
+
+Chỉnh `.b1-pilot/worker.env` theo **cùng mẫu ở mục 3.1**, nhưng thay `DOCKER_SOCKET_GID` bằng **GID vừa đo trên chính PC Ubuntu**; `ARENA_REMOTE_RUNNER_KEY` phải trùng Cloud và Controller token là giá trị mới riêng tư. Sau đó chạy:
+
+~~~bash
+sudo docker compose --env-file .b1-pilot/worker.env -p neon-b1-worker -f compose.remote-worker.yaml up -d --build --wait
+sudo docker compose --env-file .b1-pilot/worker.env -p neon-b1-worker -f compose.remote-worker.yaml ps
+~~~
+
+Không công khai port Controller/Docker API, không lưu khóa trong repo và không sử dụng cùng namespace/agent của một PC khác đang chạy.
+
+### 3.3. Đổi từ laptop cũ sang PC của trường
 
 Làm **trong cửa sổ bảo trì, không có job đang chạy**:
 
@@ -189,7 +212,7 @@ Làm **trong cửa sổ bảo trì, không có job đang chạy**:
    docker compose --env-file .b1-pilot/worker.env -p neon-b1-worker -f compose.remote-worker.yaml stop agent
    ~~~
 
-3. Trên **PC trường**, giữ Worker mục 3.1 chạy; nếu agent đã tạo nhưng đang dừng, bật lại:
+3. Trên **PC trường**, giữ Worker đã cài theo mục 3.1 hoặc 3.2 chạy; nếu agent đã tạo nhưng đang dừng, bật lại:
 
    ~~~powershell
    docker compose --env-file .b1-pilot/worker.env -p neon-b1-worker -f compose.remote-worker.yaml start agent
@@ -200,13 +223,13 @@ Làm **trong cửa sổ bảo trì, không có job đang chạy**:
 
 **Không bật đồng thời hai agent dùng chung machine key; không hoán đổi PC giữa trận đang xử lý.**
 
-### 3.3. Chuyển về EC2 hoặc xử lý sự cố
+### 3.4. Chuyển về EC2 hoặc xử lý sự cố
 
 Đợi không còn trận/compile/upload, trên EC2 `switch --target local` rồi kiểm tra status. Sau khi Local sẵn sàng có thể dừng agent PC. Muốn chuyển trở lại PC, bật agent và `switch --target remote`, kiểm tra readiness.
 
 Nếu PC mất mạng/điện giữa trận, **không tự cho bot thua, không phát lại trận không chắc trạng thái, không ép switch khi drain thất bại**. Ban tổ chức xác minh job/lease và xử lý `INTERRUPTED`/`BLOCKED` theo [B1.5 runbook](docs/B15_SHARED_PILOT_RUNNER_SWITCH.md).
 
-### 3.4. Giới hạn mở rộng
+### 3.5. Giới hạn mở rộng
 
 B1.5 hiện **1 Remote Worker, 2 trận đồng thời**, cùng các giới hạn CPU/RAM/PID của sandbox. Máy mạnh hơn tăng khả năng đáp ứng tài nguyên nhưng **không tự mở rộng scheduler**. Chạy nhiều PC hoặc tăng số trận cần nâng cấp phân phối job, quota, giám sát và kiểm thử tải riêng. Trước giải thật hãy diễn tập với số đội dự kiến, Python/C++/Java, Official/Scrimmage, queue, gián đoạn PC và backup ngoài EC2.
 

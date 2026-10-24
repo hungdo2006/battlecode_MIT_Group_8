@@ -11,7 +11,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
-from urllib.request import ProxyHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 MAX_REPLY = 16 * 1024 * 1024
 MAX_INPUT = 1024 * 1024
@@ -27,6 +27,13 @@ class AgentError(RuntimeError):
     pass
 
 
+class RejectRedirects(HTTPRedirectHandler):
+    """Never forward the cloud bearer key or PC Docker token to a redirect."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 class WorkerAgent:
     def __init__(self, server_url=None, key=None):
         self.server = (server_url or os.environ.get("ARENA_REMOTE_SERVER_URL", "")).rstrip("/")
@@ -40,7 +47,7 @@ class WorkerAgent:
         self.session = None
         self.stop = threading.Event()
         # Never use an inherited HTTP proxy for controller or bearer credentials.
-        self.opener = build_opener(ProxyHandler({}))
+        self.opener = build_opener(ProxyHandler({}), RejectRedirects())
 
     def _request(self, url, *, payload=None, session=None, is_controller=False, timeout=15, limit=MAX_REPLY):
         body = None if payload is None else json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()

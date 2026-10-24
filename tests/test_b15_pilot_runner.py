@@ -3,6 +3,7 @@ from copy import deepcopy
 from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
+import time
 
 import pytest
 
@@ -89,7 +90,7 @@ def test_backup_does_not_stop_site_when_drain_fails(monkeypatch, tmp_path):
             calls.append(action)
             if action == "drain":
                 raise RuntimeError("busy")
-            return {"mode": "remote_sandbox"}
+            return {"mode": "remote_sandbox", "protocol": 1, "time": time.time()}
         def compose(self, *args):
             calls.append(("compose", *args))
     with pytest.raises(RuntimeError, match="busy"):
@@ -105,7 +106,7 @@ def test_backup_returns_to_same_mode_after_failure(monkeypatch, tmp_path):
         def verify(self): calls.append("verify")
         def control(self, mode, action):
             calls.append((mode, action))
-            return {"mode": "remote_sandbox"}
+            return {"mode": "remote_sandbox", "protocol": 1, "time": time.time()}
         def compose(self, mode, *args): calls.append((mode, *args))
         def wait_ready(self, mode, timeout): calls.append(("ready", mode))
     def failed_backup(*args): raise RuntimeError("backup failed")

@@ -13,7 +13,6 @@ import sys
 
 from scripts import runner_switch as switch
 from scripts import runner_site_backup as site_backup
-from backend.runner_control import validate_status
 
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT = "neon-b1-ec2-pilot"
@@ -84,6 +83,7 @@ def existing_pilot(env):
     for destination, suffix in (("/app/data", "pilot_data"), ("/app/uploads", "pilot_uploads")):
         if mounts.get(destination) != f"{PROJECT}_{suffix}":
             raise ValueError("Running pilot uses unexpected data volume")
+    from backend.runner_control import validate_status
     live = json.loads(switch.run(command(CLOUD_FILE, env) + [
         "exec", "-T", "arena", "python", "-m", "backend.runner_control", "status"]))
     validate_status(live, mode="remote_sandbox")
@@ -126,6 +126,7 @@ def prepare(private):
 
 
 def mode(site):
+    from backend.runner_control import validate_status
     status = site.control("local", "status")
     current = {"local_sandbox": "local", "remote_sandbox": "remote"}.get(status["mode"])
     if current is None:

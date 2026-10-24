@@ -1,9 +1,10 @@
 """PC agent must not accept arbitrary URLs or privileged controller methods."""
 from copy import deepcopy
+from urllib.request import HTTPRedirectHandler, Request
 
 import pytest
 
-from remote_runner.agent import WorkerAgent
+from remote_runner.agent import RejectRedirects, WorkerAgent
 
 
 SECRET = "unit-only-worker-key-" + "x" * 42
@@ -56,3 +57,18 @@ def test_agent_never_executes_invalid_job_id(monkeypatch):
     monkeypatch.setattr(agent, "controller", lambda task: executed.append(task))
     agent.execute({"id": "../oops", "path": "/health"}, "valid-session")
     assert executed == []
+
+
+def test_cloud_and_controller_bearers_are_never_forwarded_on_http_redirects():
+    """urllib's default redirect handler can copy Authorization to another host."""
+    agent = WorkerAgent(server_url="https://arena.example.com", key=SECRET)
+    assert any(isinstance(handler, RejectRedirects) for handler in agent.opener.handlers)
+    assert not any(type(handler) is HTTPRedirectHandler for handler in agent.opener.handlers)
+    for origin, target in (
+        ("https://arena.example.com/api/remote-runner/poll", "https://evil.example/collect"),
+        ("http://controller:9000/health", "http://evil.example/collect"),
+    ):
+        request = Request(origin, headers={"Authorization": "Bearer secret-never-forward"})
+        assert RejectRedirects().redirect_request(
+            request, None, 302, "Found", {"Location": target}, target
+        ) is None

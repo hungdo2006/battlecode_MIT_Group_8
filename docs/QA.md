@@ -1,10 +1,8 @@
-# Kiểm thử và trạng thái xác minh
+# Kiểm thử NEON ARENA
 
-## Regression
+## Regression bắt buộc
 
-Nghiệm thu giao diện sau PR #20, lỗi đã sửa và giới hạn fixture/Docker: [QA_REPORT.md](../QA_REPORT.md). Các kết quả trong báo cáo gắn với baseline và nhánh được ghi ở đầu báo cáo.
-
-Tại repository, trong Python 3.13 virtualenv có Node 24 và toolchain C++/Java phù hợp:
+Tại repository với Python 3.13, Node 24 và toolchain Java/C++ phù hợp:
 
 ```sh
 python -m pip install -r requirements-dev.txt
@@ -19,55 +17,35 @@ python scripts/version_frontend.py --check
 git diff --check
 ```
 
-Browser checker cần thêm package Playwright và Chrome:
+GitHub Actions chạy Python/Controller và frontend checks trên Ubuntu và Windows, đồng thời resolve cấu hình Compose B1.3–B1.5 với secret giả. Đây **không** phải chứng nhận Docker thực tế hoặc hiệu năng giải đấu.
 
-```sh
-python -m pip install playwright
-python scripts/check_account_ui.py
-python scripts/check_ui_ux_report.py
-python scripts/check_workspace_layout.py
-```
-
-Script này dùng server/dữ liệu native tạm; không chứng minh bot chạy Docker. CI baseline hiện chạy Python/Controller/frontend checks trên Windows và Ubuntu, chưa chạy browser hoặc sandbox thật.
-
-Kiểm tra bố cục theo vai trò, tab, menu avatar, Team/bot, mùa/giải và bằng chứng ngày 22/10/2026: [Cải tổ workspace](WORKSPACE_LAYOUT_REVIEW.md). Checker mới chạy ma trận 120 tổ hợp trên server local tạm và không thực thi lịch Official.
-
-Sửa và kiểm thử lại R01–R12 (reset phiên/replay, history, CTA bot, lịch quá hạn và metadata): [Khắc phục kiểm thử lại](RETEST_FIXES.md), chạy thêm `python scripts/check_retest_regressions.py`.
-
-Team capacity, archive bot, tìm trận FIFO, heartbeat và hồi quy PR #17/CI: [Team/Bot/Đấu luyện/Session](TEAM_MATCHMAKING_SESSION.md). Playwright MCP dùng `scripts/serve_feature_qa.py` với dữ liệu tạm và runner fixture; kiểm tra Docker thật vẫn là release gate riêng.
-
-Đối chiếu từng phát hiện và phạm vi kiểm tra bổ sung: [Khắc phục báo cáo UI/UX](UI_UX_REVIEW_FIXES.md).
-
-## Docker và end-to-end
+## Kiểm thử tùy chọn trên môi trường riêng
 
 ```sh
 python scripts/check_docker.py --build
 python scripts/check_sandbox_lifecycle.py
 ```
 
-Các checker này tạo môi trường riêng và kiểm tra sandbox/lifecycle, không thay thế nghiệm thu đầy đủ Team/Season Account-Only. `check_battlecode_engine.py`, `check_battlecode_platform.py` và `check_workspace_ui.py` có phụ thuộc fixture/engine Battlecode; chỉ dùng theo [hướng dẫn tùy chọn](BATTLECODE_2026.md), không dùng để dựng QA Robot/OTT đơn thuần.
+Kiểm thử browser cần cài Playwright/Chrome:
 
-Với Account-Only, tạo project/namespace/image tags/volumes QA riêng, tài khoản giả và ít nhất hai Team; ưu tiên bốn Team để thử Round Robin. Kiểm tra bằng browser thật:
+```sh
+python -m pip install playwright
+python scripts/check_account_ui.py
+python scripts/check_ui_ux_report.py
+python scripts/check_workspace_layout.py
+python scripts/check_retest_regressions.py
+```
 
-1. Signup/login/logout/reload; quyền Player/Admin, Captain/member và cách ly source giữa Team.
-2. Upload bot đúng/sai, diagnostics, Active Bot; Single Elimination và Round Robin chạy sandbox thật.
-3. Deadline khóa bot, fixture, kết quả/bảng điểm và replay khớp backend.
-4. Season đăng ký → chốt đội → giải → công bố; Scrimmage khi Player logout.
-5. Desktop/mobile, focus/modal, console, 401/403/404/429, lỗi server và WebSocket reconnect.
+Các script Docker/browser dùng môi trường kiểm thử riêng. Không chạy vào website AWS đang vận hành, không dùng dữ liệu người chơi thật hoặc xóa volume khác. Battlecode 2026 có checker tùy chọn, xem [tài liệu engine](BATTLECODE_2026.md).
 
-Ghi SHA, cấu hình, lệnh, PASS/FAIL/SKIP/BLOCKED, screenshot/trace/log đã lọc secret và giới hạn chưa thử. Không dùng dữ liệu thật, stress production hoặc xóa tài nguyên của môi trường khác. Xem [vận hành](OPERATIONS.md) trước diễn tập migration/restore.
+## Nghiệm thu trước giải thật
 
-## Kết quả đã thực thi ngày 21/10/2026
+1. Đăng ký/đăng nhập Admin và Player, Team và phân quyền; nộp bot Python/C++/Java.
+2. Official, Scrimmage, Season, tính điểm, replay và thử giới hạn trận đồng thời.
+3. Với B1.5: tạo backup lạnh và restore drill, thử Local → Remote → Local khi không có công việc đang chạy; xem [runbook](B15_SHARED_PILOT_RUNNER_SWITCH.md).
+4. Thử ngắt kết nối PC, mạng, mất nguồn, hàng chờ; đảm bảo không có kết quả thắng giả.
+5. Thử tải với số lượng đội/người chơi dự kiến và lưu bản backup **ngoài** EC2.
 
-Source SHA `41910da49644b698543b68787dc0d8e0be874455`:
+Ngày 24/10/2026, người vận hành đã xác nhận B1.5 chuyển Runner hai chiều và Scrimmage/replay ở cả hai chế độ trên EC2 và laptop. Điều đó không thay thế kiểm thử tải lớn hoặc buổi diễn tập với PC trường.
 
-| Phạm vi | Kết quả |
-| --- | --- |
-| Python/Controller | 469 + 25 = **494 PASS**, 0 FAIL/SKIP; một warning Starlette/httpx deprecation |
-| Docker Account-Only | 1 Admin, 5 Player, 4 Team; **11 Official + 2 Scrimmage** COMPLETED |
-| Robot Battle | Single Elimination 4 đội, Round Robin 6 trận, Season có công bố; offline Scrimmage |
-| OTT v2 | Python/C++ compile thật, Official/Scrimmage và replay |
-| Chrome 1440/390px | **48 tổ hợp layout** có dữ liệu, không JS exception hoặc HTTP 429/500 ngoài bài fault injection |
-| Backend | Outcome Official khớp terminal replay/game adapter; SQLite schema 17, integrity OK |
-
-Đây là nghiệm thu pilot local có giám sát. AWS/public TLS/SMTP, tải lớn, crash/restore Docker của giải này và Battlecode **chưa được nghiệm thu trong lượt đó**. HTTP 500 được giả lập ở browser để thử UI; 429 được thử thật có giới hạn. Bằng chứng chi tiết ở máy QA (`QA_REPORT.md`, `.qa-evidence/`), không commit credential/trace thô. Các con số trên là mốc lịch sử của SHA nêu trên, không phải kết quả CI cho mọi commit mới.
+Báo cáo QA và ảnh chụp cũ được lược khỏi nhánh hiện tại để giảm nhiễu; lịch sử vẫn xem được trong Git/PR. CI tạo artifact kiểm thử mới cho từng PR.

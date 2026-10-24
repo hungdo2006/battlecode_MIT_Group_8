@@ -30,8 +30,7 @@ Mở **http://localhost:8000**. Mặc định là demo LAN dùng mã Organizer t
 | Protocol bot và thêm game | [Adapter](docs/ADAPTERS.md) |
 | Bật engine MIT tùy chọn | [Battlecode 2026](docs/BATTLECODE_2026.md) |
 | Chạy kiểm thử và phạm vi đã xác minh | [QA](docs/QA.md) |
-| Quy ước giao diện | [Thiết kế](docs/PREMIUM_MONOCHROME_DESIGN.md) |
-| Trải nghiệm Admin/Player và checklist kiểm thử | [UX workflows](docs/UX_SIMPLIFICATION.md) |
+| **AWS EC2 ↔ PC Runner (B1.5)** | [Chuyển Runner dùng chung database](docs/B15_SHARED_PILOT_RUNNER_SWITCH.md) |
 
 Backend: Python/FastAPI, SQLite và JSON/JSONL. Frontend: HTML/CSS/JavaScript/Canvas. Source chính nằm trong `backend/`, `frontend/`, `sandbox_controller/`, `samples/`; test trong `tests/` và `controller_tests/`.
 

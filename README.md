@@ -118,6 +118,8 @@ DOCKER_SOCKET_GID=0
 
 **Hai khóa có nhiệm vụ khác nhau:** `ARENA_REMOTE_RUNNER_KEY` phải trùng khóa Worker của AWS; `ARENA_RUNNER_TOKEN` tạo mới riêng cho PC. Giữ bí mật cả hai. Chọn mã nguồn Worker tương thích với phiên bản Arena trên EC2.
 
+**Nếu đang chuyển từ laptop Worker cũ sang PC trường:** hãy chờ hết trận, chuyển AWS về Local (Bước 3), rồi **dừng Agent trên laptop cũ** trước khi bật PC mới. Hai máy không được đồng thời dùng cùng khóa Worker.
+
 Khởi động Docker Desktop, rồi chạy:
 
 ~~~powershell

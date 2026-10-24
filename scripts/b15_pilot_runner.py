@@ -144,8 +144,10 @@ def snapshot(site, destination):
         site.control(source, "drain")  # Refuses an in-flight match/upload.
         stopped = False
         try:
-            site.compose(source, "stop", "--timeout", "30", "arena")
+            # Attempt recovery even if Docker partially stopped Arena before
+            # reporting an error: never strand the website after partial stop.
             stopped = True
+            site.compose(source, "stop", "--timeout", "30", "arena")
             site.compose("local", "stop", "--timeout", "30", "controller")
             site.compose(source, "stop", "--timeout", "30", "gateway")
             site_backup.backup(site, destination)

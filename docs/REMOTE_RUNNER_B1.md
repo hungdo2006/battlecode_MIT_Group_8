@@ -75,6 +75,49 @@ polling over real TLS, remote result/replay delivery, Official Match recovery
 or PC-to-cloud network loss. These require the subsequent separate cloud + PC
 HTTPS staging exercise; do not merge/deploy B1 based only on this smoke.
 
+## One-laptop cloud ↔ PC HTTPS end-to-end rehearsal
+
+After the local PC worker smoke passes, test the entire B1 path **without AWS,
+without buying a second PC, and without installing any certificate on Windows**:
+
+\`\`\`powershell
+cd "$HOME\neon-arena-b1-qa"
+git pull --ff-only origin feature/b1-outbound-remote-runner-20261023
+.\.venv\Scripts\python.exe scripts/check_b1_cloud_tls_docker.py --build
+\`\`\`
+
+The new \`scripts/check_b1_cloud_tls_docker.py\` provisions **two disposable
+Compose projects** with separate data/volumes: a remote-only Arena backed by
+Caddy and a PC agent + Controller. Both projects can communicate **only**
+through a dedicated Docker QA transport network:
+
+- \`https://arena-qa.test\` is a Docker network alias, **not** a public DNS
+  record and has no host-published ports.
+- Caddy's local QA CA issues the TLS certificate. Its root is copied into
+  a private temporary folder under the current user's home directory, then
+  bind-mounted read-only into the agent as \`SSL_CERT_FILE\`. HTTPS hostname
+  and certificate validation remain **enabled**. This ephemeral CA is not
+  installed in the Windows certificate store.
+- Admin password-only mode is **explicitly enabled only in this sealed local
+  test** to seed synthetic users; actual public/staging deployments must
+  require Admin TOTP. No operator or production keys are copied.
+- The script provisions real Admin/Player/Teams, uploads two bot sources and
+  compiles them on the off-host Controller, runs an Official Match, checks
+  replay, then stops the agent to require fail-closed health. It restarts
+  the agent and checks that the remote lease becomes healthy again.
+- Cleanup stops **only the two random QA projects** and removes their
+  label-verified QA volumes. Never use Docker system prune or a production
+  project name for this test.
+
+\`"b1_https_e2e": "PASS"\`, \`"agent_disconnect": "PASS"\` and
+\`"agent_reconnect": "PASS"\` mean the Docker Desktop rehearsal passed. They
+**do not yet prove** public CA validation, a physically separate PC over
+the school/WAN, performance at sustained two-match load, full outage
+recovery during an in-flight Official Match, or AWS production suitability.
+
+The first run builds QA-tagged images; reuse the same checkout with no
+\`--build\` on later runs unless backend/worker code or dependencies changed.
+
 ## Cloud staging — fresh isolated VM and domain required
 
 1. Prepare **a different staging VM / DNS name** with ports 80 and 443 available,

@@ -217,7 +217,15 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
         host = request.headers.get("host", "")
         if not settings.allows_host(host):
             return JSONResponse({"detail": "Hostname không được phép. Demo mặc định chỉ hỗ trợ local/LAN."}, status_code=403)
-        if not same_origin(request.headers.get("origin"), host, request.url.scheme):
+        if settings.public_gateway and "origin" in request.headers:
+            # Same-site browser font GETs carry the external HTTPS Origin.
+            # Authenticate the edge before interpreting its HTTPS metadata;
+            # the private Caddy -> Arena hop itself deliberately uses HTTP.
+            try:
+                guard_account_scope(request.scope, request.headers, account_settings, settings)
+            except HTTPException as exc:
+                return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+        elif not same_origin(request.headers.get("origin"), host, request.url.scheme):
             return JSONResponse({"detail": "Origin không được phép."}, status_code=403)
         mutation = request.method not in {"GET", "HEAD", "OPTIONS"}
         if account_settings.account_only:

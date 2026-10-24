@@ -4318,8 +4318,12 @@ setInterval(async () => {
 
 // Phase 4.2D3: Account-Only Official Match workspace.
 // Uses the same authenticated API wrapper as Team management.
-function officialDateTime(seconds) {
-  return new Date(seconds * 1000).toLocaleString("vi-VN");
+function officialDateTime(value) {
+  if (value == null || value === "") return "—";
+  // Official schedules use Unix seconds; persisted replay/bot records use ISO.
+  const epoch = typeof value === "number" || (typeof value === "string" && /^\d+(?:\.\d+)?$/.test(value));
+  const date = new Date(epoch ? Number(value) * 1000 : value);
+  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString("vi-VN");
 }
 function officialLocalInput(ms) {
   const date = new Date(ms);

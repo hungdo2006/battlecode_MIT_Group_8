@@ -180,21 +180,56 @@ class Account:
                   {"username": username, "password": password})
         self.csrf = self.call("GET", f"/api/{audience}/auth/csrf")["csrf_token"]
 
-    def call(self, method, path, body=None, *, expected=200, csrf=True):
+    def call(self, method, path, body=None, *, expected=200, csrf=True, retry_429=False):
         headers = {}
         if method in ("POST", "PUT", "PATCH", "DELETE") and csrf and hasattr(self, "csrf"):
             headers["X-CSRF-Token"] = self.csrf
-        try:
-            response = self.http.request(method, path, json=body, headers=headers)
-        except httpx.RequestError as error:
-            raise AssertionError(f"QA {self.audience} {path}: connection failed") from error
-        if response.status_code != expected:
-            raise AssertionError(
-                f"QA {self.audience} {method} {path}: HTTP {response.status_code}, expected {expected}")
-        return response.json()
+        # A rate-limited read is safe to retry; mutating endpoints are never
+        # automatically replayed since the first attempt may have committed.
+        if retry_429 and (method != "GET" or expected != 200):
+            raise ValueError("429 retry is allowed for successful GET reads only")
+        for attempt in range(2 if retry_429 else 1):
+            try:
+                response = self.http.request(method, path, json=body, headers=headers)
+            except httpx.RequestError as error:
+                raise AssertionError(f"QA {self.audience} {path}: connection failed") from error
+            if response.status_code == 429 and retry_429 and attempt == 0:
+                retry_after = response.headers.get("Retry-After", "")
+                if retry_after.isdigit() and 1 <= int(retry_after) <= 60:
+                    print(f"QA {self.audience}: rate-limited read; respecting Retry-After ({retry_after}s)", flush=True)
+                    time.sleep(int(retry_after) + 1)
+                    continue
+            if response.status_code != expected:
+                raise AssertionError(
+                    f"QA {self.audience} {method} {path}: HTTP {response.status_code}, expected {expected}")
+            return response.json()
+        raise AssertionError("Unexpected empty QA request loop")
 
     def close(self):
         self.http.close()
+
+
+def wait_for_official_complete(admin, tournament_id, request_id, *, timeout=240, poll_interval=6):
+    """Poll only the Official status until completion, then check event once.
+
+    One read per six seconds stays far below the production 60/session/minute
+    budget. A legitimate rate limit is respected, never disabled or bypassed.
+    """
+    deadline = time.monotonic() + timeout
+    status = "SCHEDULED"
+    while time.monotonic() < deadline:
+        request = admin.call(
+            "GET", f"/api/admin/official-matches/{request_id}", retry_429=True)["request"]
+        status = request["status"]
+        if status in ("BLOCKED", "INTERRUPTED", "CANCELLED"):
+            raise AssertionError(f"Real Official request did not complete: {status}")
+        if status == "COMPLETED":
+            detail = admin.call(
+                "GET", f"/api/admin/team-tournaments/{tournament_id}", retry_429=True)["tournament"]
+            if detail["status"] == "COMPLETED":
+                return request, detail
+        time.sleep(poll_interval)
+    raise AssertionError(f"Real Official Match did not complete before QA deadline (Official status={status})")
 
 
 def run_qa(offline, online, password):
@@ -242,18 +277,7 @@ def run_qa(offline, online, password):
             "POST", f"/api/admin/team-tournaments/{tournament_id}/fixtures/{fixture['id']}/schedule",
             {"bot_lock_at": now + 5, "scheduled_at": now + 9}, expected=201)
         request_id = scheduled["request"]["id"]
-        deadline = time.monotonic() + 180
-        detail = None
-        while time.monotonic() < deadline:
-            detail = admin.call("GET", f"/api/admin/team-tournaments/{tournament_id}")["tournament"]
-            request = admin.call("GET", f"/api/admin/official-matches/{request_id}")["request"]
-            if detail["status"] == "COMPLETED" and request["status"] == "COMPLETED":
-                break
-            if request["status"] in ("BLOCKED", "INTERRUPTED", "CANCELLED"):
-                raise AssertionError(f"Real Official request did not complete: {request['status']}")
-            time.sleep(2)
-        else:
-            raise AssertionError(f"Official Match did not complete before QA deadline ({detail['status']})")
+        request, detail = wait_for_official_complete(admin, tournament_id, request_id)
         if not request["outcome"] or not request["outcome"].get("winner_team_id"):
             raise AssertionError("QA Official had no recorded winning Team")
         replay = admin.call("GET", f"/api/admin/official-matches/{request_id}/replay")

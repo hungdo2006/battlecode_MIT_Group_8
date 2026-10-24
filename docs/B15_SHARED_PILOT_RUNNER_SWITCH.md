@@ -39,12 +39,13 @@ prepare và backup mới trong cửa sổ nâng cấp riêng.
 ## 2. Sao lưu lạnh + thử phục hồi (một lần, EC2)
 
 Chờ hết các trận/compile/upload đang chạy và bảo đảm Worker có thể kết nối lại.
-Cần chấp nhận thời gian website gián đoạn. Chọn đường dẫn backup **chưa tồn tại**
-và bảo vệ ACL, tốt nhất có đủ chỗ trên ổ độc lập:
+Cần chấp nhận thời gian website gián đoạn. Chọn đường dẫn backup **chưa tồn tại**, bảo vệ ACL; ví dụ dưới đây đặt trong
+`.runner-switch/` vốn được tạo khi prepare (sao chép backup ra nơi an toàn
+ngoài EC2 ngay sau đó):
 
 ```bash
 sudo python3 -m scripts.b15_pilot_runner backup \
-  --backup-directory /secure/neon-b15-backup-001 --approve-downtime
+  --backup-directory .runner-switch/b15-backup-001 --approve-downtime
 ```
 
 Lệnh drain, stop đúng các service, backup **5 volume** và image/config,
@@ -58,7 +59,7 @@ ngoài EC2. Bản này không chứa compiled artifact đang nằm ở máy Wind
 
 ```bash
 sudo python3 -m scripts.b15_pilot_runner switch \
-  --target local --backup-directory /secure/neon-b15-backup-001
+  --target local --backup-directory .runner-switch/b15-backup-001
 sudo python3 -m scripts.b15_pilot_runner status
 ```
 
@@ -83,7 +84,7 @@ Trên EC2:
 
 ```bash
 sudo python3 -m scripts.b15_pilot_runner switch \
-  --target remote --backup-directory /secure/neon-b15-backup-001
+  --target remote --backup-directory .runner-switch/b15-backup-001
 sudo python3 -m scripts.b15_pilot_runner status
 ```
 

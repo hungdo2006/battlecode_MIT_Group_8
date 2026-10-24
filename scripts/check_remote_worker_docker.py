@@ -216,7 +216,7 @@ class WorkerQA:
 
 
 def main(build):
-    with tempfile.TemporaryDirectory(prefix="neon-b1-worker-smoke-") as folder:
+    with tempfile.TemporaryDirectory(prefix="neon-b1-worker-smoke-", dir=Path.home()) as folder:
         qa = WorkerQA(folder, secrets.token_hex(5))
         print("QA PC worker project:", qa.project, flush=True)
         try:

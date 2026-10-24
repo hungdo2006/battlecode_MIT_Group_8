@@ -1,0 +1,33 @@
+{
+  "pilot_id": "pilot01",
+  "revision": null,
+  "staging_origin": "https://staging.example.invalid",
+  "production_origin": "https://production.example.invalid",
+  "staging_ips": [],
+  "production_ips": [],
+  "staging_is_independent": false,
+  "network_probe_approved": false,
+  "account": {
+    "label": "operator-fill-without-account-credentials",
+    "region": null,
+    "opened_on": null,
+    "plan": null,
+    "credit_remaining_usd": null,
+    "credit_expires_on": null,
+    "allowances_reviewed_on": null
+  },
+  "cost": {
+    "instance_hourly_usd": null,
+    "runtime_hours": null,
+    "ebs_gb": null,
+    "ebs_gb_month_usd": null,
+    "storage_hours": null,
+    "ipv4_addresses": null,
+    "ipv4_hourly_usd": null,
+    "ipv4_hours": null,
+    "egress_gb": null,
+    "egress_gb_usd": null,
+    "other_cost_usd": null,
+    "budget_cap_usd": null
+  }
+}

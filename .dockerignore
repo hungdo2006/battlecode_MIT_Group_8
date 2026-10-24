@@ -1,6 +1,8 @@
 .git
 .venv
 .pytest_cache
+.qa-evidence
+.b1-pilot
 .agents
 .codex
 .aws

@@ -21,6 +21,7 @@ docs/screenshots/sandbox/
 QA_REPORT.md
 qa-evidence-*/
 .qa-evidence/
+.b1-pilot/
 docs/qa/b1-real-world-20261024/
 .qa-phase42e-*/
 qa-ci/

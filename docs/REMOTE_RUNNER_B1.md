@@ -82,7 +82,7 @@ without buying a second PC, and without installing any certificate on Windows**:
 
 ```powershell
 cd "$HOME\neon-arena-b1-qa"
-git pull --ff-only origin feature/b1-outbound-remote-runner-20261023
+# Use a clean QA checkout pinned to the reviewed revision from main.
 .\.venv\Scripts\python.exe scripts/check_b1_cloud_tls_docker.py --build
 ```
 
@@ -139,6 +139,14 @@ The first run builds QA-tagged images; reuse the same checkout with no
 `--build` on later runs unless backend/worker code or dependencies changed.
 
 ## Cloud staging — fresh isolated VM and domain required
+
+For Issue #29 / B1.2 operator preparation, use the step-by-step
+[WAN pilot runbook](B1_WAN_PILOT_RUNBOOK.md),
+[account-specific cost review](B1_WAN_COST_REVIEW.md) and
+[acceptance checklist](B1_WAN_ACCEPTANCE_CHECKLIST.md).
+`scripts/check_b1_wan_preflight.py` resolves configuration and inspects only
+pilot metadata; live HTTPS GET probes require explicit approved staging IPs.
+It never provisions AWS, starts/stops services, or performs DB/backup operations.
 
 1. Prepare **a different staging VM / DNS name** with ports 80 and 443 available,
    valid Caddy HTTPS certificates and a clean project volume. Never overlay

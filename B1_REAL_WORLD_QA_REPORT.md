@@ -66,8 +66,8 @@ Các lượt đo recovery khoảng 30 giây khi mất mạng agent, 3 giây khi 
 Controller và 24 giây khi restart Cloud, gồm overhead quan sát/polling.
 Đây không phải số đo SLA/WAN hoặc stress test.
 
-Chạy lại khi chuẩn bị PR: **664/664 bài hồi quy PASS** trong 180,63 giây,
-**42 bài focused PASS** (là tập con của bộ đầy đủ). `version_frontend --check`,
+Chạy lại khi chuẩn bị PR: **665/665 bài hồi quy PASS** trong 207,61 giây,
+**43 bài focused PASS** (là tập con của bộ đầy đủ). `version_frontend --check`,
 `node --check`, account routing/CSRF frontend và `git diff --check` đều PASS.
 Docker acceptance với script đã rà soát PASS toàn bộ, kể cả UI, in-flight
 outage/restart, Official mới sau reconnect và cleanup cả hai project. Các
@@ -80,6 +80,9 @@ khi nhánh `--ui-only` đang return.
 database/uploads/artifacts mới và secret sinh riêng ở runtime. Chỉ đọc
 `.env.example`, loại các biến `ARENA_*`/namespace của người vận hành khỏi môi
 trường kế thừa. Từ chối Docker endpoint không cục bộ và Engine không chạy Linux.
+Kiểm tra cả endpoint của context và `DOCKER_HOST`: override trỏ local không
+được che context remote hoặc ngược lại. Trường hợp này có regression FAIL/PASS;
+guard cuối cũng đã nhận đúng Docker Desktop Linux cục bộ khi chạy preflight thật.
 
 Agent/RPC luôn xác minh TLS. Browser QA dùng exception cho CA tạm thời trong
 một context Chrome trỏ tới alias QA cố định; không cài CA vào Windows và không

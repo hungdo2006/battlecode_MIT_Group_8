@@ -232,8 +232,12 @@ def docker(*args, env=None):
 def require_local_engine():
     context = docker("context", "show").strip()
     metadata = json.loads(docker("context", "inspect", context))[0]
-    endpoint = os.environ.get("DOCKER_HOST") or metadata["Endpoints"]["docker"]["Host"]
-    if not endpoint.startswith(("npipe://", "unix://")):
+    # Context selection and DOCKER_HOST can coexist. A local-looking host
+    # override must never hide a remote context selected by the Docker CLI.
+    endpoints = [metadata["Endpoints"]["docker"]["Host"]]
+    if os.environ.get("DOCKER_HOST"):
+        endpoints.append(os.environ["DOCKER_HOST"])
+    if any(not endpoint.startswith(("npipe://", "unix://")) for endpoint in endpoints):
         raise RuntimeError("Refusing a non-local Docker Engine for laptop QA")
     if json.loads(docker("version", "--format", "{{json .Server}}"))["Os"] != "linux":
         raise RuntimeError("B1 QA requires Linux containers")

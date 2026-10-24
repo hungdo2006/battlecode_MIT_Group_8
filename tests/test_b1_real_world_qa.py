@@ -50,6 +50,22 @@ def test_docker_host_override_cannot_select_a_remote_engine(monkeypatch):
         qa.require_local_engine()
 
 
+def test_local_host_override_cannot_hide_a_remote_context(monkeypatch):
+    monkeypatch.setenv("DOCKER_CONTEXT", "remote-context")
+    monkeypatch.setenv("DOCKER_HOST", "unix:///var/run/docker.sock")
+
+    def docker(*args):
+        if args == ("context", "show"):
+            return "remote-context"
+        if args == ("context", "inspect", "remote-context"):
+            return json.dumps([{"Endpoints": {"docker": {"Host": "ssh://staging.invalid"}}}])
+        pytest.fail("Remote context must be rejected before any Engine probe")
+
+    monkeypatch.setattr(qa, "docker", docker)
+    with pytest.raises(RuntimeError, match="non-local Docker Engine"):
+        qa.require_local_engine()
+
+
 @pytest.mark.parametrize("failure", ["cleanup_error", "remaining_volume", "browser_failure"])
 def test_failed_cleanup_or_browser_never_returns_success_even_after_ui_return(tmp_path, monkeypatch, failure):
     cleaned, calls = [], []

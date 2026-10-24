@@ -22,6 +22,7 @@ QA_REPORT.md
 qa-evidence-*/
 .qa-evidence/
 .runner-switch/
+.b1-pilot/
 docs/qa/b1-real-world-20261024/
 .qa-phase42e-*/
 qa-ci/

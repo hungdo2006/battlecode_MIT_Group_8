@@ -136,7 +136,7 @@ Only the browser gateway binds a random **127.0.0.1** port. Machine RPC still
 verifies HTTPS hostname/certificate; the browser alone accepts the ephemeral
 local CA in its disposable context. Cleanup errors produce a nonzero exit.
 This remains a **one-host rehearsal**, not public Internet or two-host QA.
-See the [QA/PR report](../B1_REAL_WORLD_QA_REPORT.md) for findings and limits.
+See the [historical QA report](https://github.com/hungdo2006/battlecode_MIT_Group_8/blob/6494c8c191812c479b5d56e2daf45b005375e59d/B1_REAL_WORLD_QA_REPORT.md) for findings and limits.
 
 The first run builds QA-tagged images; reuse the same checkout with no
 `--build` on later runs unless backend/worker code or dependencies changed.

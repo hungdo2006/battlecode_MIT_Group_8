@@ -7,11 +7,13 @@ import json
 from pathlib import Path
 import subprocess
 import tempfile
-
-from scripts.b15_pilot_runner import matching_remote, project_identity
-from scripts.runner_switch import remote_model, volume_map, literal
+import sys
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from scripts.b15_pilot_runner import matching_remote, project_identity
+from scripts.runner_switch import remote_model, volume_map, literal
 
 
 def resolve(name, env):

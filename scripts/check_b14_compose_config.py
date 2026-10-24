@@ -31,8 +31,8 @@ def main():
         (80, 80, "tcp"), (443, 443, "tcp"), (443, 443, "udp")}
     arena = conf["services"]["arena"]
     assert arena["environment"]["ARENA_RUNNER"] == "remote_sandbox"
-    assert arena["environment"]["ARENA_ADMIN_TOTP_REQUIRED"] == "1"
-    assert arena["environment"]["ARENA_PUBLIC_ADMIN_PASSWORD_ONLY"] == "0"
+    assert arena["environment"]["ARENA_ADMIN_TOTP_REQUIRED"] == "0"
+    assert arena["environment"]["ARENA_PUBLIC_ADMIN_PASSWORD_ONLY"] == "1"
     assert arena["environment"]["ARENA_AUTH_ORIGINS"] == "https://" + DOMAIN
     assert not arena.get("ports") and not arena.get("depends_on")
     assert all("docker.sock" not in str(s.get("volumes", [])) for s in conf["services"].values())

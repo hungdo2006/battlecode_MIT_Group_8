@@ -1,0 +1,74 @@
+# B1.4: disposable pilot on the SAME EC2 as the legacy site.
+# NEVER combine with compose.yaml, compose.override.yaml or compose.public.yaml.
+# Original stack must release ports 80/443 before this gateway starts.
+name: neon-b1-ec2-pilot
+
+services:
+  arena:
+    build:
+      context: .
+      target: runtime
+    image: neon-b1-ec2-pilot-arena:1.0
+    init: true
+    networks: [ingress_private]
+    environment:
+      ARENA_RUNNER: remote_sandbox
+      ARENA_REMOTE_RUNNER_KEY: "${ARENA_REMOTE_RUNNER_KEY:?Set a separate private 32+ character machine key}"
+      ARENA_READ_ONLY: "0"
+      ARENA_ACCOUNT_AUTH: "1"
+      ARENA_ACCOUNT_ONLY: "1"
+      ARENA_PUBLIC_GATEWAY: "1"
+      ARENA_AUTH_ALLOW_HTTP: "0"
+      ARENA_SELF_REGISTRATION: "1"
+      ARENA_PUBLIC_USERNAME_SIGNUP: "1"
+      ARENA_EMAIL_VERIFICATION: "0"
+      ARENA_ADMIN_TOTP_REQUIRED: "1"
+      ARENA_PUBLIC_ADMIN_PASSWORD_ONLY: "0"
+      ARENA_AUTH_ORIGINS: "https://${ARENA_PUBLIC_DOMAIN:?Set verified public hostname}"
+      ARENA_ALLOWED_HOSTS: "${ARENA_PUBLIC_DOMAIN:?Set verified public hostname}"
+      ARENA_PROXY_SECRET: "${ARENA_PROXY_SECRET:?Set a separate private 48+ character proxy secret}"
+    volumes:
+      - pilot_data:/app/data
+      - pilot_uploads:/app/uploads
+    restart: unless-stopped
+    stop_grace_period: 30s
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 512m
+    pids_limit: 128
+    logging:
+      options:
+        max-size: 5m
+        max-file: "2"
+
+  gateway:
+    image: caddy:2.9.1-alpine
+    depends_on: [arena]
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    networks: [default, ingress_private]
+    environment:
+      ARENA_PUBLIC_DOMAIN: "${ARENA_PUBLIC_DOMAIN:?Set verified public hostname}"
+      ARENA_PROXY_SECRET: "${ARENA_PROXY_SECRET:?Set a separate private 48+ character proxy secret}"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - pilot_caddy_data:/data
+      - pilot_caddy_config:/config
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    logging:
+      options:
+        max-size: 5m
+        max-file: "2"
+
+networks:
+  ingress_private:
+    internal: true
+
+volumes:
+  pilot_data:
+  pilot_uploads:
+  pilot_caddy_data:
+  pilot_caddy_config:

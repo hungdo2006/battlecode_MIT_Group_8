@@ -126,7 +126,8 @@ for client, slug, source in (
         "filename": "qa.py", "name": slug, "game_id": "robot_battle",
         "source_base64": base64.b64encode(source.encode("utf-8")).decode("ascii"),
     }, expected=201)["bot"]
-    assert bot["status"] == "ready" and bot["artifact_id"]
+    # Public Account APIs deliberately never expose private artifact IDs.
+    assert bot["status"] == "ready" and bot["id"]
     client.call("PUT", "/api/player/active-bot", {
         "game_id": "robot_battle", "bot_id": bot["id"]})
 print("PASS cloud-to-PC: compiled two bot sources on remote Docker Controller", flush=True)

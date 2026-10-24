@@ -194,6 +194,13 @@ async def reuse(org, a, b, bots):
     return match["id"]
 
 
+def verify_homepage(html: str):
+    """Check the shipped public landing DOM, not an obsolete legacy UI slogan."""
+    assert "<title>NEON ARENA" in html, "QA homepage title is missing"
+    assert 'id="account-landing"' in html, "QA landing screen is missing"
+    assert 'id="landing-login"' in html, "QA login action is missing"
+
+
 def main(args):
     qa = DockerCheck(args.lan_ip)
     print(f"QA project: {qa.project} (separate named volumes)", flush=True)
@@ -212,7 +219,7 @@ def main(args):
         for p, name in ((org, "Docker Organizer"), (a, "Hoang"), (b, "Minh")):
             p.request("/api/session", {"name": name}, "PUT")
         org.request("/api/session/organizer", {"code": qa.code})
-        assert "LIVE ARENA" in a.request("/", raw=True).decode()
+        verify_homepage(a.request("/", raw=True).decode("utf-8"))
         assert a.request("/api/health")["runner"]["mode"] == "sandbox"
         assert a.request("/api/health")["runner"]["ready"]
         assert a.request("/static/app.js", raw=True)

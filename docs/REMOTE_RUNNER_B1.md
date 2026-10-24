@@ -80,22 +80,22 @@ HTTPS staging exercise; do not merge/deploy B1 based only on this smoke.
 After the local PC worker smoke passes, test the entire B1 path **without AWS,
 without buying a second PC, and without installing any certificate on Windows**:
 
-\`\`\`powershell
+```powershell
 cd "$HOME\neon-arena-b1-qa"
 git pull --ff-only origin feature/b1-outbound-remote-runner-20261023
 .\.venv\Scripts\python.exe scripts/check_b1_cloud_tls_docker.py --build
-\`\`\`
+```
 
-The new \`scripts/check_b1_cloud_tls_docker.py\` provisions **two disposable
+The new `scripts/check_b1_cloud_tls_docker.py` provisions **two disposable
 Compose projects** with separate data/volumes: a remote-only Arena backed by
 Caddy and a PC agent + Controller. Both projects can communicate **only**
 through a dedicated Docker QA transport network:
 
-- \`https://arena-qa.test\` is a Docker network alias, **not** a public DNS
+- `https://arena-qa.test` is a Docker network alias, **not** a public DNS
   record and has no host-published ports.
 - Caddy's local QA CA issues the TLS certificate. Its root is copied into
   a private temporary folder under the current user's home directory, then
-  bind-mounted read-only into the agent as \`SSL_CERT_FILE\`. HTTPS hostname
+  bind-mounted read-only into the agent as `SSL_CERT_FILE`. HTTPS hostname
   and certificate validation remain **enabled**. This ephemeral CA is not
   installed in the Windows certificate store.
 - Admin password-only mode is **explicitly enabled only in this sealed local
@@ -109,14 +109,14 @@ through a dedicated Docker QA transport network:
   label-verified QA volumes. Never use Docker system prune or a production
   project name for this test.
 
-\`"b1_https_e2e": "PASS"\`, \`"agent_disconnect": "PASS"\` and
-\`"agent_reconnect": "PASS"\` mean the Docker Desktop rehearsal passed. They
+`"b1_https_e2e": "PASS"`, `"agent_disconnect": "PASS"` and
+`"agent_reconnect": "PASS"` mean the Docker Desktop rehearsal passed. They
 **do not yet prove** public CA validation, a physically separate PC over
 the school/WAN, performance at sustained two-match load, full outage
 recovery during an in-flight Official Match, or AWS production suitability.
 
 The first run builds QA-tagged images; reuse the same checkout with no
-\`--build\` on later runs unless backend/worker code or dependencies changed.
+`--build` on later runs unless backend/worker code or dependencies changed.
 
 ## Cloud staging — fresh isolated VM and domain required
 

@@ -17,7 +17,7 @@ của project gốc.
   Giữ nguyên `.env`, `compose.override.yaml`, tất cả Docker volumes và images.
 - Checkout mới: `~/neon-arena-b1-pilot`, project `neon-b1-ec2-pilot`;
   service cloud **chỉ** `arena` và `gateway`; dữ liệu/volumes mới.
-- Cloud pilot có Admin TOTP bắt buộc, Player username signup; sử dụng token/mật khẩu
+- Cloud pilot cho Admin và Player đăng nhập bằng username + password, không yêu cầu TOTP; sử dụng token/mật khẩu
   **mới**, không dùng secret từ EC2 cũ. Windows Worker kết nối HTTPS outbound,
   không expose inbound/Docker Controller port.
 - Bạn **không cần** full backup dữ liệu thử nghiệm trước bước này vì không migrate,
@@ -52,7 +52,7 @@ chmod 600 .b1-pilot/cloud.env
 Domain đã có sẵn trong template. **Không gửi secret vào chat/GitHub hoặc output
 lệnh docker compose config.** Giữ machine key an toàn để điền sang laptop.
 
-Tại checkout pilot mới, chạy lệnh chuẩn bị (sẽ build image và tạo Admin/TOTP,
+Tại checkout pilot mới, chạy lệnh chuẩn bị (sẽ build image và tạo Admin bằng mật khẩu,
 **không dừng website cũ**):
 
 ```bash
@@ -61,8 +61,10 @@ sudo python3 scripts/b1_ec2_pilot.py prepare \
   --old-sha b4bcc1edb8cb4bf0285aa4450cf66b9f26ce69e3
 ```
 
-Nhập password mới cho Admin `b1.operator`; enroll TOTP trong Authenticator
-qua terminal riêng tư. Đây là tài khoản pilot, không phải Admin cũ.
+Nhập mật khẩu mạnh mới cho Admin `b1.operator` qua terminal riêng tư. Không cần
+Authenticator hay mã TOTP. Đây là tài khoản pilot, không phải Admin cũ.
+Đăng nhập Admin trên HTTPS bằng username + password; bảo vệ mật khẩu vì chế độ
+password-only không có lớp xác thực thứ hai.
 
 Lệnh `prepare` chỉ build `arena`, tạo database/volume pilot riêng và chạy
 Admin CLI bên trong container dùng `--no-deps` (không mở public port).
@@ -102,7 +104,7 @@ sudo python3 scripts/b1_ec2_pilot.py cutover \
   --confirm-downtime
 ```
 
-Script từ chối Docker Engine remote, project/volume không đúng, config/TOTP/
+Script từ chối Docker Engine remote, project/volume không đúng, config/xác thực mật khẩu/
 domain/secret sai, image chưa build, pilot chưa chuẩn bị hoặc dịch vụ khác chiếm
 cổng. Chỉ dừng `gateway, arena, controller` của project gốc; **không xóa**
 container/volume, không pull/rebuild project gốc. Sau đó chạy Cloud pilot.
@@ -116,7 +118,7 @@ curl.exe -sS -o NUL -w "HTTP=%{http_code} TLS=%{ssl_verify_result}\n" https://tr
 ```
 
 **Mong đợi:** trước khi Worker sẵn sàng, health có thể 503; sau khi kết nối,
-`HTTP=200`, `TLS=0`. Trên browser, đăng nhập pilot Admin với TOTP,
+`HTTP=200`, `TLS=0`. Trên browser, đăng nhập pilot Admin bằng username + password,
 tạo Player/Team thử nghiệm, nộp bot Python/C++/Java, chạy Official, xác nhận
 replay/bảng điểm và 2 trận đồng thời + trận thứ 3 chờ. Dừng rồi khởi động lại
 **chỉ agent của project worker** để kiểm tra fail-closed/reconnect:

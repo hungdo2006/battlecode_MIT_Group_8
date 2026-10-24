@@ -67,8 +67,12 @@ def qa_environment(role, port, project, signing_key):
         raise ValueError("Refusing a non-QA project")
     if not 1 <= port <= 65535 or len(signing_key) < 32:
         raise ValueError("Invalid local port or signing key")
+    # Keep Docker CLI/Windows PATH variables, but never inherit real Arena
+    # gateway/SMTP/application secrets from the operator's PowerShell session.
+    docker_environment = {key: value for key, value in os.environ.items()
+                          if not key.startswith("ARENA_") and key != "SANDBOX_NAMESPACE"}
     return {
-        **os.environ,
+        **docker_environment,
         "ARENA_BIND_IP": "127.0.0.1",
         "ARENA_PORT": str(port),
         "ARENA_ACCOUNT_AUTH": "1",

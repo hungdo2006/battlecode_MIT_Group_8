@@ -41,6 +41,7 @@ class SandboxRunner:
         self.thread = None
         self.available = False
         self.image_ids = {}
+        self.artifact_store_id = None
         self.cleanup_lock = threading.Lock()
         self.pending_closes = {}  # job_id -> its original lease, never the next lease.
 
@@ -85,6 +86,7 @@ class SandboxRunner:
             # previously compiled artifacts, even when it is otherwise healthy.
             self.image_ids = {'sandbox': health.get('sandbox_image'),
                               'battlecode26': health.get('battlecode_image')}
+            self.artifact_store_id = health.get('artifact_store_id')
 
     def image_for_game(self, game_id):
         with self.lease_lock:

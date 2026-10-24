@@ -1,5 +1,8 @@
 # B1 — Remote Sandbox Runner (single PC, outbound-only)
 
+For the existing site's reversible cutover, use the
+[B1.3 operator runbook](RUNNER_SWITCH_B13.md). Fresh staging below is separate.
+
 > **Draft / pre-production milestone.** Independent from the offline results
 > import work in PR #24. These instructions are for **fresh staging environments
 > with dummy users and bots**, not for the currently running AWS instance.

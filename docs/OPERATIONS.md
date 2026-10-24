@@ -2,6 +2,10 @@
 
 Áp dụng cho một backend worker và một controller trên mỗi sandbox namespace, dùng filesystem local/Docker named volumes. Không chạy nhiều replica, xóa `.writer.lock` hoặc dùng NFS/SMB để chia sẻ writer. Backend và controller phải cùng phiên bản protocol.
 
+For reversible local/remote execution on the existing site, follow
+[B1.3 operator switch](RUNNER_SWITCH_B13.md), including the complete five-volume
+cold backup, private configuration backup, image inventory and restore drill.
+
 ## Migration và Admin
 
 Schema hiện tại: **20**, xác định bởi `backend/account_schema.py` và `SCHEMA_VERSION`. Migration 18 thêm giới hạn đội và tombstone bot; migration 19 thêm lượt tìm trận; migration 20 thêm luật theo vòng và quyền công bố bảng điểm. Không sửa các migration 1–19. DB cũ phải migrate offline (kể cả đang ở schema 19); không tự sửa `PRAGMA user_version`. Trước cập nhật: đóng admission, đợi/hủy công việc hợp lệ, dừng writer và sao lưu. Rehearse trên bản sao trước dữ liệu thật.

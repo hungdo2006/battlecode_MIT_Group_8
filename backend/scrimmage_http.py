@@ -2,6 +2,7 @@
 import asyncio
 import json
 import logging
+from contextlib import nullcontext
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
@@ -39,6 +40,13 @@ class ScrimmageDispatcher:
     async def tick(self):
         await self.execute(lambda service: service.maintain())
         await self.execute(lambda service: service.reconcile(self.manager))
+        gate = getattr(self.manager, "runner_control", None)
+        if gate and gate.closed:
+            return
+        with gate.operation() if gate else nullcontext():
+            await self._dispatch()
+
+    async def _dispatch(self):
         if getattr(self.manager.runner,'mode',None) != 'sandbox' or len(self.manager.live) >= 2:
             return
         if not (await asyncio.to_thread(self.manager.runner.health)).get('ready'):

@@ -474,6 +474,7 @@ def create_app():
     def health():
         app.state.controller.engine.client.ping()
         return {'ready': True, 'epoch': app.state.controller.epoch,
+                'artifact_store_id': app.state.controller.store.identity,
                 'sandbox_image': app.state.controller.engine.image,
                 'battlecode_image': getattr(app.state.controller.engine, 'battlecode_image', None),
                 'battlecode26': bool(getattr(app.state.controller.engine, 'battlecode_image', None)),

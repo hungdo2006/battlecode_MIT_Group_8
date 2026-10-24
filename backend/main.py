@@ -135,7 +135,13 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
                 # Never rewrite historical bot JSON or replay snapshots.
                 if getattr(runner, "mode", None) == "sandbox":
                     app.state.store.sandbox_image_for_game = runner.image_for_game
+                    if hasattr(runner, "artifact_store_id"):
+                        app.state.store.sandbox_artifact_store = lambda: runner.artifact_store_id
                 manager = app.state.manager = MatchManager(app.state.store, tick_seconds, runner)
+                from backend.runner_control import RunnerControl, monitor
+                runner_control = app.state.runner_control = RunnerControl(
+                    app.state.store.data, os.environ.get("ARENA_RUNNER", "legacy"))
+                manager.runner_control = runner_control
                 app.state.competition = Competition(app.state.store, manager)
                 if account_settings.account_only:
                     app.state.lobby = None
@@ -145,6 +151,8 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
                     app.state.competition.lobby = lobby
                     manager.on_activity = lobby.activity
                 app.state.upload_lock = asyncio.Lock()
+                app.state.runner_control_task = asyncio.create_task(
+                    monitor(runner_control, manager, app.state.upload_lock), name="runner-control")
                 if account_settings.account_only:
                     from backend.bot_service import TeamBots
                     from backend.official_dispatcher import OfficialDispatcher
@@ -171,6 +179,9 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
                                         {"version": 1, "mode": "account_only" if account_settings.account_only else "legacy"})
                 yield
             finally:
+                if getattr(app.state, "runner_control_task", None):
+                    app.state.runner_control_task.cancel()
+                    await asyncio.gather(app.state.runner_control_task, return_exceptions=True)
                 if account_settings.account_only and getattr(app.state, "official_deadline_task", None):
                     app.state.official_deadline_task.cancel()
                     await asyncio.gather(app.state.official_deadline_task, return_exceptions=True)
@@ -620,6 +631,7 @@ def create_app(base_dir: Path | None = None, tick_seconds: float = 0.18,
                      sample_key: str | None = None):
         game_or_404(game_id)
         async with app.state.upload_lock:
+            app.state.runner_control.require_open()
             store = app.state.store
             control = app.state.competition
             async with control.lock:

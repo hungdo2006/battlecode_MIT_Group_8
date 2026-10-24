@@ -10,6 +10,9 @@
 data
 uploads
 backups
+.runner-switch
+.qa-evidence
+.qa-phase-a-20261023
 design-research
 .playwright-mcp
 docs/screenshots

@@ -14,6 +14,11 @@ def artifact_current(store, bot):
         # No sandbox runtime in legacy/in-memory fixtures.
         return True
     image = provider(bot.get("game_id"))
+    store_provider = getattr(store, "sandbox_artifact_store", None)
+    if store_provider is not None:
+        identity = store_provider()
+        if not identity or bot.get("artifact_store_id") != identity:
+            return False
     return bool(image and bot.get("image") == image)
 
 

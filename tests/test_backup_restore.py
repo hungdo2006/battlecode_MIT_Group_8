@@ -162,6 +162,62 @@ def test_backup_never_overwrites_and_restore_checks_before_docker(source, tmp_pa
     assert not fake.calls
 
 
+def complete_site_bundle(source, tmp_path, monkeypatch):
+    from scripts import runner_site_backup as site_backup
+    fake = FakeDocker(source, tmp_path)
+    monkeypatch.setattr(backup_cli, 'run', fake)
+    output = backup_cli.backup(tmp_path / 'state.tar.gz')
+    gateway = {role: tmp_path / role for role in site_backup.ROLES}
+    for role, root in gateway.items():
+        root.mkdir()
+        (root / 'private-state').write_bytes(b'private caddy data')
+    with (tmp_path / 'gateway.tar.gz').open('wb') as target:
+        write_snapshot(gateway, target, {}, roles=site_backup.ROLES)
+    (tmp_path / 'gateway.images.tar').write_bytes(b'caddy image archive')
+    (tmp_path / 'private-config').write_bytes(b'SECRET=kept-out-of-git')
+    config = tmp_path / 'original.env'
+    config.write_bytes(b'SECRET=kept-out-of-git')
+    plan = {'volumes': {'arena:/app/data': 'original_data', 'arena:/app/uploads': 'original_uploads',
+                       'controller:/artifacts': 'original_artifacts',
+                       'gateway:/data': 'original_caddy_data', 'gateway:/config': 'original_caddy_config'},
+            'sources': {str(config): digest_file(config)}}
+    receipt = {'format': 1, 'plan_sha256': site_backup.plan_digest(plan), 'volumes': plan['volumes'],
+        'private': {str(config): {'file': 'private-config', 'sha256': digest_file(config)}},
+        'checksums': {name: digest_file(tmp_path / name) for name in (
+            'state.tar.gz', 'state.tar.gz.images.tar', 'state.tar.gz.receipt.json',
+            'gateway.tar.gz', 'gateway.images.tar')}}
+    (tmp_path / 'complete.json').write_text(json.dumps(receipt))
+    drill = {'complete_sha256': digest_file(tmp_path / 'complete.json'),
+             'sqlite_integrity': 'ok', 'schema': 20,
+             'verified': ['data', 'uploads', 'artifacts', 'caddy_data', 'caddy_config', 'private'],
+             'restored_volumes': {str(i): 'new-volume-' + str(i) for i in range(5)}}
+    (tmp_path / 'drill.json').write_text(json.dumps(drill))
+    return site_backup, plan
+
+
+def test_complete_site_requires_all_five_volumes_images_private_files_and_drill(source, tmp_path, monkeypatch):
+    site_backup, plan = complete_site_bundle(source, tmp_path, monkeypatch)
+    site_backup.verify_complete(tmp_path, plan)
+    (tmp_path / 'drill.json').unlink()
+    with pytest.raises(FileNotFoundError): site_backup.verify_complete(tmp_path, plan)
+
+
+@pytest.mark.parametrize('corrupt', ['private-config', 'gateway.tar.gz', 'gateway.images.tar',
+                                    'state.tar.gz.images.tar'])
+def test_complete_site_rejects_corrupt_supplement_or_images(source, tmp_path, monkeypatch, corrupt):
+    site_backup, plan = complete_site_bundle(source, tmp_path, monkeypatch)
+    (tmp_path / corrupt).write_bytes(b'tampered')
+    with pytest.raises(ValueError): site_backup.verify_complete(tmp_path, plan)
+
+
+def test_complete_site_cannot_reuse_another_sites_backup(source, tmp_path, monkeypatch):
+    from copy import deepcopy
+    site_backup, plan = complete_site_bundle(source, tmp_path, monkeypatch)
+    other = deepcopy(plan)
+    other['volumes']['arena:/app/data'] = 'other_database'
+    with pytest.raises(ValueError): site_backup.verify_complete(tmp_path, other)
+
+
 @pytest.mark.parametrize('path,kind', [('../outside', tarfile.REGTYPE), ('uploads/C:/escape', tarfile.REGTYPE),
                                       ('uploads/link', tarfile.SYMTYPE), ('data/link', tarfile.LNKTYPE),
                                       ('data/device', tarfile.CHRTYPE)])

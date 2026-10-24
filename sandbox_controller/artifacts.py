@@ -6,6 +6,7 @@ import json
 import os
 import re
 import tarfile
+from uuid import uuid4
 from pathlib import Path, PurePosixPath
 
 MAX_ARTIFACT = 16 * 1024 * 1024
@@ -72,6 +73,17 @@ class ArtifactStore:
     def __init__(self, root):
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
+        identity = self.root / '.store-id'
+        try:
+            with identity.open('x', encoding='ascii') as target:
+                target.write(uuid4().hex)
+                target.flush()
+                os.fsync(target.fileno())
+        except FileExistsError:
+            pass
+        self.identity = identity.read_text(encoding='ascii')
+        if not re.fullmatch(r'[a-f0-9]{32}', self.identity):
+            raise ValueError('Invalid artifact store identity; operator recovery required')
 
     def save(self, job_id, language, files, image):
         blob = pack(files, 'out/')
@@ -81,7 +93,8 @@ class ArtifactStore:
         used = sum(p.stat().st_size for p in self.root.glob('*') if p.is_file())
         if used + len(blob) > 512 * 1024 * 1024:
             raise ValueError('Artifact store quota reached (512 MiB); operator action required')
-        metadata = dict(artifact_id=artifact_id, artifact_digest=digest, language=language, image=image)
+        metadata = dict(artifact_id=artifact_id, artifact_digest=digest, language=language, image=image,
+                        artifact_store_id=self.identity)
         for suffix, content in [('tar', blob), ('json', json.dumps(metadata).encode())]:
             temporary = self.root / f'{artifact_id}.{suffix}.tmp'
             temporary.write_bytes(content)
@@ -107,7 +120,8 @@ class ArtifactStore:
         temporary = self.root / f'{artifact_id}.bc.tmp'
         temporary.write_bytes(payload)
         os.replace(temporary, self.root / f'{artifact_id}.bc.json')
-        return {'artifact_id': artifact_id, 'artifact_digest': hashlib.sha256(payload).hexdigest(), 'image': image}
+        return {'artifact_id': artifact_id, 'artifact_digest': hashlib.sha256(payload).hexdigest(),
+                'image': image, 'artifact_store_id': self.identity}
 
     def load_battlecode(self, artifact_id, digest, image):
         artifact_id = identifier(artifact_id)

@@ -71,7 +71,7 @@ def configured_runner(compile_fn=None):
     mode = os.environ.get('ARENA_RUNNER', 'legacy')
     if mode == 'legacy':
         return LegacyRunner(compile_fn)
-    if mode == 'sandbox':
+    if mode in ('sandbox', 'local_sandbox'):
         from backend.sandbox_client import SandboxRunner
         return SandboxRunner()
     if mode == 'remote_sandbox':

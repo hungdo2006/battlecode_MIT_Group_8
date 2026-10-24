@@ -46,9 +46,9 @@ def assert_no_writers(volumes, environment):
                 raise RuntimeError('A running container still has writable access to a backup volume')
 
 
-def backup(output, project=None, environment=None, save_images=True):
-    command = ['docker', 'compose', '-f', str(ROOT / 'compose.yaml')]
-    if project:
+def backup(output, project=None, environment=None, save_images=True, compose_command=None):
+    command = list(compose_command) if compose_command else ['docker', 'compose', '-f', str(ROOT / 'compose.yaml')]
+    if project and not compose_command:
         command += ['-p', project]
     volumes, image_ids, service_images = {}, set(), {}
     sandbox_ref = None

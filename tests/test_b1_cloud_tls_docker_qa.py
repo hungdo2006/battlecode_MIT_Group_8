@@ -1,10 +1,11 @@
 """B1 two-stack HTTPS Docker QA configuration and release-boundary tests."""
+import ast
 import json
 
 import pytest
 
 from scripts.check_b1_cloud_tls_docker import (
-    CADDY, CLOUD_IMAGE, DRIVER, HOSTNAME, WORKER_IMAGES,
+    CADDY, CLOUD_IMAGE, DRIVER, CHECK_HEALTH, HOSTNAME, WORKER_IMAGES,
     env_without_operator_secrets, make_cloud_config, make_worker_override,
     project_names,
 )
@@ -53,6 +54,11 @@ def test_qa_agent_uses_ephemeral_issuer_not_insecure_tls(tmp_path):
     assert "X-Arena-Proxy-Secret {$ARENA_PROXY_SECRET}" in CADDY
     assert "CERT_NONE" not in DRIVER
     assert "verify=False" not in DRIVER
+
+
+def test_qa_embedded_remote_clients_are_valid_python():
+    ast.parse(DRIVER)
+    ast.parse(CHECK_HEALTH)
 
 
 def test_qa_https_driver_checks_real_official_match_and_replay():

@@ -106,3 +106,28 @@ sau đó lại đăng nhập và xem replay. Không dùng `docker compose down -
 Cơ chế này chỉ áp dụng cho **pilot B1.4 hiện còn hoạt động**. Nếu đã rollback
 pilot, chạy schema migration hoặc đổi image, phải kiểm tra lại hiện trạng
 trước khi dùng, không chạy các lệnh trên một project khác.
+
+## Sửa quyền Docker socket của EC2 sau lần chuyển thử bị rollback
+
+Nếu log Controller có `PermissionError(13, 'Permission denied')` tại
+`/var/run/docker.sock` và B1.5 đã chuẩn bị/pinned model với GID 0,
+**không** chmod 666 socket, không sửa thủ công JSON và không xóa volume.
+Sau khi xác nhận trạng thái đang Remote, chạy:
+
+```bash
+sudo python3 -m scripts.b15_pilot_runner repair-socket-gid
+sudo python3 -m scripts.b15_pilot_runner status
+```
+
+Lệnh chỉ sửa `group_add` của Controller ngừng chạy để trùng GID thật
+của socket, lưu bản `.pre-gid` riêng tư và tính lại mã kiểm tra model.
+**Backup B1.5 cũ không còn phù hợp với plan đã sửa**. Tạo backup lạnh
+mới ở một thư mục chưa tồn tại rồi mới chuyển, ví dụ:
+
+```bash
+sudo python3 -m scripts.b15_pilot_runner backup --backup-directory .runner-switch/b15-backup-002 --approve-downtime
+sudo python3 -m scripts.b15_pilot_runner switch --target local --backup-directory .runner-switch/b15-backup-002
+```
+
+GID có thể đổi khi Docker/socket khởi tạo lại; nếu có, cần điều tra
+chứ không bỏ qua bước kiểm tra pinned model.

@@ -177,9 +177,51 @@ def snapshot(site, destination):
                 site.control(source, "resume")
 
 
+def repair_socket_gid(site):
+    """Repair the prepared Controller group, never data or running services."""
+    with site.exclusive():
+        site.verify()
+        current, status = mode(site)
+        if current != "remote" or not status["ready"] or status["admission_closed"]:
+            raise ValueError("Requires healthy remote mode")
+        socket = Path("/var/run/docker.sock")
+        if not socket.is_socket():
+            raise ValueError("Missing Docker socket")
+        gid = str(socket.stat().st_gid)
+        model_path = site.directory / "local.json"
+        plan_path = site.directory / "plan.json"
+        model = json.loads(model_path.read_text())
+        if model["services"]["controller"].get("group_add") != ["0"] or gid == "0":
+            raise ValueError("Not the original incorrect socket group")
+        ids = site.compose("local", "ps", "-a", "-q", "controller").split()
+        if len(ids) != 1 or json.loads(switch.run(["docker", "inspect", ids[0]]))[0]["State"]["Running"]:
+            raise ValueError("Controller must exist and be stopped")
+        model["services"]["controller"]["group_add"] = [gid]
+        # Preserve exact original models and plan for forensic recovery.
+        originals = [(model_path, model_path.read_bytes()), (plan_path, plan_path.read_bytes())]
+        for path, content in originals:
+            backup = path.with_suffix(path.suffix + ".pre-gid")
+            with backup.open("xb") as stream:
+                os.chmod(backup, 0o600)
+                stream.write(content)
+        try:
+            with model_path.open("w") as stream:
+                json.dump(model, stream, indent=2)
+            plan = json.loads(plan_path.read_text())
+            plan["models"]["local"] = switch.sha(model_path)
+            with plan_path.open("w") as stream:
+                json.dump(plan, stream, indent=2)
+            switch.Site(site.directory).verify()
+        except Exception:
+            for path, content in originals:
+                path.write_bytes(content)
+            raise
+        return {"socket_gid": gid, "mode": "remote", "requires_new_backup": True}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("prepare", "status", "backup", "switch"))
+    parser.add_argument("action", choices=("prepare", "status", "backup", "switch", "repair-socket-gid"))
     parser.add_argument("--directory", type=Path, default=DEFAULT_PRIVATE)
     parser.add_argument("--backup-directory", type=Path)
     parser.add_argument("--target", choices=("local", "remote"))
@@ -191,7 +233,9 @@ def main(argv=None):
         else:
             site = switch.Site(args.directory.resolve() / "site")
             site.verify()
-            if args.action == "status":
+            if args.action == "repair-socket-gid":
+                result = repair_socket_gid(site)
+            elif args.action == "status":
                 source, status = mode(site)
                 result = {"project": PROJECT, "mode": source,
                           "ready": status["ready"], "admission_closed": status["admission_closed"],

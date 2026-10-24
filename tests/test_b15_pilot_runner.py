@@ -127,3 +127,34 @@ def test_cloud_image_or_database_not_modified_during_invalid_preflight(monkeypat
     with pytest.raises(ValueError, match="cloud.env"):
         b15.prepare(tmp_path / "private")
     assert touched == [] and not (tmp_path / "private").exists()
+
+
+def test_socket_gid_repair_preserves_backup_inputs_and_rejects_running_controller(monkeypatch, tmp_path):
+    import json
+    site_dir = tmp_path / "site"
+    site_dir.mkdir()
+    local = site_dir / "local.json"
+    plan = site_dir / "plan.json"
+    local.write_text(json.dumps({"services": {"controller": {"group_add": ["0"]}}}))
+    plan.write_text(json.dumps({"models": {"local": "old"}}))
+    class Socket:
+        st_gid = 988
+    class FakePath:
+        def is_socket(self): return True
+        def stat(self): return Socket()
+    real_path = b15.Path
+    monkeypatch.setattr(b15, "Path", lambda x: FakePath() if x == "/var/run/docker.sock" else real_path(x))
+    monkeypatch.setattr(b15, "mode", lambda site: ("remote", {"ready": True, "admission_closed": False}))
+    monkeypatch.setattr(b15.switch, "run", lambda cmd: json.dumps([{"State": {"Running": False}}]))
+    class Site:
+        directory = site_dir
+        project = b15.PROJECT
+        def exclusive(self): return nullcontext()
+        def verify(self): pass
+        def compose(self, *args): return "controller-id"
+    monkeypatch.setattr(b15.switch, "Site", lambda *args: Site())
+    result = b15.repair_socket_gid(Site())
+    assert result["socket_gid"] == "988" and result["requires_new_backup"]
+    assert json.loads(local.read_text())["services"]["controller"]["group_add"] == ["988"]
+    assert json.loads((site_dir / "local.json.pre-gid").read_text())["services"]["controller"]["group_add"] == ["0"]
+    assert json.loads(plan.read_text())["models"]["local"] == b15.switch.sha(local)

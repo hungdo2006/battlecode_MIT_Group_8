@@ -86,3 +86,25 @@ def test_qa_scrubs_existing_secrets(monkeypatch):
 def test_qa_rejects_misnamed_projects(bad):
     with pytest.raises(ValueError, match="invalid QA project"):
         project_names(bad)
+
+def test_b1_https_probe_does_not_spoof_cross_scheme_origin():
+    # HTTPS client -> Caddy -> HTTP upstream is expected in staging.
+    # The Arena legacy GET scope sees internal HTTP; browsers normally do
+    # not send Origin for same-site GET. Only mutations send Origin.
+    assert 'headers = {"Accept": "application/json"}' in DRIVER
+    assert 'if method not in ("GET", "HEAD"):' in DRIVER
+    assert 'headers["Origin"] = origin' in DRIVER
+    assert 'headers={"Origin": "https://arena-qa.test"}' not in CHECK_HEALTH
+
+
+def test_b1_qa_failure_reporting_is_stage_only():
+    from scripts.check_b1_cloud_tls_docker import run_client
+    import inspect
+
+    code = inspect.getsource(run_client)
+    assert 'check=False' in code
+    assert 'QA_STAGE:' in code
+    assert 'result.stderr' not in code
+    assert '"QA_STAGE: cloud-health"' in DRIVER
+    assert '"QA_STAGE: remote-bot-compile"' in DRIVER
+

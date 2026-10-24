@@ -131,3 +131,25 @@ def test_rollback_requires_confirmation_and_never_removes_volumes(tmp_path, monk
     monkeypatch.setattr(pilot, "docker", lambda command, root, interactive: actions.append(command))
     pilot.rollback(SimpleNamespace(confirm_rollback=True))
     assert actions == [["pilot", "stop", "gateway", "arena"], ["old", "up", "-d", "--no-build", "--wait"]]
+
+
+def test_prepare_creates_password_only_admin_without_totp(tmp_path, monkeypatch):
+    private = tmp_path / ".b1-pilot"
+    private.mkdir()
+    monkeypatch.setattr(pilot, "context", lambda _: (tmp_path, tmp_path / "old", ["old"], ["pilot"]))
+    monkeypatch.setattr(pilot, "is_running", lambda cmd, service, root: cmd == ["old"])
+    monkeypatch.setattr(pilot, "check_disk", lambda _: None)
+    calls = []
+    monkeypatch.setattr(pilot, "docker", lambda cmd, root, interactive: calls.append(cmd))
+    pilot.prepare(SimpleNamespace())
+    assert calls == [
+        ["pilot", "build", "arena"],
+        ["pilot", "run", "--rm", "--no-deps", "arena", "python",
+         "-m", "backend.admin_cli", "--data-dir", "/app/data", "migrate"],
+        ["pilot", "run", "--rm", "--no-deps", "arena", "python",
+         "-m", "backend.admin_cli", "--data-dir", "/app/data", "check"],
+        ["pilot", "run", "--rm", "--no-deps", "arena", "python",
+         "-m", "backend.admin_cli", "--data-dir", "/app/data",
+         "create-admin", "--username", "b1.operator"],
+    ]
+    assert (private / "prepared").is_file()

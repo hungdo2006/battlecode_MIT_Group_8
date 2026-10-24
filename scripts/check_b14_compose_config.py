@@ -5,7 +5,10 @@ from pathlib import Path
 import secrets
 import subprocess
 
-from scripts.b1_ec2_pilot import DOMAIN, PILOT_PROJECT, PILOT_VOLUMES, PILOT_SERVICES, ports
+try:
+    from scripts.b1_ec2_pilot import DOMAIN, PILOT_PROJECT, PILOT_VOLUMES, PILOT_SERVICES, ports
+except ModuleNotFoundError:
+    from b1_ec2_pilot import DOMAIN, PILOT_PROJECT, PILOT_VOLUMES, PILOT_SERVICES, ports
 
 
 def main():

@@ -1,11 +1,13 @@
 """No-Docker safety checks for the two-stack Phase A acceptance runner."""
+import ast
 import json
 
 import httpx
 import pytest
 
-from scripts.check_offline_online_docker import (Account, QAStack, qa_environment,
-                                                 qa_project, wait_for_official_complete)
+from scripts.check_offline_online_docker import (Account, QAStack, QA_AGGRESSIVE_BOT,
+                                                 qa_environment, qa_project,
+                                                 wait_for_official_complete)
 
 
 def test_two_compose_projects_and_all_ports_are_private(tmp_path):
@@ -130,3 +132,68 @@ def test_qa_official_does_not_ignore_interrupted_match(monkeypatch):
     monkeypatch.setattr(qa.time, "sleep", lambda seconds: None)
     with pytest.raises(AssertionError, match="did not complete: INTERRUPTED"):
         wait_for_official_complete(FakeAdmin(), "t1", "m1")
+
+
+
+def test_qa_bot_really_wins_and_does_not_wait_at_distance_two():
+    """Prove the exact submitted Python bot ends a real Robot Battle decisively."""
+    from backend.engine.robot import RobotBattle, RobotRules
+
+    tree = ast.parse(QA_AGGRESSIVE_BOT)
+    chooser = next(node for node in tree.body
+                   if isinstance(node, ast.FunctionDef) and node.name == "choose")
+    namespace = {}
+    exec(compile(ast.Module(body=[chooser], type_ignores=[]),
+                 "<qa-bot-function>", "exec"), namespace)
+    game = RobotBattle(RobotRules(max_turns=100))
+    for _ in range(100):
+        game.step({"A": namespace["choose"](game.observation("A")), "B": {"type": "wait"}})
+        if game.finished:
+            break
+    assert game.result == {"winner": "A", "reason": "knockout", "faults": {}}
+    assert game.turn < 100
+
+
+def test_qa_follows_scheduled_tiebreak_instead_of_waiting_on_first_match(monkeypatch):
+    from scripts import check_offline_online_docker as qa
+
+    calls = []
+
+    class FakeAdmin:
+        def call(self, method, path, *, retry_429=False):
+            assert retry_429 and method == "GET"
+            calls.append(path)
+            if "official-matches" in path:
+                return {"request": {"status": "COMPLETED"}}
+            if calls.count(path) == 1:
+                return {"tournament": {
+                    "status": "ACTIVE", "bracket": [{"status": "READY"}],
+                    "fixtures": [{"official_request_id": "rematch"}],
+                }}
+            return {"tournament": {"status": "COMPLETED"}}
+
+    waits = []
+    monkeypatch.setattr(qa.time, "sleep", waits.append)
+    request, tournament = wait_for_official_complete(
+        FakeAdmin(), "event", "first", poll_interval=6)
+    assert request["status"] == tournament["status"] == "COMPLETED"
+    assert calls == [
+        "/api/admin/official-matches/first",
+        "/api/admin/team-tournaments/event",
+        "/api/admin/official-matches/rematch",
+        "/api/admin/team-tournaments/event",
+    ]
+    assert waits == [6]
+
+
+def test_qa_tie_is_not_mistaken_for_tournament_completion():
+    class FakeAdmin:
+        def call(self, method, path, *, retry_429=False):
+            if "official-matches" in path:
+                return {"request": {"status": "COMPLETED"}}
+            return {"tournament": {"status": "ACTIVE",
+                                    "bracket": [{"status": "TIE"}],
+                                    "fixtures": []}}
+
+    with pytest.raises(AssertionError, match="Admin must resolve bracket"):
+        wait_for_official_complete(FakeAdmin(), "event", "drawn")

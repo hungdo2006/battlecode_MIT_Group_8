@@ -288,7 +288,7 @@ def run_qa(offline, online, password):
             actor.call("POST", f"/api/player/teams/{team_id}/activate", {})
             teams.append(team_id)
             source = (QA_AGGRESSIVE_BOT.encode("utf-8") if actor is alice
-                      else b'import json,sys\\nfor line in sys.stdin: print(json.dumps({"type":"wait"}),flush=True)\\n')
+                      else b'import json,sys\nfor line in sys.stdin: print(json.dumps({"type":"wait"}),flush=True)\n')
             uploaded = actor.call("POST", "/api/player/bots", {
                 "filename": "bot.py", "name": "QA Hunter" if actor is alice else "QA Wait",
                 "game_id": "robot_battle", "source_base64": base64.b64encode(source).decode("ascii"),

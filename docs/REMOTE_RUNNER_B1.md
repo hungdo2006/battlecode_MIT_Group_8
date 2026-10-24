@@ -115,6 +115,26 @@ through a dedicated Docker QA transport network:
 the school/WAN, performance at sustained two-match load, full outage
 recovery during an in-flight Official Match, or AWS production suitability.
 
+For extended local acceptance after this baseline, run:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/check_b1_real_world_qa.py --build
+# Or rerun only compilation, Official/standings and browser checks:
+.\.venv\Scripts\python.exe scripts/check_b1_real_world_qa.py --build --ui-only
+```
+
+The extended harness covers Python/C++/Java, bot failures, two simultaneous
+Official matches with a third queued, an in-flight agent network cut,
+Controller/cloud restarts, replay/standings persistence and Chrome UI smoke.
+Install Playwright Python and Chrome separately for the browser checks.
+Evidence defaults to the git-ignored `.qa-evidence/b1-real-world/`; do not
+commit generated JSON/XML, screenshots, credentials, CA files or QA databases.
+Only the browser gateway binds a random **127.0.0.1** port. Machine RPC still
+verifies HTTPS hostname/certificate; the browser alone accepts the ephemeral
+local CA in its disposable context. Cleanup errors produce a nonzero exit.
+This remains a **one-host rehearsal**, not public Internet or two-host QA.
+See the [QA/PR report](../B1_REAL_WORLD_QA_REPORT.md) for findings and limits.
+
 The first run builds QA-tagged images; reuse the same checkout with no
 `--build` on later runs unless backend/worker code or dependencies changed.
 

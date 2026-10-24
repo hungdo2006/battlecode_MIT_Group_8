@@ -74,4 +74,7 @@ def configured_runner(compile_fn=None):
     if mode == 'sandbox':
         from backend.sandbox_client import SandboxRunner
         return SandboxRunner()
-    raise ValueError('ARENA_RUNNER must be legacy or sandbox; no automatic fallback')
+    if mode == 'remote_sandbox':
+        from backend.remote_runner import RemoteSandboxRunner
+        return RemoteSandboxRunner()
+    raise ValueError('ARENA_RUNNER must be legacy, sandbox or remote_sandbox; no automatic fallback')

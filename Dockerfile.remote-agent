@@ -1,0 +1,8 @@
+# Outbound-only control agent: no Docker socket, no compiler, no published port.
+FROM python:3.13-slim-bookworm
+WORKDIR /app
+RUN groupadd --gid 10001 remote && useradd --uid 10001 --gid remote --no-create-home remote
+COPY remote_runner/ ./remote_runner/
+USER remote:remote
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+CMD ["python", "-m", "remote_runner.agent"]

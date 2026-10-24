@@ -1,0 +1,72 @@
+# ISOLATED STAGING SERVER ONLY. Never combine with compose.yaml or AWS production.
+# Requires a distinct staging VM/FQDN with working HTTPS and a fresh data volume.
+# No local controller, bot image or Docker socket is present on this server.
+name: neon-b1-cloud-staging
+
+services:
+  arena:
+    build:
+      context: .
+      target: runtime
+    image: neon-b1-arena-staging:1.0
+    init: true
+    networks: [ingress_private]
+    environment:
+      ARENA_RUNNER: remote_sandbox
+      ARENA_REMOTE_RUNNER_KEY: "${ARENA_REMOTE_RUNNER_KEY:?Use a 32+ character private shared key}"
+      ARENA_READ_ONLY: "0"
+      ARENA_ACCOUNT_AUTH: "1"
+      ARENA_ACCOUNT_ONLY: "1"
+      ARENA_PUBLIC_GATEWAY: "1"
+      ARENA_AUTH_ALLOW_HTTP: "0"
+      ARENA_SELF_REGISTRATION: "0"
+      ARENA_EMAIL_VERIFICATION: "0"
+      ARENA_ADMIN_TOTP_REQUIRED: "1"
+      ARENA_AUTH_ORIGINS: "https://${ARENA_PUBLIC_DOMAIN:?Set an isolated staging HTTPS domain}"
+      ARENA_ALLOWED_HOSTS: "${ARENA_PUBLIC_DOMAIN:?Set an isolated staging HTTPS domain}"
+      ARENA_PROXY_SECRET: "${ARENA_PROXY_SECRET:?Set a separate 48+ character proxy secret}"
+    volumes:
+      - staging_data:/app/data
+      - staging_uploads:/app/uploads
+    restart: unless-stopped
+    stop_grace_period: 30s
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 512m
+    pids_limit: 128
+    logging:
+      options:
+        max-size: 5m
+        max-file: "2"
+
+  gateway:
+    image: caddy:2.9.1-alpine
+    depends_on: [arena]
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    networks: [default, ingress_private]
+    environment:
+      ARENA_PUBLIC_DOMAIN: "${ARENA_PUBLIC_DOMAIN:?Set an isolated staging HTTPS domain}"
+      ARENA_PROXY_SECRET: "${ARENA_PROXY_SECRET:?Set a separate 48+ character proxy secret}"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - staging_caddy_data:/data
+      - staging_caddy_config:/config
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    logging:
+      options:
+        max-size: 5m
+        max-file: "2"
+
+networks:
+  ingress_private:
+    internal: true
+
+volumes:
+  staging_data:
+  staging_uploads:
+  staging_caddy_data:
+  staging_caddy_config:

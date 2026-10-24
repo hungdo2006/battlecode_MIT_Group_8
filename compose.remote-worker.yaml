@@ -1,0 +1,90 @@
+# PC/LAPTOP ONLY — independent project; never combine with AWS compose overlays.
+# Configure .env (not committed) with distinct local Controller and cloud worker keys.
+name: neon-b1-worker
+
+services:
+  bot-image:
+    build:
+      context: .
+      dockerfile: Dockerfile.sandbox
+    image: neon-b1-bot:4.0
+    command: ["/bin/true"]
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 64m
+    pids_limit: 16
+
+  controller:
+    build:
+      context: .
+      dockerfile: Dockerfile.controller
+    image: neon-b1-controller:4.0
+    init: true
+    networks: [runner_private]
+    depends_on:
+      bot-image:
+        condition: service_completed_successfully
+    environment:
+      ARENA_RUNNER_TOKEN: "${ARENA_RUNNER_TOKEN:?Set the PC-only controller token}"
+      SANDBOX_NAMESPACE: "${SANDBOX_NAMESPACE:-neon-b1-worker}"
+      SANDBOX_IMAGE: neon-b1-bot:4.0
+    group_add:
+      - "${DOCKER_SOCKET_GID:-0}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - remote_artifacts:/artifacts
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=32m,uid=10001,gid=10001
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 512m
+    cpus: 2
+    pids_limit: 128
+    restart: unless-stopped
+    stop_grace_period: 30s
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    logging:
+      options:
+        max-size: 5m
+        max-file: "2"
+
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.remote-agent
+    image: neon-b1-agent:1.0
+    init: true
+    networks: [runner_private, default]
+    depends_on:
+      controller:
+        condition: service_healthy
+    environment:
+      ARENA_REMOTE_SERVER_URL: "${ARENA_REMOTE_SERVER_URL:?Set the HTTPS server origin}"
+      ARENA_REMOTE_RUNNER_KEY: "${ARENA_REMOTE_RUNNER_KEY:?Set a separate random worker secret}"
+      ARENA_RUNNER_TOKEN: "${ARENA_RUNNER_TOKEN:?Set the PC-only controller token}"
+    cap_drop: [ALL]
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    mem_limit: 128m
+    cpus: 1
+    pids_limit: 64
+    restart: unless-stopped
+    logging:
+      options:
+        max-size: 5m
+        max-file: "2"
+
+networks:
+  runner_private:
+    internal: true
+
+volumes:
+  remote_artifacts:

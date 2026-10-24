@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import secrets
 import sys
+import time
 
 from scripts import runner_switch as switch
 from scripts import runner_site_backup as site_backup
@@ -65,6 +66,18 @@ def matching_remote(actual, generated):
             raise ValueError(f"Existing pilot {name} has configuration drift")
 
 
+def validate_pilot_status(status, expected_mode=None):
+    # Operator host must not need FastAPI/pydantic installed. The full
+    # acknowledgement is produced by backend.runner_control INSIDE Arena.
+    if (status.get("protocol") != 1 or
+            not isinstance(status.get("time"), (int, float)) or
+            not -1 <= time.time() - status["time"] <= 10 or
+            status.get("mode") not in ("local_sandbox", "remote_sandbox") or
+            (expected_mode is not None and status.get("mode") != expected_mode)):
+        raise ValueError("Missing, stale or unexpected Arena maintenance acknowledgement")
+    return status
+
+
 def existing_pilot(env):
     cloud = switch.resolve(command(CLOUD_FILE, env))
     project_identity(cloud)
@@ -83,10 +96,9 @@ def existing_pilot(env):
     for destination, suffix in (("/app/data", "pilot_data"), ("/app/uploads", "pilot_uploads")):
         if mounts.get(destination) != f"{PROJECT}_{suffix}":
             raise ValueError("Running pilot uses unexpected data volume")
-    from backend.runner_control import validate_status
     live = json.loads(switch.run(command(CLOUD_FILE, env) + [
         "exec", "-T", "arena", "python", "-m", "backend.runner_control", "status"]))
-    validate_status(live, mode="remote_sandbox")
+    validate_pilot_status(live, expected_mode="remote_sandbox")
     return cloud
 
 
@@ -126,12 +138,11 @@ def prepare(private):
 
 
 def mode(site):
-    from backend.runner_control import validate_status
     status = site.control("local", "status")
     current = {"local_sandbox": "local", "remote_sandbox": "remote"}.get(status["mode"])
     if current is None:
         raise ValueError("Unexpected runner mode")
-    validate_status(status, mode=status["mode"])
+    validate_pilot_status(status, expected_mode=status["mode"])
     return current, status
 
 

@@ -48,3 +48,13 @@ def test_qa_environment_cannot_be_pointed_to_production():
         qa_environment("on", 0, "neon-phase-a-on-0123456789", "x" * 48)
     with pytest.raises(ValueError):
         qa_environment("on", 45678, "neon-phase-a-on-0123456789", "too-short")
+
+
+def test_qa_never_inherits_operator_arena_secrets(monkeypatch):
+    monkeypatch.setenv("ARENA_SMTP_PASSWORD", "real-host-smtp-secret-never-propagate")
+    monkeypatch.setenv("ARENA_PROXY_SECRET", "real-host-gateway-secret-never-propagate")
+    monkeypatch.setenv("ARENA_ADMIN_CODE", "real-host-admin-code-never-propagate")
+    env = qa_environment("off", 45000, "neon-phase-a-off-0123456789", "x" * 48)
+    assert "ARENA_SMTP_PASSWORD" not in env
+    assert "ARENA_PROXY_SECRET" not in env
+    assert env["ARENA_ADMIN_CODE"] == ""

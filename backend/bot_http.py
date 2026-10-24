@@ -76,6 +76,7 @@ def install_bot_http(app):
         # Keep a single in-flight account submission per backend. JSON publication
         # precedes SQLite ownership, and the journal is committed before compile.
         async with app.state.upload_lock:
+            app.state.runner_control.require_open()
             async with app.state.competition.lock:
                 # Team tournaments choose games independently of the legacy
                 # free-play default. TeamBots.begin validates the installed

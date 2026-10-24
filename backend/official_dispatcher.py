@@ -5,6 +5,7 @@ reissues a claimed match, even when the underlying JSON record is missing.
 """
 import asyncio
 import logging
+from contextlib import nullcontext
 
 from .models import MatchRequest
 from .official_service import OfficialSchedule
@@ -28,6 +29,15 @@ class OfficialDispatcher:
             self._service(auth, conn).recover_uncertain())
 
     async def tick(self):
+        await self.runtime.run(lambda auth, conn:
+            self._service(auth, conn).sync_execution())
+        gate = getattr(self.manager, "runner_control", None)
+        if gate and gate.closed:
+            return
+        with gate.operation() if gate else nullcontext():
+            await self._dispatch()
+
+    async def _dispatch(self):
         await self.runtime.run(lambda auth, conn:
             self._service(auth, conn).freeze_due())
         await self.runtime.run(lambda auth, conn:

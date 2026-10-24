@@ -16,10 +16,10 @@ def digest_file(path):
         return hashlib.file_digest(source, 'sha256').hexdigest()
 
 
-def write_snapshot(roots, output, metadata):
+def write_snapshot(roots, output, metadata, roles=ROLES):
     files, artifact_images = {}, set()
     with tarfile.open(fileobj=output, mode='w|gz', dereference=False) as archive:
-        for role in ROLES:
+        for role in roles:
             root = Path(roots[role])
             if root.is_symlink() or not root.is_dir():
                 raise ValueError('All three real snapshot roots are required')
@@ -52,10 +52,10 @@ def write_snapshot(roots, output, metadata):
         archive.addfile(entry, io.BytesIO(raw))
 
 
-def read_snapshot(source, roots=None):
+def read_snapshot(source, roots=None, roles=ROLES):
     """Verify every file; optionally restore into three EMPTY directories."""
     if roots is not None:
-        for role in ROLES:
+        for role in roles:
             root = Path(roots[role])
             if root.is_symlink() or not root.is_dir() or any(root.iterdir()):
                 raise ValueError('Restore requires three empty destination directories')
@@ -76,7 +76,7 @@ def read_snapshot(source, roots=None):
                     raise ValueError('Invalid snapshot manifest')
                 manifest = json.loads(archive.extractfile(entry).read())
                 continue
-            if parts[0] not in ROLES or name == 'data/.writer.lock':
+            if parts[0] not in roles or name == 'data/.writer.lock':
                 raise ValueError('Unexpected snapshot root')
             destination = None
             if roots is not None:
@@ -113,7 +113,7 @@ def read_snapshot(source, roots=None):
                 destination.chmod(entry.mode & 0o777)
     if not manifest or manifest.get('format') != 2 or manifest.get('files') != files:
         raise ValueError('Snapshot checksum/manifest mismatch')
-    if not all(role in seen for role in ROLES):
+    if not all(role in seen for role in roles):
         raise ValueError('Snapshot must include all three roots')
     if not all(IMAGE_ID.fullmatch(image) for image in manifest.get('artifact_images', [])):
         raise ValueError('Invalid artifact image inventory')

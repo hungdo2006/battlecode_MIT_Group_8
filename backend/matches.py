@@ -44,6 +44,8 @@ class MatchManager:
                     tournament_id: str | None = None,
                     tournament_match_id: str | None = None,
                     official: dict | None = None, scrimmage: dict | None = None) -> dict:
+        if getattr(self, "runner_control", None):
+            self.runner_control.require_open()
         if len(self.live) >= 2:
             raise ValueError("Tối đa 2 trận cùng lúc. Hãy đợi trận hiện tại kết thúc.")
         # Only the trusted server-side Official dispatcher can supply this

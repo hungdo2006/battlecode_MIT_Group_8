@@ -96,12 +96,13 @@ else:
         }, expected=201)["bot"]
     if operation == "setup":
         alice, bob = player("qa.alice"), player("qa.bob")
-        teams = []
-        for client, slug in ((alice, "qa-real-alpha"), (bob, "qa-real-beta")):
-            team = client.call("POST", "/api/player/teams", {
-                "slug": slug, "display_name": slug}, expected=201)["team"]
-            client.call("POST", "/api/player/teams/%s/activate" % team["id"], {})
-            teams.append(team["id"])
+        teams = config.get("teams", [])
+        if not teams:
+            for client, slug in ((alice, "qa-real-alpha"), (bob, "qa-real-beta")):
+                team = client.call("POST", "/api/player/teams", {
+                    "slug": slug, "display_name": slug}, expected=201)["team"]
+                client.call("POST", "/api/player/teams/%s/activate" % team["id"], {})
+                teams.append(team["id"])
         wait = 'import json,sys\nfor line in sys.stdin: print(json.dumps({"type":"wait"}),flush=True)\n'
         slow_wait = wait.replace('import json,sys', 'import json,sys,time').replace(
             'for line in sys.stdin:', 'for line in sys.stdin: time.sleep(0.45);')
@@ -178,10 +179,11 @@ else:
             queued_at_capacity |= count == 2 and any(r["status"] == "LOCKED" for r in rows)
             if operation == "running":
                 live = [r for r in rows if r["status"] == "RUNNING"]
-                if len(live) == len(rows):
-                    replays = [admin.call("GET", "/api/admin/official-matches/" + r["id"] + "/replay") for r in rows]
+                if len(live) >= config.get("min_running", len(rows)):
+                    replays = [admin.call("GET", "/api/admin/official-matches/" + r["id"] + "/replay") for r in live]
                     if all(len(r["frames"]) >= 2 for r in replays):
-                        output({"running": len(rows), "max_active": max_active})
+                        output({"running": len(live), "max_active": max_active,
+                                "queued_at_capacity": queued_at_capacity})
                         break
             elif all(r["status"] == ("COMPLETED" if operation == "complete" else "INTERRUPTED") for r in rows):
                 summaries = []

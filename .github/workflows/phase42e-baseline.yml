@@ -14,6 +14,20 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  b13-compose-config:
+    name: B1.3 resolved Compose safety (no containers)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Validate actual Compose order with synthetic private override
+        run: python scripts/check_b13_compose_config.py
+
   regression:
     name: Python 3.13 and Node 24 (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

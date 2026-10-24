@@ -48,6 +48,33 @@
   replacing the PC/controller image can make historic artifacts incompatible,
   requiring players to reupload/recompile sources before a new match.
 
+## One-laptop PC worker Docker smoke (before cloud staging)
+
+The Windows/Linux unit tests exercise the RPC queue and machine authentication,
+but do not prove that the **PC Docker stack** launches or executes uploaded
+Python code. As a separate, safe prerequisite to full cloud HTTPS E2E, run on
+Docker Desktop with **Linux containers**:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/check_remote_worker_docker.py --build
+```
+
+This creates a fresh `neon-b1-worker-qa-<random>` Compose project, builds
+only **QA-tagged** images, verifies the Controller's private network and
+Docker socket separation, and calls the Controller through the **real PC agent**
+to compile a Python bot in Docker, start it and obtain a `wait` action.
+
+The environment has a **deliberately disconnected example HTTPS origin**
+(`https://qa-disconnected.invalid`). The agent background service will not
+connect to any cloud or AWS instance during this smoke. A successful run ends
+with `"b1_worker_smoke": "PASS"`, then stops the QA project and deletes only
+volumes whose owner labels and project prefixes match.
+
+**What PASS does not prove:** cloud machine-auth HTTP endpoints, agent long
+polling over real TLS, remote result/replay delivery, Official Match recovery
+or PC-to-cloud network loss. These require the subsequent separate cloud + PC
+HTTPS staging exercise; do not merge/deploy B1 based only on this smoke.
+
 ## Cloud staging — fresh isolated VM and domain required
 
 1. Prepare **a different staging VM / DNS name** with ports 80 and 443 available,

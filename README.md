@@ -62,7 +62,7 @@ Trước khi ngắt Internet, thử trên **máy thí sinh thật**: đăng nh�
 
 Trong ngày thi, Admin tạo giải và luật, chốt các đội, đặt giờ khóa bot và giờ thi đấu. Người chơi nộp bot và chọn bot đại diện trước hạn. Hệ thống sẽ chạy các trận Official theo lịch và lưu kết quả, replay. Khi kết thúc, kiểm tra bảng điểm rồi sao lưu dữ liệu ra thiết bị khác.
 
-Nếu muốn công bố **kết quả** giải Offline lên website Online, xem [Hướng dẫn chuyển kết quả](docs/OFFLINE_RESULTS_TRANSFER.md). Việc này cần cấu hình/kiểm thử riêng và **chưa chuyển replay**.
+Nếu muốn công bố **kết quả** giải Offline lên website Online, xem [Hướng dẫn chuyển kết quả](docs/OFFLINE_RESULTS_TRANSFER.md).
 
 ## 2. Tổ chức giải Online
 

@@ -39,17 +39,27 @@ docker compose -f compose.yaml -f compose.exam.yaml up -d --no-build --wait
 
 Terminal sẽ hỏi **mật khẩu Admin**. Người chơi có thể tự đăng ký bằng username/password trong LAN; khi cần đóng đăng ký, ban tổ chức đặt `ARENA_EXAM_SELF_REGISTRATION=0` trong `.env` và triển khai lại Arena ngoài giờ thi.
 
-**Một bước bắt buộc trước khi máy khác truy cập:** website LAN dùng HTTPS với chứng chỉ do Caddy của trường cấp. Xuất chứng chỉ CA công khai:
+### Thiết lập mạng LAN và HTTPS lần đầu
+
+Đây là bước **đội kỹ thuật chỉ cần làm khi thiết lập phòng máy lần đầu**, hoặc làm lại nếu thay máy chủ/chứng chỉ. Các máy thi phải kết nối được đến IP máy chủ qua **dây mạng LAN hoặc Wi-Fi nội bộ**; **không cần Internet** trong giờ thi.
+
+NEON ARENA dùng HTTPS để bảo vệ việc đăng nhập. Vì máy chủ ở mạng nội bộ nên Caddy tự cấp chứng chỉ; các máy thí sinh cần biết và tin cậy chứng chỉ đó. Trên **máy chủ**, chạy lệnh sau để lấy **chứng chỉ CA công khai**:
 
 ~~~bash
-docker compose -f compose.yaml -f compose.exam.yaml cp gateway:/data/caddy/pki/authorities/local/root.crt ./arena-exam-root.crt
+docker compose -f compose.yaml -f compose.exam.yaml cp \
+  gateway:/data/caddy/pki/authorities/local/root.crt \
+  ./arena-exam-root.crt
 ~~~
 
-Cài `arena-exam-root.crt` vào **kho chứng chỉ tin cậy** trên các máy thi do trường quản lý. Sau đó mở `https://192.168.1.20` (thay bằng IP thật). Không cần tên miền hay Internet; không bỏ qua cảnh báo chứng chỉ. Xem [hướng dẫn HTTPS LAN](docs/EXAM_MODE.md) nếu cần.
+Ban tổ chức chép file `arena-exam-root.crt` sang **các máy thi do trường quản lý** và cài vào kho chứng chỉ gốc tin cậy của hệ điều hành/trình duyệt. Sau đó, trên từng máy thi, mở `https://192.168.1.20` (**thay bằng IP LAN thật**) và kiểm tra đăng nhập **không có cảnh báo chứng chỉ**.
 
-### Khi tổ chức giải
+Việc cài chứng chỉ thường chỉ làm **một lần cho mỗi máy thi**; cần cập nhật nếu Caddy tạo CA mới hoặc thay máy. **Chỉ chia sẻ file `.crt` công khai, không chia sẻ khóa riêng**. Không bỏ qua cảnh báo HTTPS. Xem [hướng dẫn HTTPS LAN](docs/EXAM_MODE.md) để biết các bước kỹ thuật chi tiết.
 
-1. **Trước giờ thi:** thử đăng nhập, đăng ký, nộp bot, chạy một trận luyện và xem replay. Đội kỹ thuật tách Internet khỏi mạng phòng thi nhưng vẫn giữ LAN; Docker không tự chặn Internet.
+### Mỗi lần tổ chức giải
+
+Nếu đã cài đặt xong từ trước, ban tổ chức **không cần clone repo, tạo lại Admin hoặc cài lại chứng chỉ mỗi lần**. Chỉ cần bật máy chủ, bảo đảm Docker và website hoạt động, rồi kiểm tra các máy thi truy cập được.
+
+1. **Trước giờ thi:** thử đăng nhập, đăng ký, nộp bot, chạy một trận luyện và xem replay. Nếu muốn thi không Internet, đội kỹ thuật ngắt đường Internet của phòng máy nhưng **giữ mạng LAN**; Docker không tự chặn Internet.
 2. **Trong giờ thi:** Admin tạo giải và luật, nhận/chốt các đội, đặt giờ khóa bot và lịch đấu. Người chơi nộp bot; hệ thống xử lý các trận Official và lưu kết quả.
 3. **Kết thúc:** Admin kiểm tra bảng điểm, replay và sao lưu dữ liệu ra thiết bị khác.
 

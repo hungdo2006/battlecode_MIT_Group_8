@@ -803,6 +803,8 @@ function applyPermissions() {
   $('.nav-item[data-view="scrimmage"]').classList.toggle("hidden", !app.accountOnly);
   $('.nav-item[data-view="profile"]').classList.toggle("hidden", !app.accountOnly);
   $('.nav-item[data-view="seasons"]').classList.toggle("hidden", !app.accountOnly);
+  // The default-game editor belongs to legacy free-match mode, not Team tournaments.
+  $('.nav-item[data-view="rules"]').classList.toggle("hidden", app.accountOnly);
   $("#season-admin-panel").classList.toggle("hidden", !app.accountOnly || app.accountAudience!=="admin");
   $$('.nav-item[data-view="administration"], .nav-item[data-view="system"]').forEach(node=>node.classList.toggle("hidden", !app.accountOnly || app.accountAudience!=="admin"));
   $("#scrimmage-create-panel").classList.toggle("hidden", !accountPlayer);
@@ -854,7 +856,7 @@ function applyPermissions() {
     : "Trận sẽ bắt đầu khi hai Player chấp nhận lời mời.");
   $('.nav-item[data-view="watch"]').classList.remove("hidden");
   $(".docs-link").classList.toggle("hidden", app.accountOnly);
-  setText(".workspace-context .context-label", app.accountOnly ? "Game mặc định" : "Game hiện tại");
+  setText(".workspace-context .context-label", app.accountOnly ? "Trò chơi" : "Game hiện tại");
   $$("#rules-form [type=submit], #default-rules").forEach(node => node.classList.toggle("hidden", !organizer));
   if (organizer && location.hash === "#upload") location.hash = "create";
   $$("#quick-match [type=submit], #create-match [type=submit]").forEach(node => {
@@ -945,7 +947,7 @@ function renderAdminTournamentJourney() {
     ? "Cần ít nhất hai đội sẵn sàng để tạo giải chính thức."
     : active ? `Có ${active} giải đang diễn ra. Mở giải để công bố luật theo vòng và xếp lịch.`
     : count ? "Bạn có thể mở giải đã có hoặc tạo giải mới. Mỗi giải chọn game riêng."
-    : "Chọn trò chơi, thể thức và các đội. Không cần mở khóa game mặc định.");
+    : "Chọn trò chơi, thể thức và các đội. Luật thi đấu được quản lý theo từng vòng trong Giải đấu.");
   const button = $("#admin-journey-action");
   button.textContent = readyTeams < 2 ? "Quản lý đội →" : "Tạo giải mới →";
   button.onclick = () => {
@@ -1674,7 +1676,7 @@ function navigate(event) {
   if (!labels[view] || (["official", "scrimmage"].includes(view) && !app.accountOnly)) view = "home";
   if (["profile","administration","system","seasons"].includes(view) && !app.accountOnly) view="home";
   if (["administration","system"].includes(view) && app.accountAudience!=="admin") view="home";
-  if (app.accountOnly && (view === "create" || (view === "upload" && app.accountAudience !== "player"))) view = "home";
+  if (app.accountOnly && (view === "rules" || view === "create" || (view === "upload" && app.accountAudience !== "player"))) view = "home";
   if (view !== "replay") {
     if (app.match || app.replayLoadingKey) resetReplay();
     if (route) {
@@ -1691,7 +1693,7 @@ function navigate(event) {
   $$(".view").forEach(node => node.classList.toggle("active", node.id === `view-${view}`));
   $$(".nav-item").forEach(node => node.classList.toggle("active", node.dataset.view === view));
   $("#page-label").textContent = app.accountOnly
-    ? ({upload:"Đội & bot của tôi",official:"Trận chính thức",rules:"Cấu hình game mặc định",
+    ? ({upload:"Đội & bot của tôi",official:"Trận chính thức",
         administration:"Quản lý đội",seasons:"Đợt đăng ký",standings:"Kết quả & bảng điểm",
         watch:"Xem lại trận đấu"}[view] || labels[view])
     : labels[view];
@@ -1821,8 +1823,9 @@ function renderWorkspaceOverview() {
   ] : team ? [
     ["upload", "Đội & bot", "Chuẩn bị bot đại diện và quản lý thành viên."],
     ["tournaments", "Giải đấu", "Xem lịch và các vòng thi."],
-    ["rules", "Luật chơi", "Xem cách chơi và quy tắc từng game."]
-  ] : [["rules", "Tìm hiểu luật thi đấu", "Đọc cách chơi và cấu hình game hiện tại."]]).filter(([view]) => view !== primaryView).slice(0, 2);
+    ["scrimmage", "Đấu luyện", "Thử bot của đội trong lúc chờ giải chính thức."]
+  ] : [["upload", "Bắt đầu với đội của bạn", "Tạo hoặc tham gia đội để chuẩn bị bot."],
+       ["tournaments", "Xem giải đấu", "Tìm hiểu giải đấu và luật từng vòng."]]).filter(([view]) => view !== primaryView).slice(0, 2);
   // Keep links stable during background refresh so keyboard focus is retained.
   const target = $("#overview-steps");
   while (target.childElementCount > steps.length) target.lastChild.remove();

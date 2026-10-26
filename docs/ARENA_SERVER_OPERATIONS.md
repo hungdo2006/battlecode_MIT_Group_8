@@ -70,7 +70,7 @@ Controller, không public port 9000. Sau khi thành công, có thể dừng riê
 agent PC (giữ volume/artifacts) trong checkout Worker Windows:
 
 ```powershell
-docker compose --env-file .b1-pilot/worker.env -p neon-b1-worker -f compose.remote-worker.yaml stop agent
+python scripts/arena_worker.py stop-agent
 ```
 
 ## 4. Chuyển bot về Windows Worker
@@ -79,7 +79,7 @@ Bật lại agent trên Windows trước khi chạy switch; nó sẽ thử kết
 lúc Cloud đang ở local và tự đăng ký sau khi mode remote khởi động:
 
 ```powershell
-docker compose --env-file .b1-pilot/worker.env -p neon-b1-worker -f compose.remote-worker.yaml start agent
+python scripts/arena_worker.py start-agent
 ```
 
 Trên EC2:

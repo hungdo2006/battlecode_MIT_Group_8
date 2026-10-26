@@ -82,7 +82,7 @@ Các lệnh này chỉ dành cho **Arena Server đang vận hành trên AWS**, k
 
 ### Thiết lập PC lần đầu
 
-Trên PC (cài Git, Python 3, Docker Desktop Linux Containers hoặc Docker Engine trên Ubuntu), clone repo rồi chạy trình tạo cấu hình:
+Trên PC (cài Git, Python 3, Docker Desktop Linux Containers hoặc Docker Engine trên Ubuntu), clone repo rồi chạy trình tạo cấu hình. Dùng **Arena Worker** để khởi động và kiểm tra bot:
 
 ~~~bash
 git clone https://github.com/hungdo2006/battlecode_MIT_Group_8.git neon-arena-worker
@@ -97,7 +97,8 @@ Script sẽ hỏi **một khóa kết nối có sẵn trên AWS** (nhập ẩn).
 Bật Docker rồi chạy (PowerShell Windows, dùng một dòng nên Ubuntu cũng dùng được):
 
 ~~~bash
-docker compose --env-file .b1-pilot/worker.env -p neon-b1-worker -f compose.remote-worker.yaml up -d --build --wait
+python scripts/arena_worker.py start
+python scripts/arena_worker.py status
 ~~~
 
 PC chỉ kết nối **ra ngoài qua HTTPS**, không cần mở cổng cho người ngoài truy cập PC.

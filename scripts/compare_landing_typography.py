@@ -430,6 +430,8 @@ def main():
     if args.prepare_fonts:
         prepare_fonts()
     if args.capture or args.serve:
+        if 'font-family: "VT323";' not in (ROOT / "frontend/landing.css").read_text(encoding="utf-8"):
+            parser.error("Historical A/B/C comparison targets frontend at 2c2cc75. Use an isolated checkout of that revision to reproduce it; review the adopted typography with scripts/check_retro_landing_ui.py instead.")
         if not (EVIDENCE / "font-coverage.json").exists():
             parser.error("Run --prepare-fonts first")
         write_styles()

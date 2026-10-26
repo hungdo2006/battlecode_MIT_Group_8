@@ -64,6 +64,7 @@ def test_retro_font_artwork_and_stylesheet_have_content_versions(tmp_path, monke
         "landing.css": b"body { color: green; }\r\n",
         "art/arena-workstation.svg": b"<svg/>\r\n",
         "fonts/VT323-Regular.woff2": b"wOF2\x00\xff\r\n",
+        "fonts/Handjet.woff2": b"wOF2\x01\xff\r\n",
     }
     for name, data in assets.items():
         target = tmp_path / name

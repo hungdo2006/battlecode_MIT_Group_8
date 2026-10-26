@@ -68,7 +68,7 @@ def test_image_probe_hashes_nested_landing_assets_without_docker(monkeypatch, tm
     release.verify_image(image("a", ["base"]), image("b", ["base", "copy"]))
 
 
-@pytest.mark.parametrize("missing", ["landing.css", "art/arena-workstation.svg", "fonts/VT323-Regular.woff2"])
+@pytest.mark.parametrize("missing", ["landing.css", "art/arena-workstation.svg", "fonts/Handjet.woff2", "fonts/Handjet-OFL.txt"])
 def test_matching_html_cannot_hide_missing_landing_asset(monkeypatch, tmp_path, missing):
     frontend = tmp_path / "frontend"
     wanted = {}

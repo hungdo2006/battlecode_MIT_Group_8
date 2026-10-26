@@ -1,12 +1,15 @@
 # NEON ARENA — Typography review A / B / C
 
-Status: comparison only; **no variant is adopted**. The approved landing at
-`2d7173f` remains unchanged. Work stays on `feature/retro-pixel-ui-redesign`.
+Status: historical comparison at `2c2cc75`. **Variant A was subsequently selected
+and integrated** on `feature/retro-pixel-ui-redesign`; see
+[the final implementation and verification](TYPOGRAPHY_A_FINAL.md).
+The screenshots below preserve the original comparison against `2d7173f`.
 
 ## View the comparisons
 
 Generated local artifacts are in `D:/LTM/.qa-evidence/typography-refinement/`.
-Open `index.html` for the side-by-side board, or run the disposable preview:
+Open `index.html` for the original side-by-side board. To reproduce these historical
+previews, use an isolated checkout at `2c2cc75` and run:
 
 ```powershell
 .venv\Scripts\python.exe scripts/compare_landing_typography.py --serve --port 8877
@@ -14,13 +17,15 @@ Open `index.html` for the side-by-side board, or run the disposable preview:
 
 Then visit `http://127.0.0.1:8877/__typography/`. The three interactive previews
 are `/?typography=a`, `/?typography=b`, `/?typography=c`. The plain `/` route still
-shows the original VT323 landing. This is development tooling using temporary
+shows the original VT323 landing in that historical checkout. The tool refuses
+to regenerate comparison evidence against the subsequently adopted frontend.
+This is development tooling using temporary
 data and localhost; no query-driven font switcher is added to the real app.
 
 | Direction | Main type | Retro accents | Assessment |
 | --- | --- | --- | --- |
-| A — Refined Pixel | Handjet 550 for large headings; Inter for card titles/body/UI | Handjet labels; existing VT323 English brand and step numbers | Most visibly pixel-inspired. Slimmer and less dense than VT323, but still visibly stepped around Vietnamese marks. |
-| B — Modern Retro Hybrid | Space Grotesk 600 for large headings; Inter for card titles/body/UI | Handjet 550 on “Đấu trí.” and selected decorative labels; existing brand/step numbers | Recommended. Clear Vietnamese letterforms and a modern editorial hierarchy, with an intentional pixel accent. |
+| A — Refined Pixel (selected) | Handjet 550 for large headings; Inter for card titles/body/UI | Handjet labels; existing VT323 English brand and step numbers | Most visibly pixel-inspired. Slimmer and less dense than VT323, but still visibly stepped around Vietnamese marks. |
+| B — Modern Retro Hybrid | Space Grotesk 600 for large headings; Inter for card titles/body/UI | Handjet 550 on “Đấu trí.” and selected decorative labels; existing brand/step numbers | Clear Vietnamese letterforms and a modern editorial hierarchy, with an intentional pixel accent. |
 | C — Retro Monospace | IBM Plex Mono Medium 500 for large headings; Inter for card titles/body/UI | Existing VT323 English brand/step numbers only | Calm vintage-computer character and clear marks. Monospace takes more width and feels more technical than B. |
 
 The 20–30% retro influence is a visual target rather than a measured font-usage

@@ -1,5 +1,9 @@
 # Retro Pixel landing — Milestones 1–3
 
+Historical report for the first landing implementation at `2d7173f`.
+The VT323 typography described below was subsequently replaced by the approved
+Handjet Variant A. See [the current typography and verification](TYPOGRAPHY_A_FINAL.md).
+
 Branch: `feature/retro-pixel-ui-redesign`. Baseline: `11a0711` (26/10/2026).
 Scope: public landing and its account-entry dialog; stop here for visual review.
 

@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SITE_DIR = ROOT / ".runner-switch/b15-pilot/site"
 IMAGE_SHA = re.compile(r"sha256:[a-f0-9]{64}\Z")
 FILES = ("app.js", "index.html", "styles.css", "ui.js", "landing.css",
-         "art/arena-workstation.svg", "fonts/VT323-Regular.woff2", "fonts/VT323-OFL.txt")
+         "art/arena-workstation.svg", "fonts/Handjet.woff2", "fonts/Handjet-OFL.txt")
 CONFIG_FIELDS = ("Env", "Cmd", "Entrypoint", "User", "WorkingDir",
                  "ExposedPorts", "Volumes", "Healthcheck", "StopSignal", "Labels")
 

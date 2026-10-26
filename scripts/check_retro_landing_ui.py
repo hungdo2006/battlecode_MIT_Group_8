@@ -1,9 +1,11 @@
 """Real-browser landing review on temporary localhost data; never runs Docker/AWS.
 
 python scripts/check_retro_landing_ui.py
+python scripts/check_retro_landing_ui.py --output-dir .qa-evidence/typography-a-final
 python scripts/check_retro_landing_ui.py --serve --port 8876
 
-Screenshots and JSON evidence go to ignored .qa-evidence/retro-pixel/.
+Checks the adopted Handjet typography; screenshots and JSON evidence default to
+ignored .qa-evidence/retro-pixel/ (or the requested --output-dir).
 The existing check_account_ui.py exercises full auth and workspace journeys.
 """
 import argparse
@@ -88,18 +90,34 @@ AUDIT = """() => {
       return r.width > 0 && (r.left < -1 || r.right > width + 1);
     }).map(n => n.id || n.className.baseVal || n.className).slice(0, 12),
     duplicateIds: ids.filter((id, i) => ids.indexOf(id) !== i),
-    fontLoaded: [...document.fonts].some(f => f.family.includes('VT323') && f.status === 'loaded'),
+    fontLoaded: [...document.fonts].some(f => f.family.includes('Handjet') && f.status === 'loaded'),
     headingFont: getComputedStyle(document.getElementById('landing-title')).fontFamily,
     mainLandmarks: [...document.querySelectorAll('main')].filter(n => n.getClientRects().length).length,
     artwork: root.querySelector('.landing-art img').naturalWidth,
-    runningAnimations: root.getAnimations({subtree:true}).filter(a => a.playState === 'running').length
+    runningAnimations: root.getAnimations({subtree:true}).filter(a => a.playState === 'running').length,
+    functionalType: Object.fromEntries(['.landing-lead','.landing-feature p','.landing-action','.landing-status'].map(s=>[s,getComputedStyle(root.querySelector(s)).fontSize])),
+    colors: ['--retro-bg','--retro-accent','--retro-cream','--retro-muted'].map(k=>[k,getComputedStyle(root).getPropertyValue(k).trim()]),
+    motionTokens: ['--retro-motion-feedback','--retro-motion-hover','--retro-motion-panel','--retro-motion-reveal','--retro-motion-hero'].map(k=>[k,getComputedStyle(root).getPropertyValue(k).trim()]),
+    featureCardHeights: [...root.querySelectorAll('.landing-feature')].map(n=>Math.round(n.getBoundingClientRect().height))
   };
 }"""
 
 
-def check():
-    EVIDENCE.mkdir(parents=True, exist_ok=True)
-    errors, report = [], {"viewports": [], "checks": []}
+def actual_fonts(page, selector):
+    client = page.context.new_cdp_session(page)
+    try:
+        client.send("DOM.enable")
+        client.send("CSS.enable")
+        root = client.send("DOM.getDocument")["root"]["nodeId"]
+        node = client.send("DOM.querySelector", {"nodeId": root, "selector": selector})["nodeId"]
+        return client.send("CSS.getPlatformFontsForNode", {"nodeId": node})["fonts"]
+    finally:
+        client.detach()
+
+
+def check(evidence=EVIDENCE):
+    evidence.mkdir(parents=True, exist_ok=True)
+    errors, report = [], {"viewports": [], "checks": [], "assetFailures": []}
     with running_server() as origin, sync_playwright() as playwright:
         browser = playwright.chromium.launch(channel="chrome", headless=True)
         try:
@@ -109,18 +127,42 @@ def check():
                 context = browser.new_context(viewport={"width": width, "height": height})
                 page = context.new_page()
                 page.on("pageerror", lambda error: errors.append(str(error)))
+                page.on("response", lambda response: report["assetFailures"].append({"url":response.url,"status":response.status})
+                        if "/static/" in response.url and response.status >= 400 else None)
                 ready(page, origin)
                 audit = page.evaluate(AUDIT)
                 assert audit["scrollWidth"] <= audit["width"], audit
                 assert not audit["overflow"] and not audit["duplicateIds"], audit
                 assert audit["fontLoaded"] and audit["artwork"] > 0, audit
                 assert audit["mainLandmarks"] == 1 and audit["runningAnimations"] == 0, audit
+                display_fonts = {}
+                for selector in ("#landing-title", "#landing-title > span", "#landing-features-title", "#landing-workflow-title", "#landing-closing-title"):
+                    fonts = actual_fonts(page, selector)
+                    assert fonts and all(f["isCustomFont"] and f["postScriptName"].startswith("Handjet") for f in fonts), (selector, fonts)
+                    display_fonts[selector] = fonts
+                audit["displayFonts"] = display_fonts
+                audit["featureTitleFonts"] = actual_fonts(page, ".landing-feature h3")
+                assert all(f["isCustomFont"] and f["postScriptName"].startswith("Inter") for f in audit["featureTitleFonts"]), audit
+                clipped_text = page.evaluate("""() => {
+                    const root=document.querySelector('#account-landing'), w=document.documentElement.clientWidth, result=[];
+                    const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);
+                    while(walker.nextNode()) {
+                        const n=walker.currentNode, p=n.parentElement;
+                        if(!n.textContent.trim() || !p.getClientRects().length || p.closest('.landing-skip, svg')) continue;
+                        const range=document.createRange(); range.selectNodeContents(n);
+                        if([...range.getClientRects()].some(r=>r.left < -1 || r.right > w+1)) result.push(n.textContent.trim());
+                    }
+                    return result;
+                }""")
+                assert not clipped_text, clipped_text
+                audit["clippedText"] = clipped_text
                 # Finish one-time section reveals before exporting full-page evidence.
                 for section in page.locator("[data-reveal]").all():
                     section.scroll_into_view_if_needed()
                     page.wait_for_timeout(560)
                 page.evaluate("window.scrollTo({top:0, behavior:'instant'})")
-                page.screenshot(path=str(EVIDENCE / f"{label}.png"), full_page=True)
+                page.screenshot(path=str(evidence / f"{label}.png"), full_page=True)
+                page.locator(".landing-main").screenshot(path=str(evidence / f"{label}-hero.png"))
                 report["viewports"].append({"viewport": [width, height], **audit})
                 if width == 390:
                     toggle = page.locator("#landing-menu-toggle")
@@ -142,7 +184,7 @@ def check():
                     page.locator('.landing-nav-auth [data-landing-auth="register"]').click()
                     assert page.locator("#account-register-form").is_visible()
                     page.wait_for_function("document.querySelector('#account-dialog').getAnimations().every(a => a.playState !== 'running')")
-                    page.screenshot(path=str(EVIDENCE / "mobile-registration.png"))
+                    page.screenshot(path=str(evidence / "mobile-registration.png"))
                     page.click("#account-close")
                     page.locator('.landing-closing [data-landing-auth="login"]').click()
                     assert page.locator("#account-login-form").is_visible()
@@ -191,23 +233,24 @@ def check():
                 assert "chưa mở" in page.locator("#landing-register-note").inner_text()
                 report["checks"].append("real server with registration closed: both registration entries disabled")
                 context.close()
-            assert not errors, errors
+            assert not errors and not report["assetFailures"], {"errors":errors,"assets":report["assetFailures"]}
             report["pageErrors"] = errors
         finally:
             browser.close()
-    (EVIDENCE / "browser-report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    (evidence / "browser-report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     print("PASS retro landing: 5 viewport layouts, pixel font, original SVG, keyboard/mobile navigation, auth proxies, reduced motion, no-JS, closed registration and reconnect")
-    print(f"Screenshots and browser-report.json: {EVIDENCE}")
+    print(f"Screenshots and browser-report.json: {evidence}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--serve", action="store_true")
     parser.add_argument("--port", type=int, default=8876)
+    parser.add_argument("--output-dir", type=Path, default=EVIDENCE)
     args = parser.parse_args()
     if args.serve:
         with temporary_app(args.port) as (application, origin):
             print(f"Disposable review: {origin}", flush=True)
             uvicorn.run(application, host="127.0.0.1", port=args.port, log_level="error")
     else:
-        check()
+        check(args.output_dir)

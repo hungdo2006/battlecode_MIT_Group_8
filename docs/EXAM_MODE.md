@@ -1,47 +1,53 @@
-# NEON ARENA — Chế độ thi tại phòng máy (LAN không Internet)
+# Hướng dẫn mạng LAN cho giải Offline
 
-**Phạm vi:** bản triển khai độc lập trên máy chủ/PC của trường. Không chạy overlay này trên EC2 hiện đang phục vụ Internet. Đây là cấu hình mẫu cần kiểm thử trước sự kiện, **không phải bằng chứng phòng thi đã được cách ly**.
+Tài liệu kỹ thuật bổ sung cho [README](../README.md). Cấu hình này chạy trên **PC/server trường độc lập với AWS**, dùng **tài khoản và mật khẩu**; Admin không cần mã xác thực qua ứng dụng. Player được tự đăng ký trong LAN theo mặc định, có thể đóng sau khi đủ đội.
 
-## Mô hình
+## Mạng và HTTPS
 
-Máy thí sinh → switch/VLAN phòng thi → máy chủ NEON ARENA LAN. Không có cổng Internet trên router/VLAN thi (không default gateway ra WAN); chặn mạng di động theo nội quy; kiểm tra không có Wi-Fi phụ, VPN/proxy, hotspot hoặc phần mềm AI cục bộ mà đề thi không cho phép. Quản trị viên dùng VLAN quản trị tách biệt. Các container chấm bot có `network_mode=none` và không có Docker socket; controller riêng mới dùng socket. Mạng LAN của sinh viên **không được phép** truy cập Docker API/SSH/hệ điều hành.
+Mô hình: máy thi → mạng LAN nội bộ (switch/VLAN) → PC/server chạy NEON ARENA. Internet có thể ngắt ở router/VLAN **sau khi cài đặt và diễn tập**. Không dùng EC2 làm host Offline. Docker Compose **không tự ngắt Internet**; cần quản trị mạng ngăn đường WAN, IPv6, VPN/hotspot theo quy chế.
 
-Không có phần mềm nào có thể đảm bảo học sinh không dùng AI khi họ có thiết bị di động hoặc mô hình offline. Cần giám thị và chính sách thi.
+Trên PC chủ, cài Git/Python 3/Docker và chuẩn bị khi còn Internet:
 
-## Chuẩn bị trước ngày thi (có Internet, do kỹ thuật viên)
+~~~bash
+git clone https://github.com/hungdo2006/battlecode_MIT_Group_8.git
+cd battlecode_MIT_Group_8
+python scripts/setup_exam_lan.py --ip 192.168.1.20
+~~~
 
-1. Sử dụng một máy chủ riêng ở trường, không mount volume AWS. Cài Docker Engine + Compose hỗ trợ `!reset`; build/pull trước toàn bộ image (Arena, Controller, Sandbox, Caddy); kiểm tra nguồn điện, đồng hồ hệ thống, dung lượng và UPS.
-2. Tạo tài khoản và thiết lập MFA cho Admin trước giờ thi; không dựa vào SMTP/Google OAuth hay dịch vụ Internet. Giữ backup + ảnh image phục hồi trên thiết bị ngoại tuyến.
-3. Cấu hình tên DNS nội bộ, ví dụ `arena.exam.test`, trỏ đến IP LAN máy chủ. Đặt cấu hình bảo mật trong file `.env` **không commit**, gồm:
-   - `ARENA_PUBLIC_DOMAIN=arena.exam.test`
-   - `ARENA_LAN_BIND_IP=192.168.10.10` (đổi theo server thật, không dùng `0.0.0.0`)
-   - `ARENA_PROXY_SECRET` ngẫu nhiên ít nhất 48 ký tự
-   - `ARENA_RUNNER_TOKEN` ngẫu nhiên ít nhất 32 ký tự
-4. Caddyfile.exam dùng `tls internal` không gọi Let's Encrypt. Trước khi thi, lấy chứng chỉ CA root từ Caddy và đưa vào kho tin cậy trên **các máy thí sinh được quản lý**. Không tắt kiểm tra HTTPS và không chấp nhận cảnh báo chứng chỉ.
-5. Khai báo đồng hồ nội bộ đồng bộ cho server/clients để TLS và Admin TOTP làm việc khi offline. Làm thử một Official Match và replay end-to-end với máy thật và Docker.
+Thay IP bằng **địa chỉ IPv4 LAN của chính PC**. Script tạo/tái sử dụng file `.env` riêng tư, sinh khóa Controller, proxy và gói xuất kết quả offline; mặc định dùng **IP trực tiếp làm địa chỉ HTTPS**, không yêu cầu thiết lập DNS. Nếu đã có cấu hình host khác, script từ chối ghi đè; cần xem xét môi trường cũ trước khi sửa thủ công.
 
-## Khởi động máy chủ LAN
+Cài đặt và tạo Admin **trên database mới, không có Arena writer đang chạy**:
 
-Chỉ trên máy chủ riêng của trường, trước khi tách Internet:
-
-```bash
+~~~bash
 docker compose -f compose.yaml -f compose.exam.yaml config -q
-docker compose -f compose.yaml -f compose.exam.yaml up -d --build --wait
-```
+docker compose -f compose.yaml -f compose.exam.yaml build
+docker compose -f compose.yaml -f compose.exam.yaml run --rm --no-deps arena python -m backend.admin_cli --data-dir /app/data migrate
+docker compose -f compose.yaml -f compose.exam.yaml run --rm --no-deps arena python -m backend.admin_cli --data-dir /app/data create-admin --username organizer
+docker compose -f compose.yaml -f compose.exam.yaml up -d --no-build --wait
+~~~
 
-Sau khi **các image đã được lưu tại máy**, ngắt WAN nhưng **giữ mạng LAN**. Nếu phải restart offline: dùng `up -d --no-build --wait`, không tự pull/build từ Internet.
+**Cài chứng chỉ CA công khai** do Caddy tự tạo vào kho tin cậy trên **tất cả máy thi được trường quản lý**:
 
-## Kiểm chứng bắt buộc trước khi phát đề
+~~~bash
+docker compose -f compose.yaml -f compose.exam.yaml cp gateway:/data/caddy/pki/authorities/local/root.crt ./arena-exam-root.crt
+~~~
 
-- Máy thi truy cập `https://arena.exam.test`, đăng nhập, nộp bot, biên dịch, chạy thử, mở replay.
-- Máy thi **không** truy cập được `https://api.openai.com`, `https://generativelanguage.googleapis.com` hay Internet nói chung, bằng mọi DNS và đường đi IP; kiểm tra riêng IPv6, DNS, proxy, VPN, hotspot.
-- Bot cố truy cập HTTP/DNS từ Sandbox phải thất bại; bot bình thường vẫn chạy, Controller/Docker luôn healthy.
-- Chỉ port HTTPS của máy chủ LAN được mở cho máy thí sinh. Không mở port 22, 2375/2376, 8000, 9000 hoặc giao diện host.
-- Kiểm chứng mỗi vòng: công bố luật → 15/20 phút chỉnh code → khóa bot → Official Match → điểm/replay.
-- Diễn tập mất điện, restore, phát lại trận và phương án tổ chức thi khi máy chủ bị lỗi.
+Trên máy thi mở `https://192.168.1.20`. Phải đăng nhập thành công, không có cảnh báo chứng chỉ, nộp bot và xem replay. Chỉ phân phối **root.crt công khai**, không đưa khóa riêng CA ra khỏi server. Đồng hồ máy thi và máy chủ phải tương đối chính xác.
 
-**Không dùng lệnh Stop/Start EC2 để thử offline:** máy đặt trên AWS cần đường Internet/đường riêng để thí sinh vào. `compose.exam.yaml` không tự chặn Internet vật lý; bộ phận mạng phải thực hiện. Không kết hợp `compose.exam.yaml` và `compose.public.yaml`.
+Khi cần chặn đăng ký mới, thêm `ARENA_EXAM_SELF_REGISTRATION=0` vào file `.env` rồi tạo lại riêng container Arena trong một cửa sổ bảo trì (không có trận đang chạy), với cùng hai file Compose. Không sửa trực tiếp tài khoản trong database.
 
-## Diễn tập kết quả Offline → Online bằng laptop
+## Checklist trước giờ thi
 
-Giai đoạn thử nghiệm chưa cần server vật lý. Sau khi kiểm thử LAN tại nhà/trường, Admin có thể xuất kết quả giải đã hoàn tất thành gói JSON có chữ ký và thử nhập trên một bản **staging** online. Xem [OFFLINE_RESULTS_TRANSFER.md](OFFLINE_RESULTS_TRANSFER.md) để biết cách thiết lập khóa ký, xác minh, công bố và giới hạn (chưa chuyển replay). Không triển khai gói thử trực tiếp lên AWS production khi chưa nghiệm thu end-to-end.
+1. Mỗi máy thi phải truy cập được website qua HTTPS. Thử tạo tài khoản Player, Team, biên dịch Python/C++/Java, Official và replay.
+2. Kiểm tra thí sinh không đi Internet bằng cả IPv4/IPv6/DNS khác, VPN, proxy, Wi-Fi phụ, hotspot; giám thị kiểm soát thiết bị theo quy chế. Không có phần mềm nào tự bảo đảm thí sinh không dùng AI offline.
+3. Không mở Docker API, Controller port 9000, SSH hoặc port 8000 cho máy thí sinh. Chỉ HTTPS LAN là cổng được truy cập.
+4. Theo dõi CPU/RAM/dung lượng, lưu backup ngoài máy chủ, chuẩn bị UPS và thử phục hồi. Bot trong Docker sandbox không có Internet hoặc Docker socket.
+5. Sau khi ảnh image đã được tải đủ, có thể ngắt WAN mà vẫn giữ LAN. Nếu restart trong giờ thi, dùng `docker compose -f compose.yaml -f compose.exam.yaml up -d --no-build --wait`, không tự kéo image.
+
+## Xuất kết quả Offline
+
+Khi **tất cả trận Official đã hoàn tất**, Admin mở **Giải đấu → Xuất kết quả offline**. Script thiết lập LAN đã đặt khóa ký và mã nhận diện điểm thi trong `.env`; trình duyệt tải gói JSON có chữ ký.
+
+Việc **nhập lên AWS B1.5 không tự kích hoạt**: đội vận hành cần bảo vệ và cài đặt khóa ký chung vào phía Online theo một thay đổi cấu hình được backup/kiểm thử riêng (không tự sửa model B1.5 đang pin). Xem [Offline Results Transfer](OFFLINE_RESULTS_TRANSFER.md) để biết cách xem trước, xuất bản, các giới hạn và thử trên staging. Chưa hỗ trợ chuyển replay.
+
+**Không** kết hợp `compose.exam.yaml` với `compose.public.yaml` hoặc chạy overlay thi Offline vào project EC2 đang phục vụ Internet.

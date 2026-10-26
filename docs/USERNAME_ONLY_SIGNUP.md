@@ -20,7 +20,7 @@ Admin có thể quản lý trạng thái Player và xem vận hành. Đội khá
 | Public có email | `ARENA_EMAIL_VERIFICATION=1` và SMTP STARTTLS hợp lệ; đăng ký chờ xác minh |
 | Public pilot không email | `ARENA_PUBLIC_USERNAME_SIGNUP=1`, `ARENA_EMAIL_VERIFICATION=0`; cần HTTPS Account-Only gateway và self-registration |
 
-Không cần bật `ARENA_PUBLIC_USERNAME_SIGNUP` cho local. Đóng nhận mới bằng `ARENA_SELF_REGISTRATION=0`; giữ sender/email verification nếu còn tài khoản chờ xác minh hoặc cần email recovery. Không có email thì hệ thống không chứng minh được danh tính qua email.
+Exam LAN qua HTTPS Gateway bật `ARENA_PUBLIC_USERNAME_SIGNUP=1` mặc định để học viên tự đăng ký; tắt bằng `ARENA_EXAM_SELF_REGISTRATION=0` ở `.env` rồi tạo lại Arena ngoài giờ thi. Không cần bật `ARENA_PUBLIC_USERNAME_SIGNUP` cho local HTTP demo. Đóng nhận mới bằng `ARENA_SELF_REGISTRATION=0`; giữ sender/email verification nếu còn tài khoản chờ xác minh hoặc cần email recovery. Không có email thì hệ thống không chứng minh được danh tính qua email.
 
 Giới hạn đăng ký hiện tại là 5 lần thử/60 giây theo địa chỉ nguồn tin cậy, trong bộ nhớ một backend; không thay thế kiểm soát tuyển sinh hoặc chống lạm dụng ở gateway.
 

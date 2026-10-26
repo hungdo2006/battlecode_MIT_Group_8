@@ -47,7 +47,7 @@ ngoài EC2 ngay sau đó):
 
 ```bash
 sudo python3 -m scripts.arena_operator backup \
-  --backup-directory .runner-switch/b15-backup-001 --approve-downtime
+  --backup-directory .runner-switch/arena-backup-initial --approve-downtime
 ```
 
 Lệnh drain, stop đúng các service, backup **5 volume** và image/config,
@@ -57,11 +57,35 @@ Nếu readiness/restart bị lỗi, admission tiếp tục closed cho operator x
 Bản backup chứa mật khẩu/secret, không commit/chia sẻ; giữ thêm bản sao an toàn
 ngoài EC2. Bản này không chứa compiled artifact đang nằm ở máy Windows.
 
+## Đổi tên bản sao lưu cũ
+
+`b15-backup-002` là tên thư mục của bản backup đã kiểm thử trong giai đoạn phát triển. Tên này **không bắt buộc**: công cụ kiểm tra nội dung backup và cấu hình đã pin, không phụ thuộc tên thư mục. Có thể đổi thành `arena-backup-verified` để các lệnh dễ đọc hơn.
+
+Trên **EC2 hiện tại**, khi không có thao tác backup/đổi Runner đang chạy:
+
+```bash
+cd ~/neon-arena-b1-pilot
+# Chỉ đổi nếu đường dẫn đích chưa tồn tại; không xóa/ghi đè bản backup khác.
+sudo test -d .runner-switch/b15-backup-002 && \
+sudo test ! -e .runner-switch/arena-backup-verified && \
+sudo test ! -L .runner-switch/arena-backup-verified && \
+sudo mv -T -- .runner-switch/b15-backup-002 .runner-switch/arena-backup-verified
+
+# Kiểm tra đầy đủ manifest, checksum và biên nhận phục hồi thử:
+sudo python3 -m scripts.runner_site_backup verify \
+  --directory .runner-switch/b15-pilot/site \
+  --backup-directory .runner-switch/arena-backup-verified
+```
+
+Chỉ sử dụng đường dẫn mới cho các lệnh `arena_operator switch` sau khi nhận `PASS: verify`. Nếu chưa đổi tên, **tiếp tục dùng đường dẫn cũ**. Tuyệt đối không đổi `.runner-switch/b15-pilot/` (đó là trạng thái chuyển Runner đã pin), Docker project hay tên volume.
+
+Lưu ý: đổi tên **không biến backup cũ thành backup mới**. Khi thay đổi image/cấu hình, phải tạo và xác minh một bản sao lưu mới trong thư mục chưa tồn tại.
+
 ## 3. Chuyển bot sang chạy ngay trên EC2
 
 ```bash
 sudo python3 -m scripts.arena_operator switch \
-  --target local --backup-directory .runner-switch/b15-backup-001
+  --target local --backup-directory .runner-switch/arena-backup-initial
 sudo python3 -m scripts.arena_operator status
 ```
 
@@ -86,7 +110,7 @@ Trên EC2:
 
 ```bash
 sudo python3 -m scripts.arena_operator switch \
-  --target remote --backup-directory .runner-switch/b15-backup-001
+  --target remote --backup-directory .runner-switch/arena-backup-initial
 sudo python3 -m scripts.arena_operator status
 ```
 
@@ -127,8 +151,8 @@ của socket, lưu bản `.pre-gid` riêng tư và tính lại mã kiểm tra mo
 mới ở một thư mục chưa tồn tại rồi mới chuyển, ví dụ:
 
 ```bash
-sudo python3 -m scripts.arena_operator backup --backup-directory .runner-switch/b15-backup-002 --approve-downtime
-sudo python3 -m scripts.arena_operator switch --target local --backup-directory .runner-switch/b15-backup-002
+sudo python3 -m scripts.arena_operator backup --backup-directory .runner-switch/arena-backup-verified --approve-downtime
+sudo python3 -m scripts.arena_operator switch --target local --backup-directory .runner-switch/arena-backup-verified
 ```
 
 GID có thể đổi khi Docker/socket khởi tạo lại; nếu có, cần điều tra

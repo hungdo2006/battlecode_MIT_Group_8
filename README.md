@@ -108,16 +108,16 @@ PC chỉ kết nối **ra ngoài qua HTTPS**, không cần mở cổng cho ngư�
 Trên **EC2**, tại `~/neon-arena-b1-pilot`, chỉ khi không có trận hoặc lượt biên dịch đang chạy:
 
 ~~~bash
-sudo python3 -m scripts.arena_operator switch --target remote --backup-directory .runner-switch/b15-backup-002
+sudo python3 -m scripts.arena_operator switch --target remote --backup-directory .runner-switch/arena-backup-verified
 sudo python3 -m scripts.arena_operator status
 ~~~
 
-`b15-backup-002` là **ví dụ từ hệ thống EC2 pilot hiện tại**; trên máy khác phải dùng backup đã kiểm tra và còn hợp lệ. Nếu EC2 đang dùng **Remote laptop cũ**, phải chuyển về Local và dừng agent laptop cũ trước khi bật Worker PC mới như hướng dẫn trên. **Không dùng hai Remote Worker cùng một khóa đồng thời.**
+`arena-backup-verified` là tên dễ hiểu cho một **bản backup đã kiểm thử phục hồi**. Trên EC2 được cài trước đây, bản này vẫn có thể mang tên `b15-backup-002`. Nếu chưa đổi tên thì dùng đúng đường dẫn cũ; có thể [đổi tên và xác minh](docs/ARENA_SERVER_OPERATIONS.md#đổi-tên-bản-sao-lưu-cũ) mà không tạo backup mới. Nếu EC2 đang dùng **Remote laptop cũ**, phải chuyển về Local và dừng agent laptop cũ trước khi bật Worker PC mới như hướng dẫn trên. **Không dùng hai Remote Worker cùng một khóa đồng thời.**
 
 Muốn chạy bot trở lại trên EC2, chờ hết công việc rồi chạy:
 
 ~~~bash
-sudo python3 -m scripts.arena_operator switch --target local --backup-directory .runner-switch/b15-backup-002
+sudo python3 -m scripts.arena_operator switch --target local --backup-directory .runner-switch/arena-backup-verified
 sudo python3 -m scripts.arena_operator status
 ~~~
 

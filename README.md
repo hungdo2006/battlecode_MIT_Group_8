@@ -90,6 +90,8 @@ python scripts/setup_remote_worker.py
 
 Script sẽ hỏi **một khóa kết nối có sẵn trên AWS** (nhập ẩn). Người vận hành EC2 cung cấp khóa qua kênh riêng tư. Khóa này chứng minh PC được phép nhận công việc. Script tự tạo **khóa Docker riêng cho PC**, namespace và thông số socket; không cần tự chỉnh năm dòng cấu hình như trước.
 
+**Nếu thay laptop Worker cũ:** trước tiên, khi không có trận đang chạy, chuyển AWS sang Local và dừng agent của laptop cũ theo [runbook B1.5](docs/B15_SHARED_PILOT_RUNNER_SWITCH.md). Chỉ sau đó mới khởi động Worker trên PC trường để tránh hai máy cùng dùng một khóa.
+
 Bật Docker rồi chạy (PowerShell Windows, dùng một dòng nên Ubuntu cũng dùng được):
 
 ~~~bash
@@ -107,7 +109,7 @@ sudo python3 -m scripts.b15_pilot_runner switch --target remote --backup-directo
 sudo python3 -m scripts.b15_pilot_runner status
 ~~~
 
-`b15-backup-002` là **ví dụ từ hệ thống EC2 pilot hiện tại**; trên máy khác phải dùng backup đã kiểm tra và còn hợp lệ. Nếu EC2 đang dùng **Remote laptop cũ**, cần chuyển về Local, dừng agent laptop cũ, rồi mới bật agent PC mới và chuyển lại Remote. **Không dùng hai Remote Worker cùng một khóa đồng thời.**
+`b15-backup-002` là **ví dụ từ hệ thống EC2 pilot hiện tại**; trên máy khác phải dùng backup đã kiểm tra và còn hợp lệ. Nếu EC2 đang dùng **Remote laptop cũ**, phải chuyển về Local và dừng agent laptop cũ trước khi bật Worker PC mới như hướng dẫn trên. **Không dùng hai Remote Worker cùng một khóa đồng thời.**
 
 Muốn chạy bot trở lại trên EC2, chờ hết công việc rồi chạy:
 

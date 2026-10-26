@@ -1870,9 +1870,12 @@ function renderPracticeRows(target, requests, completedOnly = false) {
   const names = {QUEUED:"Đang chờ",DISPATCHING:"Đang chuẩn bị",RUNNING:"Đang thi đấu",COMPLETED:"Hoàn tất",INTERRUPTED:"Gián đoạn",CANCELLED:"Đã hủy"};
   for (const item of visible) {
     const row = el("article", "official-match-row"), copy = el("div", "official-match-copy");
+    row.dataset.status = item.status;
+    const badge = statusBadge(item.status.toLowerCase());
+    badge.textContent = names[item.status] || item.status;
     copy.append(el("strong", "", `${item.teams.A.team_name_snapshot} vs ${item.teams.B.team_name_snapshot}`),
       el("p", "form-note", `${app.games.find(game=>game.game_id===item.game_id)?.name||item.game_id} · ${new Date(item.created_at*1000).toLocaleString("vi-VN")}`),
-      el("span", "tag", names[item.status] || item.status));
+      badge);
     if (item.result) copy.append(el("p", "form-note", `Kết quả: ${item.result.winner ? item.teams[item.result.winner].team_name_snapshot + " thắng" : "Hòa"} · ${item.result.reason}`));
     if (item.status_reason) copy.append(el("p", "form-note", `Lý do: ${item.status_reason}`));
     row.append(copy);

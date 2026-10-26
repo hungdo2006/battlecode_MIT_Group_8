@@ -7,15 +7,15 @@
   <meta name="referrer" content="no-referrer">
   <meta name="description" content="Viết code. Chọn chiến thuật. Để bot tranh tài. NEON ARENA là không gian thi đấu lập trình bot dành cho những ý tưởng của bạn.">
   <title>NEON ARENA · Tournament workspace</title>
-  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=b78a50b1c80f">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=060d21f42e8e">
   <link rel="preload" href="/static/fonts/InterVariable.woff2?v=693b77d4f32e" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/static/fonts/Handjet.woff2?v=58b1a0647480" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/static/tokens.css?v=513960b6a3bb">
-  <link rel="stylesheet" href="/static/styles.css?v=89a5e7a95d6d">
+  <link rel="stylesheet" href="/static/styles.css?v=784c4310c7ed">
   <link rel="stylesheet" href="/static/landing.css?v=a7d7b33e94c0">
-  <script src="/static/renderers.js?v=9aa93bd51455" defer></script>
+  <script src="/static/renderers.js?v=a50abc4d90b8" defer></script>
   <script src="/static/ui.js?v=d655ac518931" defer></script>
-  <script src="/static/app.js?v=84251cdf83cf" defer></script>
+  <script src="/static/app.js?v=55ade4380ef7" defer></script>
 </head>
 <body class="account-landing-active">
   <!-- Public welcome screen; workspace visibility is never an authorization boundary. -->
@@ -211,7 +211,7 @@
 
         <section class="view" id="view-standings" aria-label="Bảng xếp hạng"><div class="page-intro"><h1>Bảng xếp hạng</h1><p>Kết quả được tổng hợp từ các trận free-play đã hoàn tất.</p><a class="text-button" href="/results" target="_blank" rel="noopener">Xem bảng điểm công khai ↗</a></div><section class="panel standings-panel"><div class="panel-heading"><h2>Bảng xếp hạng</h2><label class="standings-game-filter">Game<select id="standings-game-select" aria-label="Chọn game để xem bảng xếp hạng"></select></label></div><div class="standings-table-wrap"><table class="standings-table"><thead><tr><th>Hạng</th><th>Người chơi</th><th>Đã đấu</th><th>Thắng</th><th>Hòa</th><th>Thua</th><th>Tỷ lệ thắng</th><th>Phong độ 5 trận gần nhất</th></tr></thead><tbody id="standings-body"><tr><td colspan="8" class="empty-state">Đang tải bảng xếp hạng…</td></tr></tbody></table></div></section></section>
 
-        <section class="view" id="view-tournaments" aria-label="Giải đấu"><div class="page-intro"><h1>Giải đấu</h1><p>Organizer tạo giải, chọn thể thức và theo dõi tiến trình ghép trận.</p></div><details class="panel workflow-disclosure organizer-only legacy-match-panel tournament-create-panel"><summary>T?o gi?i ??u</summary><div class="panel-heading"><h2>Tạo giải đấu</h2><span class="tag">Organizer</span></div><form id="tournament-create-form" class="padded-form"><label>Tên giải<input name="name" type="text" maxlength="64" required></label><label>Thể thức<select name="format" required><option value="single_elimination">Loại trực tiếp</option><option value="double_elimination">Double elimination</option><option value="round_robin">Vòng tròn tính điểm</option></select></label><div><span>Chọn người chơi</span><div id="tournament-player-options" class="match-list"><div class="empty-state">Đang tải danh sách người chơi…</div></div></div><p id="tournament-feedback" class="feedback"></p><button class="button primary" type="submit">Tạo giải <span>↗</span></button></form></details><section class="panel tournament-list-panel"><div class="panel-heading"><h2>Các giải đấu</h2><button class="button ghost small" id="refresh-tournaments" type="button">Làm mới</button></div><div id="tournaments-list" class="match-list"><div class="empty-state">Đang tải danh sách giải đấu…</div></div></section>
+        <section class="view" id="view-tournaments" aria-label="Giải đấu"><div class="page-intro"><h1>Giải đấu</h1><p>Organizer tạo giải, chọn thể thức và theo dõi tiến trình ghép trận.</p></div><details class="panel workflow-disclosure organizer-only legacy-match-panel tournament-create-panel"><summary>Tạo giải đấu</summary><div class="panel-heading"><h2>Tạo giải đấu</h2><span class="tag">Organizer</span></div><form id="tournament-create-form" class="padded-form"><label>Tên giải<input name="name" type="text" maxlength="64" required></label><label>Thể thức<select name="format" required><option value="single_elimination">Loại trực tiếp</option><option value="double_elimination">Double elimination</option><option value="round_robin">Vòng tròn tính điểm</option></select></label><div><span>Chọn người chơi</span><div id="tournament-player-options" class="match-list"><div class="empty-state">Đang tải danh sách người chơi…</div></div></div><p id="tournament-feedback" class="feedback"></p><button class="button primary" type="submit">Tạo giải <span>↗</span></button></form></details><section class="panel tournament-list-panel"><div class="panel-heading"><h2>Các giải đấu</h2><button class="button ghost small" id="refresh-tournaments" type="button">Làm mới</button></div><div id="tournaments-list" class="match-list"><div class="empty-state">Đang tải danh sách giải đấu…</div></div></section>
           <div id="account-team-tournaments" class="hidden">
             <div class="page-intro"><h1>Giải đấu</h1><p>Chọn trò chơi, mời đội tham gia rồi điều hành từng vòng. Bạn không cần mở khóa phần Game mặc định để tạo giải.</p></div>
             <div class="tournament-signup-shortcut hidden" id="player-tournament-signup"><div><strong>Bạn muốn tham gia một giải?</strong><p>Trưởng đội đăng ký trong đợt tuyển đội đang mở. Sau khi đăng ký, Ban tổ chức sẽ công bố lịch thi đấu.</p></div><a class="button primary" href="#seasons">Xem đợt đăng ký →</a></div>

@@ -38,7 +38,10 @@ SIL OFL 1.1 license are documented in [fonts/README](../frontend/fonts/README.md
 
 ## Implementation and release compatibility
 
-`frontend/landing.css` owns the updated display tokens and responsive type rules.
+`frontend/tokens.css` now owns the shared display tokens and licensed font faces;
+`frontend/landing.css` retains the approved responsive type rules. The subsequent
+[workspace redesign](WORKSPACE_REDESIGN.md) preserves Variant A and extends its
+foundation across the authenticated application.
 `index.html` preloads Handjet instead of VT323. `version_frontend.py` fingerprints
 Handjet in CSS and HTML using its unchanged binary bytes. The existing frontend
 release verifier requires the new font **and its license**, in addition to the

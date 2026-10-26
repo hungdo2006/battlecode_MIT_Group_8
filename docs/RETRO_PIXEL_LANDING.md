@@ -131,7 +131,10 @@ published or deployed to AWS. Browser evidence covers Chrome on Windows; Firefox
 Safari, actual phone hardware and a container/public-HTTPS acceptance run have not
 been repeated for this visual change. The illustration is static by design.
 
-After visual approval, adopt the same foundation in this order:
+This historical landing milestone has since been extended across the application;
+see [the completed workspace review](WORKSPACE_REDESIGN.md). Shared foundations
+now live in `frontend/tokens.css`; the approved landing layout remains in
+`frontend/landing.css`. The original follow-up sequence was:
 
 1. Player overview, Team/bot submission and tournament/Season discovery, retaining
    the existing task-based navigation and backend contracts.

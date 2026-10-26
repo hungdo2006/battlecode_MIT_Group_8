@@ -40,6 +40,13 @@ def check(url, code, games=('robot_battle', 'ott_v2'), output_dir=None):
             page.wait_for_function('name => app.participant.name === name', arg=['Organizer', 'Hoang', 'Minh'][index])
             page.locator('#user-menu > summary').click()
         org, a, b = pages
+
+        def navigate(page, view):
+            link = page.locator(f'.nav-item[data-view={view}]')
+            if view in ('rules', 'system', 'create') and not page.locator('#nav-advanced').evaluate('node => node.open'):
+                page.locator('#nav-advanced > summary').click()
+            link.click()
+
         org.locator('#user-menu > summary').click()
         org.locator('#organizer-toggle').click()
         org.locator('#organizer-code').fill(code)
@@ -56,7 +63,7 @@ def check(url, code, games=('robot_battle', 'ott_v2'), output_dir=None):
         baseline_count = len(org.request.get(url + '/api/matches').json())
 
         def close_competition():
-            org.locator('.nav-item[data-view=rules]').click()
+            navigate(org, 'rules')
             org.locator('#competition-close').click()
             org.locator('#confirm-dialog').wait_for(state='visible')
             org.locator('#confirm-accept').click()
@@ -65,7 +72,7 @@ def check(url, code, games=('robot_battle', 'ott_v2'), output_dir=None):
             if org.evaluate('app.competition.competition_locked'):
                 close_competition()
             org.wait_for_function('app.competition.can_edit')
-            org.locator('.nav-item[data-view=rules]').click()
+            navigate(org, 'rules')
             org.locator('#workspace-game-select').select_option(game)
             org.wait_for_function('game => app.selectedGameId === game && !app.switchingGame', arg=game)
             for page in (a, b):
@@ -129,7 +136,7 @@ def check(url, code, games=('robot_battle', 'ott_v2'), output_dir=None):
             assert len(before) == baseline_count + len(records)
             b.locator('#invitation-accept').click()
             for page in pages:
-                page.wait_for_function('app.match && location.hash === "#home"')
+                page.wait_for_function('app.match && location.hash === "#replay"')
             mid = org.evaluate('app.match.id')
             for page in pages:
                 page.wait_for_function('id => app.match?.id === id', arg=mid)
@@ -163,7 +170,7 @@ def check(url, code, games=('robot_battle', 'ott_v2'), output_dir=None):
 
         close_competition()
         org.wait_for_function('app.competition.can_edit')
-        org.locator('.nav-item[data-view=rules]').click()
+        navigate(org, 'rules')
         new_game = 'robot_battle' if records[-1]['game'] == 'ott_v2' else 'ott_v2'
         org.locator('#workspace-game-select').select_option(new_game)
         org.wait_for_function('game => app.selectedGameId === game', arg=new_game)
@@ -174,7 +181,7 @@ def check(url, code, games=('robot_battle', 'ott_v2'), output_dir=None):
             assert page.evaluate('frameGameId(currentFrame())') == records[-1]['game']
         a.set_viewport_size({'width': 390, 'height': 844})
         a.locator('#nav-toggle').click()
-        a.locator('.nav-item[data-view=create]').click()
+        navigate(a, 'create')
         assert a.locator('#nav-toggle').get_attribute('aria-expanded') == 'false'
         assert not a.locator('.shell').evaluate('node => node.inert')
         assert a.evaluate('document.documentElement.scrollWidth <= innerWidth')
@@ -189,7 +196,7 @@ def check(url, code, games=('robot_battle', 'ott_v2'), output_dir=None):
 
 def main(args):
     if args.url:
-        check(args.url.rstrip('/'), os.environ['ARENA_ADMIN_CODE'])
+        check(args.url.rstrip('/'), os.environ['ARENA_ADMIN_CODE'], output_dir=args.output_dir)
         return
     with tempfile.TemporaryDirectory(prefix='neon-v3-ui-') as base:
         code = secrets.token_urlsafe(24)
@@ -207,7 +214,7 @@ def main(args):
                     if proc.poll() is not None: raise RuntimeError('QA server exited')
                     time.sleep(0.1)
             else: raise RuntimeError('QA server not reachable')
-            check(url, code)
+            check(url, code, output_dir=args.output_dir)
         finally:
             proc.terminate(); proc.wait(timeout=15)
 
@@ -217,4 +224,5 @@ if __name__ == '__main__':
     parser.add_argument('--url')
     parser.add_argument('--port', type=int, default=8015)
     parser.add_argument('--lan-ip', help='Wi-Fi IPv4 from ipconfig for isolated QA server')
+    parser.add_argument('--output-dir', help='Directory for browser evidence')
     main(parser.parse_args())

@@ -31,7 +31,7 @@ EVIDENCE = ROOT / ".qa-evidence" / "retro-pixel"
 
 
 @contextmanager
-def temporary_app(port, *, self_registration=True):
+def temporary_app(port, *, self_registration=True, limits=None):
     # These overrides apply only to this process and its disposable fixture.
     # In particular, do not attach a configured operational Sandbox/Remote Runner.
     previous = dict(os.environ)
@@ -46,7 +46,8 @@ def temporary_app(port, *, self_registration=True):
             origin = f"http://127.0.0.1:{port}"
             settings = HTTPAuthSettings(enabled=True, account_only=True,
                                         self_registration=self_registration,
-                                        origins=(origin,), allow_http=True)
+                                        origins=(origin,), allow_http=True,
+                                        **({"limits": limits} if limits is not None else {}))
             yield create_app(base, tick_seconds=.01, account_http=settings,
                              network=NetworkSettings()), origin
     finally:

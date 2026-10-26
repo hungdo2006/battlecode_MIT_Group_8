@@ -13,6 +13,7 @@ def test_exam_setup_uses_ip_and_preserves_existing_proxy_secret():
     assert setting(updated, "ARENA_LAN_BIND_IP") == "192.168.4.22"
     assert setting(updated, "ARENA_PROXY_SECRET") == "x" * 64
     assert prepare(updated, "192.168.4.22") == updated
+    assert len(setting(updated, "ARENA_OFFLINE_RESULTS_KEY")) >= 32
 
 
 @pytest.mark.parametrize("ip", ["127.0.0.1", "8.8.8.8", "::1", "0.0.0.0", "x"])
@@ -30,7 +31,8 @@ def test_exam_setup_generates_proxy_secret_and_leaves_site_keys_unset():
     updated = prepare("ARENA_RUNNER_TOKEN=" + "t" * 64 + "\n", "10.10.5.6")
     assert len(setting(updated, "ARENA_PROXY_SECRET")) >= 48
     assert setting(updated, "ARENA_RUNNER_TOKEN") == "t" * 64
-    assert not setting(updated, "ARENA_OFFLINE_RESULTS_KEY")
+    assert len(setting(updated, "ARENA_OFFLINE_RESULTS_KEY")) >= 32
+    assert setting(updated, "ARENA_OFFLINE_SITE_ID").startswith("exam-")
 
 
 def test_worker_config_preserves_shared_key_and_separates_local_token():

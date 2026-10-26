@@ -51,10 +51,18 @@ def prepare(content, ip):
         raise ValueError("Existing proxy secret is too short; replace it privately")
     if not secret:
         secret = secrets.token_urlsafe(48)
+    results_key = setting(content, "ARENA_OFFLINE_RESULTS_KEY")
+    if results_key and len(results_key) < 32:
+        raise ValueError("Existing offline-results key is too short; replace it privately")
+    if not results_key:
+        results_key = secrets.token_hex(32)
+    site_id = setting(content, "ARENA_OFFLINE_SITE_ID") or "exam-" + secrets.token_hex(6)
     for key, value in (
         ("ARENA_PUBLIC_DOMAIN", ip),
         ("ARENA_LAN_BIND_IP", ip),
         ("ARENA_PROXY_SECRET", secret),
+        ("ARENA_OFFLINE_RESULTS_KEY", results_key),
+        ("ARENA_OFFLINE_SITE_ID", site_id),
     ):
         content = put(content, key, value)
     return content
@@ -77,6 +85,7 @@ def main(argv=None):
         parser.exit(1, f"LAN setup refused: {exc}\n")
     print(f"LAN configuration ready for https://{ip}")
     print("Next: build, create Admin and trust the Caddy local CA on student PCs.")
+    print("Offline result export is configured; importing to AWS still needs a separate reviewed setup.")
     print("No Internet/network isolation was configured by this script.")
 
 

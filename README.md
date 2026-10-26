@@ -41,7 +41,7 @@ Terminal sẽ hỏi **mật khẩu Admin**. Sau khi thiết lập xong tài kho�
 2. Admin tạo giải, công bố luật, chốt đội và xếp lịch; người chơi nộp bot và thi đấu.
 3. Kết thúc, Admin kiểm tra bảng điểm và chọn **Giải đấu → Xuất kết quả offline** để tải file JSON.
 
-Nếu muốn **đưa kết quả lên website Online**, ban tổ chức cần cấu hình xác minh file ở phía AWS trước; thao tác này **chưa tự động có sẵn**. Xem [Hướng dẫn chuyển kết quả Offline → Online](docs/OFFLINE_RESULTS_TRANSFER.md). File kết quả không bao gồm tài khoản hay replay.
+**Đưa kết quả lên website Online:** Vào Admin Online → **Giải đấu → Nhập kết quả giải offline**.
 
 ## 2. Tổ chức giải Online
 

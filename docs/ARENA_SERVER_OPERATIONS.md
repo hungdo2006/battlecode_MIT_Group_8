@@ -5,6 +5,8 @@
 Phạm vi: website hiện đang chạy trên EC2 qua
 `https://traitimcodon.duckdns.org`, Docker project `neon-b1-ec2-pilot`.
 
+**Trạng thái đã xác minh (26/10/2026):** Giao diện Retro Pixel (Git merge `81d91ee`, image tag `neon-arena-ui:retro-pixel-81d91ee`) đã phát hành bằng `scripts.arena_ui_release`. Backup tương thích với image hiện tại là `.runner-switch/arena-backup-retro-81d91ee-20261026`, đã trả về `verified_cold_restore_drill`, `original_mode_restored: true` và `PASS: verify`. Sau sao lưu, Runner ở `local`, `ready: true`, `admission_closed: false`, `active_matches: 0`. Các trạng thái có thể thay đổi; luôn kiểm tra lại trước khi thao tác.
+
 **Đây là chuyển nơi chạy bot, không phải chuyển website hoặc merge database.**
 Giữ nguyên các volume `pilot_data`, `pilot_uploads`, `pilot_caddy_data` và
 `pilot_caddy_config`, cùng domain/certificate Caddy, tài khoản và replay.
@@ -83,15 +85,15 @@ Lưu ý: đổi tên **không biến backup cũ thành backup mới**. Khi thay 
 
 ## Dùng backup nào khi chuyển Local ↔ Remote?
 
-Các lệnh chuyển Runner phải dùng **bản backup đã kiểm thử phục hồi và tương thích với image/cấu hình đang chạy**. Sau khi nâng cấp giao diện ngày 26/10/2026, ví dụ cho EC2 hiện tại là `.runner-switch/arena-backup-post-ui-20261026`, **chỉ khi** lệnh backup sau nâng cấp đã báo `verified_cold_restore_drill` và khôi phục chế độ ban đầu thành công.
+Các lệnh chuyển Runner phải dùng **bản backup đã kiểm thử phục hồi và tương thích với image/cấu hình đang chạy**. Sau đợt nâng cấp Retro Pixel ngày 26/10/2026, bản đã xác minh trên EC2 là `.runner-switch/arena-backup-retro-81d91ee-20261026` (`verified_cold_restore_drill`, `original_mode_restored: true`, `PASS: verify`). Đây là đường dẫn dùng cho **image Retro Pixel hiện tại**, không phải tên cố định cho mọi lần phát hành.
 
-Tên backup **không cố định**. Mỗi lần cập nhật image hay kế hoạch Runner, phải tạo một backup mới rồi dùng đường dẫn mới đó cho các lệnh `switch`. Các backup trước nâng cấp như `arena-backup-initial` hay `arena-backup-verified` vẫn có thể lưu trữ, nhưng không được mặc định tái sử dụng để chuyển Runner của phiên bản mới.
+Tên backup **không cố định**. Mỗi lần cập nhật image hay kế hoạch Runner, phải tạo một backup mới rồi dùng đường dẫn mới đó cho các lệnh `switch`. Bản `.runner-switch/arena-backup-post-ui-20261026` và các bản cũ hơn chỉ để lưu trữ/khôi phục theo kế hoạch tương ứng; **không** dùng chúng để chuyển Runner sau khi đã phát hành image Retro Pixel. Không đổi tên/xóa các thư mục backup để "cập nhật" tính tương thích.
 
 ## 3. Chuyển bot sang chạy ngay trên EC2
 
 ```bash
 sudo python3 -m scripts.arena_operator switch \
-  --target local --backup-directory .runner-switch/arena-backup-post-ui-20261026
+  --target local --backup-directory .runner-switch/arena-backup-retro-81d91ee-20261026
 sudo python3 -m scripts.arena_operator status
 ```
 
@@ -116,7 +118,7 @@ Trên EC2:
 
 ```bash
 sudo python3 -m scripts.arena_operator switch \
-  --target remote --backup-directory .runner-switch/arena-backup-post-ui-20261026
+  --target remote --backup-directory .runner-switch/arena-backup-retro-81d91ee-20261026
 sudo python3 -m scripts.arena_operator status
 ```
 
@@ -165,6 +167,8 @@ GID có thể đổi khi Docker/socket khởi tạo lại; nếu có, cần đi�
 chứ không bỏ qua bước kiểm tra pinned model.
 
 ## Cập nhật giao diện bền vững trên EC2 (không đổi database)
+
+**Lưu ý: Các lệnh `season-nav-20261026` bên dưới là ví dụ lịch sử của đợt phát hành trước; không chạy lại nguyên xi trên hệ thống Retro Pixel hiện tại.** Ngày 26/10/2026 đã phát hành `neon-arena-ui:retro-pixel-81d91ee` với checkpoint `.runner-switch/release-retro-pixel-81d91ee` và tạo backup mới `.runner-switch/arena-backup-retro-81d91ee-20261026`. Lần cập nhật tiếp theo phải xác minh trạng thái hiện hành, tạo image từ **image đang pinned**, dùng tag/checkpoint/backup mới và sao lưu lạnh sau phát hành.
 
 Sau khi code frontend được merge vào `main`, `git pull` và `docker cp` **chưa phải** một bản phát hành bền vững. Arena image và hai mô hình Local/Remote đã được cố định bằng SHA256. Không tự sửa `local.json`, `remote.json`, `plan.json`; không chạy `docker compose up --build` hoặc `down -v`.
 

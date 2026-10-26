@@ -66,3 +66,15 @@ def test_guided_layout_is_responsive():
     assert ".journey-steps" in css
     assert "@media(max-width:480px)" in css
     assert ".tournament-signup-shortcut" in css
+
+def test_default_game_config_is_absent_from_account_only_navigation():
+    html = (ROOT / "index.html").read_text(encoding="utf-8")
+    js = (ROOT / "app.js").read_text(encoding="utf-8")
+    assert 'class="nav-item hidden" href="#rules" data-view="rules"' in html
+    assert '''$('.nav-item[data-view="rules"]').classList.toggle("hidden", app.accountOnly);''' in js
+    assert 'view === "rules" || view === "create"' in js
+    overview = js.split("function renderWorkspaceOverview() {", 1)[1].split("function renderPlayerJourney()", 1)[0]
+    assert '["rules",' not in overview
+    assert '["tournaments", "Giải đấu"' in overview
+    # Maintain the legacy rules view and engine configuration for backwards compatibility.
+    assert 'id="view-rules"' in html

@@ -5,21 +5,15 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex">
 <title>NEON ARENA · Bảng điểm công khai</title>
-<style>
-:root{color-scheme:dark;font-family:system-ui,-apple-system,sans-serif;background:#0d101b;color:#edf1ff}
-body{max-width:1050px;margin:0 auto;padding:24px 16px;line-height:1.5}
-a{color:#8be4ef}h1{font-size:clamp(1.5rem,4vw,2.6rem)}
-header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
-article{border:1px solid #394158;border-radius:14px;padding:20px;margin:18px 0;background:#171c29}
-h2{margin:0 0 8px;font-size:1.3rem}p{color:#b8c1d8}
-.scroller{overflow-x:auto}table{border-collapse:collapse;width:100%;min-width:510px}
-th,td{padding:10px 12px;border-bottom:1px solid #353d51;text-align:left}
-th{color:#9dacc7}caption{text-align:left;color:#c1cee8;padding:10px 0;font-weight:600}
-button{background:#223449;color:#edf1ff;border:1px solid #546579;border-radius:8px;padding:10px 16px;cursor:pointer}
-</style>
+<meta name="theme-color" content="#121212">
+<link rel="icon" href="/static/favicon.svg?v=060d21f42e8e" type="image/svg+xml">
+<link rel="preload" href="/static/fonts/InterVariable.woff2?v=693b77d4f32e" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/static/fonts/Handjet.woff2?v=58b1a0647480" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/static/tokens.css?v=513960b6a3bb">
+<link rel="stylesheet" href="/static/results.css?v=09913ca81a37">
 </head>
-<body>
-<header><h1>NEON ARENA · Bảng điểm công khai</h1><a href="/">Trang chủ</a></header>
+<body class="results-page">
+<header><div><p class="results-kicker">NEON ARENA / KẾT QUẢ THI ĐẤU</p><h1>Bảng điểm công khai</h1></div><a href="/">Trang chủ</a></header>
 <p>Chỉ những giải mà Ban tổ chức đã bật chế độ công khai mới xuất hiện. Không hiển thị mã nguồn hay replay riêng tư.</p>
 <button id="reload" type="button">Làm mới</button>
 <p id="status" role="status"></p><main id="results"></main>
@@ -30,7 +24,7 @@ const status=document.getElementById("status");
 function el(tag,value){const n=document.createElement(tag);if(value!==undefined)n.textContent=String(value);return n;}
 function drawTable(parent,rows,name){
  if(!rows.length)return;
- const wrap=el("div");wrap.className="scroller";
+ const wrap=el("div");wrap.className="scroller";wrap.tabIndex=0;wrap.setAttribute("role","region");wrap.setAttribute("aria-label",name);
  const table=el("table"),cap=el("caption",name);table.append(cap);
  const header=el("tr");for(const col of ["Hạng","Đội","Đã đấu","Thắng","Hòa","Thua","Điểm"])header.append(el("th",col));
  const head=el("thead");head.append(header);table.append(head);

@@ -65,7 +65,8 @@ def models(site, new_id):
 
 def replace_bytes(path, data):
     with tempfile.NamedTemporaryFile(dir=path.parent, prefix=".ui-release-", delete=False) as f:
-        os.fchmod(f.fileno(), 0o600)
+        if hasattr(os, "fchmod"):
+            os.fchmod(f.fileno(), 0o600)
         f.write(data)
         f.flush()
         os.fsync(f.fileno())
@@ -92,7 +93,8 @@ def checkpoint(site, folder, local, remote):
     for name, data in old.items():
         dest = folder / ("old-" + name)
         with dest.open("xb") as file:
-            os.fchmod(file.fileno(), 0o600)
+            if hasattr(os, "fchmod"):
+                os.fchmod(file.fileno(), 0o600)
             file.write(data)
     (folder / "empty.env").touch(mode=0o600)
     plan = deepcopy(site.plan)
@@ -105,7 +107,8 @@ def checkpoint(site, folder, local, remote):
            for name in ("local", "remote")}
     new["plan.json"] = json.dumps(plan, indent=2).encode()
     with (folder / "new-plan.json").open("xb") as f:
-        os.fchmod(f.fileno(), 0o600)
+        if hasattr(os, "fchmod"):
+            os.fchmod(f.fileno(), 0o600)
         f.write(new["plan.json"])
     return old, new
 

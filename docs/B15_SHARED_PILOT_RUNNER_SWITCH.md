@@ -1,6 +1,8 @@
-# B1.5 — Local ↔ Remote Runner trên cùng dữ liệu pilot AWS
+# NEON ARENA — vận hành Arena Server và chuyển Local ↔ Remote Worker
 
-Phạm vi: website B1.4 đang chạy trên EC2 qua
+Đây là hướng dẫn vận hành **Arena Server** (AWS EC2) và **Arena Worker** (PC chạy bot). `scripts.arena_operator` là lệnh ổn định, dùng lại đúng cơ chế chuyển Runner đã nghiệm thu; các định danh Docker và thư mục cũ được giữ nguyên để bảo vệ dữ liệu.
+
+Phạm vi: website hiện đang chạy trên EC2 qua
 `https://traitimcodon.duckdns.org`, Docker project `neon-b1-ec2-pilot`.
 
 **Đây là chuyển nơi chạy bot, không phải chuyển website hoặc merge database.**
@@ -16,13 +18,13 @@ B1.4 để đổi runner: đó là đổi sang **database khác**.
 
 ## 1. Chuẩn bị (một lần, EC2)
 
-Trong checkout `~/neon-arena-b1-pilot` đã cập nhật mã B1.5 review/merge,
+Trong checkout `~/neon-arena-b1-pilot` đã cập nhật mã mới (bao gồm `scripts.arena_operator`),
 và website B1.4 hiện vẫn chạy:
 
 ```bash
 cd ~/neon-arena-b1-pilot
-sudo python3 -m scripts.b15_pilot_runner prepare
-sudo python3 -m scripts.b15_pilot_runner status
+sudo python3 -m scripts.arena_operator prepare
+sudo python3 -m scripts.arena_operator status
 ```
 
 `prepare` dùng private `.b1-pilot/cloud.env` của pilot hiện tại, tự tạo
@@ -44,7 +46,7 @@ Cần chấp nhận thời gian website gián đoạn. Chọn đường dẫn ba
 ngoài EC2 ngay sau đó):
 
 ```bash
-sudo python3 -m scripts.b15_pilot_runner backup \
+sudo python3 -m scripts.arena_operator backup \
   --backup-directory .runner-switch/b15-backup-001 --approve-downtime
 ```
 
@@ -58,9 +60,9 @@ ngoài EC2. Bản này không chứa compiled artifact đang nằm ở máy Wind
 ## 3. Chuyển bot sang chạy ngay trên EC2
 
 ```bash
-sudo python3 -m scripts.b15_pilot_runner switch \
+sudo python3 -m scripts.arena_operator switch \
   --target local --backup-directory .runner-switch/b15-backup-001
-sudo python3 -m scripts.b15_pilot_runner status
+sudo python3 -m scripts.arena_operator status
 ```
 
 Website/tài khoản/bảng điểm/replay AWS không đổi. EC2 bật private Docker
@@ -83,9 +85,9 @@ docker compose --env-file .b1-pilot/worker.env -p neon-b1-worker -f compose.remo
 Trên EC2:
 
 ```bash
-sudo python3 -m scripts.b15_pilot_runner switch \
+sudo python3 -m scripts.arena_operator switch \
   --target remote --backup-directory .runner-switch/b15-backup-001
-sudo python3 -m scripts.b15_pilot_runner status
+sudo python3 -m scripts.arena_operator status
 ```
 
 Phải kiểm tra hostname/TLS chuẩn, drain công việc, bảo toàn pinned models,
@@ -115,8 +117,8 @@ Nếu log Controller có `PermissionError(13, 'Permission denied')` tại
 Sau khi xác nhận trạng thái đang Remote, chạy:
 
 ```bash
-sudo python3 -m scripts.b15_pilot_runner repair-socket-gid
-sudo python3 -m scripts.b15_pilot_runner status
+sudo python3 -m scripts.arena_operator repair-socket-gid
+sudo python3 -m scripts.arena_operator status
 ```
 
 Lệnh chỉ sửa `group_add` của Controller ngừng chạy để trùng GID thật
@@ -125,8 +127,8 @@ của socket, lưu bản `.pre-gid` riêng tư và tính lại mã kiểm tra mo
 mới ở một thư mục chưa tồn tại rồi mới chuyển, ví dụ:
 
 ```bash
-sudo python3 -m scripts.b15_pilot_runner backup --backup-directory .runner-switch/b15-backup-002 --approve-downtime
-sudo python3 -m scripts.b15_pilot_runner switch --target local --backup-directory .runner-switch/b15-backup-002
+sudo python3 -m scripts.arena_operator backup --backup-directory .runner-switch/b15-backup-002 --approve-downtime
+sudo python3 -m scripts.arena_operator switch --target local --backup-directory .runner-switch/b15-backup-002
 ```
 
 GID có thể đổi khi Docker/socket khởi tạo lại; nếu có, cần điều tra

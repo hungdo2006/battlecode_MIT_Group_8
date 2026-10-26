@@ -123,7 +123,18 @@ def apply(site_dir, image, backup_dir, release_dir):
         old_id, local, remote = models(site, new_info["Id"])
         verify_image(inspect(old_id), new_info)
         old, new = checkpoint(site, release_dir, local, remote)
-        site.control("local", "drain")  # refuses in-flight matches/uploads
+        try:
+            site.control("local", "drain")  # refuses in-flight matches/uploads
+        except Exception:
+            # A missed acknowledgement can leave admission closed even if no
+            # service was stopped. Check the live control plane before retrying.
+            try:
+                state = site.control("local", "status")
+                if state.get("admission_closed") and state.get("active_matches") == 0:
+                    site.control("local", "resume")
+            except Exception:
+                pass
+            raise RuntimeError("Drain not verified; inspect Arena Operator status") from None
         stopped, changed, about_to_resume = False, False, False
         try:
             stopped = True

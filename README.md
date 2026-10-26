@@ -78,9 +78,3 @@ python scripts/arena_worker.py status
 ~~~
 
 Cuối cùng, đội kỹ thuật chuyển nơi chạy bot từ **Local (EC2)** sang **Remote (PC)** theo [Hướng dẫn chuyển Runner](docs/ARENA_SERVER_OPERATIONS.md). Không chuyển khi đang có trận đấu và không bật hai Worker dùng chung khóa cùng lúc.
-
-**Giới hạn hiện tại:** NEON ARENA chỉ sử dụng **một Runner tại một thời điểm**, tối đa **hai trận đồng thời**. PC mạnh hơn không tự tăng giới hạn này.
-
----
-
-**Lưu ý:** Không đưa mật khẩu, file `.env` hoặc khóa kết nối lên GitHub. Không xóa Docker volume khi dọn máy vì có thể làm mất dữ liệu giải đấu.

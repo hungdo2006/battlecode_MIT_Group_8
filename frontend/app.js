@@ -802,10 +802,18 @@ function applyPermissions() {
   const accountPlayer = app.accountOnly && app.accountAudience === "player";
   $('.nav-item[data-view="scrimmage"]').classList.toggle("hidden", !app.accountOnly);
   $('.nav-item[data-view="profile"]').classList.toggle("hidden", !app.accountOnly);
-  $('.nav-item[data-view="seasons"]').classList.toggle("hidden", !app.accountOnly);
+  const seasonNav = $('.nav-item[data-view="seasons"]');
+  seasonNav.classList.toggle("hidden", !app.accountOnly);
+  seasonNav.lastChild.textContent = accountPlayer ? "Đăng ký giải đấu" : "Đợt đăng ký (Season)";
+  // Player registrations belong under the Tournament group; advanced settings are Admin-only.
+  $("#nav-advanced").classList.toggle("hidden", app.accountOnly && app.accountAudience !== "admin");
   // The default-game editor belongs to legacy free-match mode, not Team tournaments.
   $('.nav-item[data-view="rules"]').classList.toggle("hidden", app.accountOnly);
   $("#season-admin-panel").classList.toggle("hidden", !app.accountOnly || app.accountAudience!=="admin");
+  setText("#view-seasons .page-intro h1", accountPlayer ? "Đăng ký giải đấu" : "Đợt đăng ký");
+  setText("#view-seasons .page-intro p", accountPlayer
+    ? "Xem các đợt đăng ký đang mở. Captain có thể đăng ký đội tham gia trước thời hạn."
+    : "Thu nhận đội theo thời hạn. Sau khi chốt đăng ký, Ban tổ chức tạo giải đấu và xếp lịch từng trận chính thức.");
   $$('.nav-item[data-view="administration"], .nav-item[data-view="system"]').forEach(node=>node.classList.toggle("hidden", !app.accountOnly || app.accountAudience!=="admin"));
   $("#scrimmage-create-panel").classList.toggle("hidden", !accountPlayer);
   setText("#scrimmage-nav-label", accountPlayer ? "Đấu luyện" : "Theo dõi đấu luyện");
@@ -1694,10 +1702,10 @@ function navigate(event) {
   $$(".nav-item").forEach(node => node.classList.toggle("active", node.dataset.view === view));
   $("#page-label").textContent = app.accountOnly
     ? ({upload:"Đội & bot của tôi",official:"Trận chính thức",
-        administration:"Quản lý đội",seasons:"Đợt đăng ký",standings:"Kết quả & bảng điểm",
+        administration:"Quản lý đội",seasons:app.accountAudience === "player" ? "Đăng ký giải đấu" : "Đợt đăng ký",standings:"Kết quả & bảng điểm",
         watch:"Xem lại trận đấu"}[view] || labels[view])
     : labels[view];
-  if (["seasons","rules","system","create"].includes(view)) $("#nav-advanced").open = true;
+  if (["rules","system","create"].includes(view)) $("#nav-advanced").open = true;
   document.body.dataset.view = view;
   // Account and operations screens do not need competition context.
   $(".workspace-context").hidden = ["profile", "administration", "system"].includes(view);

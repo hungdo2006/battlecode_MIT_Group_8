@@ -78,3 +78,14 @@ def test_default_game_config_is_absent_from_account_only_navigation():
     assert '["tournaments", "Giải đấu"' in overview
     # Maintain the legacy rules view and engine configuration for backwards compatibility.
     assert 'id="view-rules"' in html
+
+def test_season_navigation_is_player_tournament_action_not_advanced_setting():
+    html = (ROOT / "index.html").read_text(encoding="utf-8")
+    js = (ROOT / "app.js").read_text(encoding="utf-8")
+    in_tournament = html.split('<span class="nav-group-label">Giải đấu</span>', 1)[1].split('</div>', 1)[0]
+    in_advanced = html.split('<details class="nav-advanced"', 1)[1].split("</details>", 1)[0]
+    assert 'data-view="seasons"' in in_tournament
+    assert 'data-view="seasons"' not in in_advanced
+    assert 'accountPlayer ? "Đăng ký giải đấu"' in js
+    assert 'app.accountOnly && app.accountAudience !== "admin"' in js
+    assert '["rules","system","create"].includes(view)' in js

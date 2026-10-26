@@ -157,3 +157,56 @@ sudo python3 -m scripts.arena_operator switch --target local --backup-directory 
 
 GID có thể đổi khi Docker/socket khởi tạo lại; nếu có, cần điều tra
 chứ không bỏ qua bước kiểm tra pinned model.
+
+## Cập nhật giao diện bền vững trên EC2 (không đổi database)
+
+Sau khi code frontend được merge vào `main`, `git pull` và `docker cp` **chưa phải** một bản phát hành bền vững. Arena image và hai mô hình Local/Remote đã được cố định bằng SHA256. Không tự sửa `local.json`, `remote.json`, `plan.json`; không chạy `docker compose up --build` hoặc `down -v`.
+
+Khi **Runner đang Local**, không có trận, upload hoặc lượt biên dịch, và đã có **backup lạnh đã xác minh**, đội kỹ thuật có thể thực hiện bảo trì giao diện như sau.
+
+**1. Cập nhật mã và kiểm tra hệ thống** (EC2 Ubuntu):
+
+```bash
+cd ~/neon-arena-b1-pilot
+git pull --ff-only origin main
+sudo python3 -m scripts.arena_operator status
+```
+
+Phải thấy `mode: local`, `ready: true`, `active_matches: 0`. Chọn đường dẫn backup đã được xác minh (ví dụ bản bạn vừa tạo: `.runner-switch/arena-backup-before-ui-20261026`).
+
+**2. Tạo image mới từ image gốc đang pinned.** Thao tác này **chưa dừng website**, chỉ thêm layer frontend, không build lại backend hay Controller:
+
+```bash
+sudo docker build --pull=false -t neon-arena-ui:season-nav-20261026 -f - . <<'EOF'
+FROM neon-b1-ec2-pilot-arena:1.0
+COPY --chown=10001:10001 frontend/app.js frontend/index.html /app/frontend/
+EOF
+```
+
+Image mới phải dùng các file frontend **đã được merge mới nhất**, không dùng lại tag `neon-arena-ui:20261026` từng build trước lúc sửa menu Season.
+
+**3. Phát hành có kiểm soát** (sẽ tạm gián đoạn website). Tool kiểm tra backup cũ, xác nhận image mới chỉ thêm một COPY layer, đối chiếu checksum frontend với mã Git, cập nhật **đồng thời** image pin ở Local/Remote, tạo checkpoint chứa các model cũ, drain công việc, thay **chỉ** container Arena, xác minh readiness rồi mới mở nhận trận:
+
+```bash
+sudo python3 -m scripts.arena_ui_release \
+  --image neon-arena-ui:season-nav-20261026 \
+  --backup-directory .runner-switch/arena-backup-before-ui-20261026 \
+  --checkpoint .runner-switch/release-season-nav-20261026 \
+  --approve-downtime
+sudo python3 -m scripts.arena_operator status
+```
+
+Chỉ tiếp tục nếu nhận `"release": "applied"`, `mode: local`, `ready: true`, `admission_closed: false`. Nếu công cụ trả `BLOCKED`, **dừng lại và kiểm tra trạng thái; không tự chạy lại lệnh, đổi JSON hoặc xóa checkpoint**. Checkpoint có chứa khóa bí mật, chỉ giữ trong thư mục riêng tư.
+
+**4. Backup mới bắt buộc sau cập nhật.** Backup trước đó gắn với image/model cũ nên **không dùng để chuyển Local ↔ Remote** sau khi phát hành:
+
+```bash
+sudo python3 -m scripts.arena_operator backup \
+  --backup-directory .runner-switch/arena-backup-post-ui-20261026 \
+  --approve-downtime
+sudo python3 -m scripts.arena_operator status
+```
+
+Xác minh `verified_cold_restore_drill`, `ready: true` và lưu bản backup ngoài EC2. Dùng **backup mới** cho những lần chuyển Runner tiếp theo. Cuối cùng, trên website kiểm tra Admin/Player, đăng ký Season, tạo giải, nộp bot, đấu luyện, Official, kết quả và replay. Diễn tập chuyển Local → Remote → Local khi không còn job nếu sắp cần PC trường.
+
+Lưu ý an toàn: nếu máy mất điện đúng lúc đang ghi lại ba model pinned, checkpoint `release-season-nav-20261026/old-*.json` còn giữ model cũ nhưng **cần người vận hành phục hồi có kiểm soát**; không tự thử tiếp lệnh khi `status` không đạt. Công cụ không tự thực hiện AWS SSH hoặc cập nhật website thay cho operator.

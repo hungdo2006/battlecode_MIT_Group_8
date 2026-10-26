@@ -66,8 +66,10 @@ Trên **EC2 hiện tại**, khi không có thao tác backup/đổi Runner đang 
 ```bash
 cd ~/neon-arena-b1-pilot
 # Chỉ đổi nếu đường dẫn đích chưa tồn tại; không xóa/ghi đè bản backup khác.
-test ! -e .runner-switch/arena-backup-verified && \
-  sudo mv -- .runner-switch/b15-backup-002 .runner-switch/arena-backup-verified
+sudo test -d .runner-switch/b15-backup-002 && \
+sudo test ! -e .runner-switch/arena-backup-verified && \
+sudo test ! -L .runner-switch/arena-backup-verified && \
+sudo mv -T -- .runner-switch/b15-backup-002 .runner-switch/arena-backup-verified
 
 # Kiểm tra đầy đủ manifest, checksum và biên nhận phục hồi thử:
 sudo python3 -m scripts.runner_site_backup verify \

@@ -2,7 +2,7 @@
 
 Áp dụng cho một backend worker và một controller trên mỗi sandbox namespace, dùng filesystem local/Docker named volumes. Không chạy nhiều replica, xóa `.writer.lock` hoặc dùng NFS/SMB để chia sẻ writer. Backend và controller phải cùng phiên bản protocol.
 
-Với website B1.4/B1.5 đang hoạt động trên AWS, dùng [hướng dẫn Arena Operator chuyển Runner](B15_SHARED_PILOT_RUNNER_SWITCH.md): website/database giữ trên EC2, bot có thể chạy trên EC2 hoặc PC Windows. Không dùng rollback về stack cũ để chuyển Runner, vì đó là database khác. B1.3 [runbook legacy](RUNNER_SWITCH_B13.md) chỉ để tham khảo triển khai trước.
+Với website B1.4/B1.5 đang hoạt động trên AWS, dùng [hướng dẫn Arena Operator chuyển Runner](ARENA_SERVER_OPERATIONS.md): website/database giữ trên EC2, bot có thể chạy trên EC2 hoặc PC Windows. Không dùng rollback về stack cũ để chuyển Runner, vì đó là database khác. B1.3 [runbook legacy](RUNNER_SWITCH_B13.md) chỉ để tham khảo triển khai trước.
 
 ## Migration và Admin
 

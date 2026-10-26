@@ -55,7 +55,7 @@ Cài `arena-exam-root.crt` vào **kho chứng chỉ tin cậy** trên các máy 
 
 **Xuất kết quả ở đâu?** Sau khi giải đã hoàn tất các trận Official, đăng nhập Admin → **Giải đấu → Xuất kết quả offline**. Trình duyệt tải xuống file `neon-results-....json`. Script thiết lập LAN đã chuẩn bị khóa ký cho file này.
 
-**Đưa kết quả lên website Online:** Vào Admin Online → **Giải đấu → Nhập kết quả giải offline**, chọn file và xem trước trước khi công bố. **Lưu ý:** AWS hệ thống AWS hiện tại hiện *chưa được cấu hình sẵn khóa xác minh file*, nên bước nhập lên AWS cần được đội kỹ thuật chuẩn bị và kiểm thử riêng. Gói này chỉ gồm kết quả/bảng điểm, **không chuyển replay hoặc tài khoản**. Xem [chuyển kết quả Offline → Online](docs/OFFLINE_RESULTS_TRANSFER.md).
+**Đưa kết quả lên website Online:** Vào Admin Online → **Giải đấu → Nhập kết quả giải offline**, chọn file và xem trước trước khi công bố. **Lưu ý:** Website AWS hiện *chưa được cấu hình sẵn khóa xác minh file*, nên bước nhập lên AWS cần được đội kỹ thuật chuẩn bị và kiểm thử riêng. Gói này chỉ gồm kết quả/bảng điểm, **không chuyển replay hoặc tài khoản**. Xem [chuyển kết quả Offline → Online](docs/OFFLINE_RESULTS_TRANSFER.md).
 
 ## 2. Thi Online — dùng website AWS đang hoạt động
 
@@ -74,7 +74,7 @@ Chỉ mở giải khi Runner báo sẵn sàng. Nếu đang ở chế độ **Rem
 
 **Tên gọi:** Arena Server là máy AWS; Arena Worker là PC chạy bot; Arena Operator là lệnh quản lý Server. Thư mục `~/neon-arena-b1-pilot` vẫn giữ nguyên vì là đường dẫn cài đặt hiện tại. Trên EC2 chưa cập nhật mã Git, lệnh cũ `scripts.b15_pilot_runner` vẫn hoạt động như trước.
 
-Các lệnh này chỉ dành cho **AWS hệ thống AWS hiện tại đã được triển khai**, không tự cài một AWS mới. Trước giải thật cần thử một trận, replay và backup; xem [hướng dẫn vận hành hệ thống AWS hiện tại](docs/B15_SHARED_PILOT_RUNNER_SWITCH.md).
+Các lệnh này chỉ dành cho **Arena Server đang vận hành trên AWS**, không tự cài một AWS mới. Trước giải thật cần thử một trận, replay và backup; xem [hướng dẫn vận hành Arena Server](docs/ARENA_SERVER_OPERATIONS.md).
 
 ## 3. Thi Online nhưng chạy bot bằng PC mạnh của trường
 
@@ -92,7 +92,7 @@ python scripts/setup_remote_worker.py
 
 Script sẽ hỏi **một khóa kết nối có sẵn trên AWS** (nhập ẩn). Người vận hành EC2 cung cấp khóa qua kênh riêng tư. Khóa này chứng minh PC được phép nhận công việc. Script tự tạo **khóa Docker riêng cho PC**, namespace và thông số socket; không cần tự chỉnh năm dòng cấu hình như trước.
 
-**Nếu thay laptop Worker cũ:** trước tiên, khi không có trận đang chạy, chuyển AWS sang Local và dừng agent của laptop cũ theo [runbook hệ thống AWS hiện tại](docs/B15_SHARED_PILOT_RUNNER_SWITCH.md). Chỉ sau đó mới khởi động Worker trên PC trường để tránh hai máy cùng dùng một khóa.
+**Nếu thay laptop Worker cũ:** trước tiên, khi không có trận đang chạy, chuyển AWS sang Local và dừng agent của laptop cũ theo [hướng dẫn chuyển Runner](docs/ARENA_SERVER_OPERATIONS.md). Chỉ sau đó mới khởi động Worker trên PC trường để tránh hai máy cùng dùng một khóa.
 
 Bật Docker rồi chạy (PowerShell Windows, dùng một dòng nên Ubuntu cũng dùng được):
 
@@ -120,7 +120,7 @@ sudo python3 -m scripts.arena_operator switch --target local --backup-directory 
 sudo python3 -m scripts.arena_operator status
 ~~~
 
-**Giới hạn hiện tại:** chỉ **một Runner hoạt động tại một thời điểm, tối đa hai trận đồng thời**. PC mạnh hơn có thể giúp chạy bot ổn định hơn, nhưng chưa tự tăng số trận hay hỗ trợ nhiều PC chạy song song. Xem [runbook chuyển Runner](docs/B15_SHARED_PILOT_RUNNER_SWITCH.md).
+**Giới hạn hiện tại:** chỉ **một Runner hoạt động tại một thời điểm, tối đa hai trận đồng thời**. PC mạnh hơn có thể giúp chạy bot ổn định hơn, nhưng chưa tự tăng số trận hay hỗ trợ nhiều PC chạy song song. Xem [runbook chuyển Runner](docs/ARENA_SERVER_OPERATIONS.md).
 
 ## Vì sao vẫn cần vài thông số thiết lập?
 

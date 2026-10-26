@@ -30,6 +30,7 @@ jobs:
           python scripts/check_b13_compose_config.py
           python scripts/check_b14_compose_config.py
           python scripts/check_b15_compose_config.py
+          python scripts/check_exam_compose_config.py
 
   regression:
     name: Python 3.13 and Node 24 (${{ matrix.os }})

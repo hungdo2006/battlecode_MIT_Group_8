@@ -1,6 +1,8 @@
 # ONLY for a dedicated LAN host without an Internet uplink.
 # Run with: docker compose -f compose.yaml -f compose.exam.yaml ...
-# HTTPS requires installing Caddy local CA on managed client machines.
+# HTTPS requires trusting Caddy's local CA on every managed student PC.
+# Password-only Admin (explicit LAN-only choice). Player signup is on by default;
+# set ARENA_EXAM_SELF_REGISTRATION=0 privately to close registration.
 # Never combine with compose.public.yaml.
 services:
   arena:
@@ -15,11 +17,11 @@ services:
       ARENA_AUTH_ORIGINS: "https://${ARENA_PUBLIC_DOMAIN:?Set LAN DNS name}"
       ARENA_ALLOWED_HOSTS: "${ARENA_PUBLIC_DOMAIN:?Set LAN DNS name}"
       ARENA_PROXY_SECRET: "${ARENA_PROXY_SECRET:?Set a private random 48+ character token}"
-      ARENA_SELF_REGISTRATION: "0"
+      ARENA_SELF_REGISTRATION: "${ARENA_EXAM_SELF_REGISTRATION:-1}"
       ARENA_EMAIL_VERIFICATION: "0"
-      ARENA_PUBLIC_USERNAME_SIGNUP: "0"
-      ARENA_ADMIN_TOTP_REQUIRED: "1"
-      ARENA_PUBLIC_ADMIN_PASSWORD_ONLY: "0"
+      ARENA_PUBLIC_USERNAME_SIGNUP: "${ARENA_EXAM_SELF_REGISTRATION:-1}"
+      ARENA_ADMIN_TOTP_REQUIRED: "0"
+      ARENA_PUBLIC_ADMIN_PASSWORD_ONLY: "1"
   gateway:
     image: caddy:2.9.1-alpine
     depends_on: [arena]

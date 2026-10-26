@@ -4,8 +4,8 @@ NEON ARENA can run a practice offline school competition using **a laptop with D
 
 ## Workflow
 
-1. Before the event, generate a secret of at least 32 random characters. Set the SAME value for `ARENA_OFFLINE_RESULTS_KEY` in the private `.env` on the **offline host** and **online host**. Never commit or print the key. The online server does not need `ARENA_OFFLINE_SITE_ID`.
-2. Set a unique `ARENA_OFFLINE_SITE_ID` on the laptop, e.g. `school-lab-2026`. Configure the offline Exam LAN HTTPS, local DNS, Caddy CA trust, admin account + MFA and Docker Sandbox while internet is available. Test it with two teams and actual bots.
+1. The offline LAN helper in the README generates `ARENA_OFFLINE_RESULTS_KEY` (32+ random characters) and `ARENA_OFFLINE_SITE_ID` in its private `.env`. For import, the online deployment needs the SAME signing key, installed through a separately reviewed and tested maintenance procedure. **B1.5 EC2 pilot does not forward this key by default.** Do not edit pinned B1.5 Compose models or runtime env by hand. Never commit or print the key. The online server does not need `ARENA_OFFLINE_SITE_ID`.
+2. The helper generates a unique site ID (or preserves an existing one). Configure the offline Exam LAN HTTPS (direct LAN IP from the setup helper), Caddy CA trust, admin account with username/password and Docker Sandbox while Internet is available. Test it with two teams and actual bots.
 3. Hold the offline competition. Only a completed Team Tournament with all Official fixtures completed is eligible.
 4. On offline Admin > **Giải đấu**, click **Xuất kết quả offline**. The browser saves `neon-results-<id>.json` with the finished, public-only results and a SHA256 HMAC signature.
 5. Transfer that JSON file to the online Admin securely. On online Admin > **Giải đấu** > **Nhập kết quả giải offline**, select it and click **Kiểm tra & xem trước**. Verify the venue, tournament name, teams, match count and game.
@@ -82,10 +82,8 @@ validate the feature.
 
 ## Remote runner boundary
 
-This milestone transfers *results files*, not live execution jobs. The existing
-two-match cap and Controller on-host Docker boundary are intentional. A future
-dedicated PC acting as a remote bot runner requires a separate threat model,
-mutually authenticated transport, one-way work queue, artifact attestation,
-resource limits and crash recovery. It must be implemented and benchmarked in
-a separate change; merely opening port 9000 or forwarding the Docker socket
-is unsafe.
+Offline result export is independent from the **already implemented B1.5 Remote Worker**.
+Remote Worker processes *online* bot jobs but does not transfer an Offline LAN
+database, replay, or results by itself. Only the signed JSON export/import path
+above publishes offline results. Do not expose Controller port 9000 or forward
+the Docker socket to connect the two machines.

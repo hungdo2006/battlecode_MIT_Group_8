@@ -1,159 +1,129 @@
 # NEON ARENA
 
-**NEON ARENA** là nền tảng tổ chức giải đấu lập trình bot. Người chơi tạo đội, nộp chương trình; ban tổ chức tạo giải, xếp lịch thi đấu và xem kết quả, bảng điểm, replay ngay trên website.
+**NEON ARENA** là website tổ chức giải đấu lập trình bot: người chơi đăng ký, lập đội và nộp bot; ban tổ chức tạo giải, xếp lịch, xem bảng điểm và replay. Bot được chạy trong Docker.
 
-Dự án sử dụng **Python, FastAPI, Docker** và hỗ trợ Robot Battle, OTT cùng một số trò chơi mở rộng. Bot được chạy trong môi trường Docker tách biệt.
+Có **hai cách tổ chức giải**:
 
-## Nên tổ chức theo cách nào?
-
-| Hình thức | Website chạy ở đâu? | Bot chạy ở đâu? |
+| Hình thức | Người chơi truy cập | Bot chạy trên |
 | --- | --- | --- |
-| **Offline** (thi tại phòng máy, không có Internet) | PC/server trong mạng LAN của trường | Chính PC/server đó |
-| **Online** (thi qua Internet) | AWS EC2 | Trên AWS hoặc PC/server riêng |
+| **Offline (phòng máy)** | Website trên PC/server của trường qua mạng LAN | Chính PC/server của trường |
+| **Online (qua Internet)** | [Website NEON ARENA](https://traitimcodon.duckdns.org) đặt trên AWS | AWS hoặc PC chuyên dụng |
 
-Hệ thống Online hiện tại: **[traitimcodon.duckdns.org](https://traitimcodon.duckdns.org)**. Phiên bản B1.5 đã thử thành công việc chuyển nơi chạy bot giữa AWS và laptop. **Hiện chỉ chạy tối đa 2 trận cùng lúc, chưa hỗ trợ nhiều PC chạy bot song song.**
+**Tài khoản:** Admin đăng nhập bằng **username và password**. Người chơi có thể tự đăng ký khi ban tổ chức mở đăng ký.
 
-## 1. Tổ chức giải Offline
+## 1. Thi Offline — tổ chức trong phòng máy
 
-Phù hợp khi thí sinh tập trung trong phòng máy và ban tổ chức muốn mạng thi **không kết nối Internet**.
+**Hiểu đơn giản:** Một PC/server ở trường chạy NEON ARENA. Các máy thi kết nối vào đó qua mạng LAN; khi thi có thể ngắt Internet nhưng vẫn giữ LAN. Không cần AWS.
 
-### Bước 1 — Chuẩn bị máy chủ
+### Chuẩn bị một lần trước giải
 
-Chọn một PC/server trong trường, nối cùng mạng LAN với các máy thi. Cài **Git, Python 3 và Docker** (Windows dùng Docker Desktop ở chế độ Linux Containers; Linux dùng Docker Engine + Compose).
-
-Khi máy vẫn có Internet, mở Terminal/PowerShell và chạy:
+Cài **Git, Python 3 và Docker** trên máy chủ (Windows dùng Docker Desktop với Linux Containers, Linux dùng Docker Engine + Compose). Khi máy vẫn còn Internet, mở Terminal và chạy:
 
 ~~~bash
 git clone https://github.com/hungdo2006/battlecode_MIT_Group_8.git
 cd battlecode_MIT_Group_8
-python scripts/configure_sandbox.py
+python scripts/setup_exam_lan.py --ip 192.168.1.20
 ~~~
 
-Mở file `.env` mới được tạo và bổ sung/chỉnh các dòng sau:
+**Đổi `192.168.1.20` thành địa chỉ IP LAN thật của máy chủ.** Script tự tạo file cấu hình, các khóa bảo mật và khóa xuất kết quả; bạn không cần tự điền những chuỗi ngẫu nhiên trong `.env`.
 
-~~~dotenv
-ARENA_PUBLIC_DOMAIN=arena.exam.test
-ARENA_LAN_BIND_IP=192.168.10.10
-ARENA_PROXY_SECRET=<khoa_ngau_nhien_dai_it_nhat_48_ky_tu>
-~~~
-
-Đổi IP thành **địa chỉ LAN thật** của máy chủ; tạo tên miền nội bộ `arena.exam.test` trỏ về IP đó. Script phía trên đã sinh khóa chạy bot. Trên Linux, bảo đảm `DOCKER_SOCKET_GID` khớp với kết quả `stat -c '%g' /var/run/docker.sock`.
-
-### Bước 2 — Khởi động hệ thống và tạo Admin
-
-Chạy lần lượt **trên máy chủ LAN mới, khi chưa có Arena đang hoạt động**:
+Khởi tạo hệ thống và tài khoản Admin (lần đầu, khi Arena chưa chạy):
 
 ~~~bash
 docker compose -f compose.yaml -f compose.exam.yaml config -q
 docker compose -f compose.yaml -f compose.exam.yaml build
 docker compose -f compose.yaml -f compose.exam.yaml run --rm --no-deps arena python -m backend.admin_cli --data-dir /app/data migrate
 docker compose -f compose.yaml -f compose.exam.yaml run --rm --no-deps arena python -m backend.admin_cli --data-dir /app/data create-admin --username organizer
-docker compose -f compose.yaml -f compose.exam.yaml run --rm --no-deps arena python -m backend.admin_cli --data-dir /app/data enroll-admin-totp --username organizer
 docker compose -f compose.yaml -f compose.exam.yaml up -d --no-build --wait
 ~~~
 
-Hệ thống hỏi mật khẩu Admin ngay trong Terminal. **Chế độ phòng thi hiện yêu cầu thêm mã xác thực TOTP cho Admin và không mở tự đăng ký**: Admin cần mời/cấp tài khoản cho thí sinh trước ngày thi.
+Terminal sẽ hỏi **mật khẩu Admin**. Người chơi có thể tự đăng ký bằng username/password trong LAN; khi cần đóng đăng ký, ban tổ chức đặt `ARENA_EXAM_SELF_REGISTRATION=0` trong `.env` và triển khai lại Arena ngoài giờ thi.
 
-Website phòng thi sử dụng HTTPS với chứng chỉ nội bộ. Ban tổ chức cần cài **chứng chỉ CA của Caddy** trên các máy thi và cấu hình DNS LAN trước khi truy cập `https://arena.exam.test`. Hướng dẫn cụ thể: **[Thi Offline trong phòng máy](docs/EXAM_MODE.md)**.
+**Một bước bắt buộc trước khi máy khác truy cập:** website LAN dùng HTTPS với chứng chỉ do Caddy của trường cấp. Xuất chứng chỉ CA công khai:
 
-### Bước 3 — Diễn tập và tổ chức thi
+~~~bash
+docker compose -f compose.yaml -f compose.exam.yaml cp gateway:/data/caddy/pki/authorities/local/root.crt ./arena-exam-root.crt
+~~~
 
-Trước khi ngắt Internet, thử trên **máy thí sinh thật**: đăng nhập, nộp bot, chạy một trận đấu và mở replay. Sau đó đội kỹ thuật **ngắt kết nối Internet của mạng phòng thi nhưng vẫn giữ LAN/DNS**; Docker không tự làm việc này.
+Cài `arena-exam-root.crt` vào **kho chứng chỉ tin cậy** trên các máy thi do trường quản lý. Sau đó mở `https://192.168.1.20` (thay bằng IP thật). Không cần tên miền hay Internet; không bỏ qua cảnh báo chứng chỉ. Xem [hướng dẫn HTTPS LAN](docs/EXAM_MODE.md) nếu cần.
 
-Trong ngày thi, Admin tạo giải và luật, chốt các đội, đặt giờ khóa bot và giờ thi đấu. Người chơi nộp bot và chọn bot đại diện trước hạn. Hệ thống sẽ chạy các trận Official theo lịch và lưu kết quả, replay. Khi kết thúc, kiểm tra bảng điểm rồi sao lưu dữ liệu ra thiết bị khác.
+### Khi tổ chức giải
 
-Nếu muốn công bố **kết quả** giải Offline lên website Online, xem [Hướng dẫn chuyển kết quả](docs/OFFLINE_RESULTS_TRANSFER.md).
+1. **Trước giờ thi:** thử đăng nhập, đăng ký, nộp bot, chạy một trận luyện và xem replay. Đội kỹ thuật tách Internet khỏi mạng phòng thi nhưng vẫn giữ LAN; Docker không tự chặn Internet.
+2. **Trong giờ thi:** Admin tạo giải và luật, nhận/chốt các đội, đặt giờ khóa bot và lịch đấu. Người chơi nộp bot; hệ thống xử lý các trận Official và lưu kết quả.
+3. **Kết thúc:** Admin kiểm tra bảng điểm, replay và sao lưu dữ liệu ra thiết bị khác.
 
-## 2. Tổ chức giải Online
+**Xuất kết quả ở đâu?** Sau khi giải đã hoàn tất các trận Official, đăng nhập Admin → **Giải đấu → Xuất kết quả offline**. Trình duyệt tải xuống file `neon-results-....json`. Script thiết lập LAN đã chuẩn bị khóa ký cho file này.
 
-Phù hợp khi người chơi tham gia từ nhiều nơi qua Internet. Website, tài khoản, kết quả và replay được lưu trên **AWS EC2**; người chơi chỉ cần trình duyệt web.
+**Đưa kết quả lên website Online:** Vào Admin Online → **Giải đấu → Nhập kết quả giải offline**, chọn file và xem trước trước khi công bố. **Lưu ý:** AWS B1.5 hiện *chưa được cấu hình sẵn khóa xác minh file*, nên bước nhập lên AWS cần được đội kỹ thuật chuẩn bị và kiểm thử riêng. Gói này chỉ gồm kết quả/bảng điểm, **không chuyển replay hoặc tài khoản**. Xem [chuyển kết quả Offline → Online](docs/OFFLINE_RESULTS_TRANSFER.md).
 
-### Bước 1 — Kiểm tra website
+## 2. Thi Online — dùng website AWS đang hoạt động
 
-Với hệ thống B1.5 **đang được triển khai**, mở Terminal Ubuntu trên EC2:
+**Đơn giản nhất:** nếu AWS EC2 đã chạy NEON ARENA và Runner đang sẵn sàng, ban tổ chức và người chơi chỉ cần mở **[https://traitimcodon.duckdns.org](https://traitimcodon.duckdns.org)**. Không phải clone repo trên máy người chơi.
+
+Ban tổ chức đăng nhập Admin, tạo giải, công bố luật và mở đăng ký; người chơi lập Team, nộp bot; Admin chốt lịch, theo dõi các trận và công bố kết quả.
+
+Đội kỹ thuật có thể kiểm tra trên **EC2 Ubuntu**:
 
 ~~~bash
 cd ~/neon-arena-b1-pilot
 sudo python3 -m scripts.b15_pilot_runner status
 ~~~
 
-Nếu thấy `ready: true` và `admission_closed: false` thì có thể bắt đầu kiểm thử. Nếu chạy bot bằng PC bên ngoài (`mode: remote`), PC đó phải đang kết nối.
+Chỉ mở giải khi Runner báo sẵn sàng. Nếu đang ở chế độ **Remote**, PC chạy bot cũng phải đang bật và kết nối; website còn hoạt động không có nghĩa là bot vẫn chạy được nếu PC đã tắt.
 
-**Lưu ý:** Đây là lệnh kiểm tra **server đã cài B1.5**, không phải lệnh cài một AWS mới. Nếu chưa có server, xem [quy trình thiết lập AWS](docs/B1_EC2_FAST_PILOT.md) và [vận hành B1.5](docs/B15_SHARED_PILOT_RUNNER_SWITCH.md).
+Các lệnh này chỉ dành cho **AWS B1.5 đã được triển khai**, không tự cài một AWS mới. Trước giải thật cần thử một trận, replay và backup; xem [hướng dẫn vận hành B1.5](docs/B15_SHARED_PILOT_RUNNER_SWITCH.md).
 
-### Bước 2 — Mở giải trên website
+## 3. Thi Online nhưng chạy bot bằng PC mạnh của trường
 
-1. **Ban tổ chức:** đăng nhập Admin, tạo Season/Tournament, chọn trò chơi và công bố luật.
-2. **Người chơi:** đăng ký tài khoản, tạo/tham gia Team, tải bot lên và chọn **Active Bot**.
-3. **Ban tổ chức:** chốt danh sách đội, tạo lịch thi đấu, đặt giờ khóa bot.
-4. **Trong giải:** theo dõi trận Official, hàng chờ và các trận lỗi; không khởi động lại hoặc chuyển máy chạy bot giữa trận.
-5. **Sau giải:** kiểm tra kết quả/replay, công bố bảng điểm và sao lưu dữ liệu.
+**Remote Worker là gì?** Website, tài khoản và kết quả **vẫn ở AWS**. PC trường chỉ nhận công việc chạy bot qua HTTPS, chạy trong Docker rồi gửi kết quả về AWS. Bạn **không cần copy folder `.b1-pilot`, database hay dữ liệu AWS** sang PC.
 
-Xem thêm [Quản lý giải và Team](docs/TEAM_TOURNAMENTS.md). Trước một giải thật, cần sao lưu và diễn tập khôi phục dữ liệu theo [hướng dẫn B1.5](docs/B15_SHARED_PILOT_RUNNER_SWITCH.md).
+### Thiết lập PC lần đầu
 
-## 3. Dùng PC/server mạnh của trường để chạy bot Online
+Trên PC (cài Git, Python 3, Docker Desktop Linux Containers hoặc Docker Engine trên Ubuntu), clone repo rồi chạy trình tạo cấu hình:
 
-Cách này giúp **AWS chỉ phục vụ website và lưu kết quả**, còn PC mạnh của trường làm việc nặng là biên dịch/chạy bot. **Không cần chuyển database hoặc website sang PC.**
-
-### Bước 1 — Cài Remote Worker trên PC
-
-Trên PC Windows, cài **Git và Docker Desktop (Linux Containers/WSL2)**, dùng mạng dây nếu có. Mở PowerShell:
-
-~~~powershell
+~~~bash
 git clone https://github.com/hungdo2006/battlecode_MIT_Group_8.git neon-arena-worker
 cd neon-arena-worker
-New-Item -ItemType Directory -Force .b1-pilot | Out-Null
-Copy-Item deploy/b1-ec2-pilot-worker.env.example .b1-pilot/worker.env
+python scripts/setup_remote_worker.py
 ~~~
 
-Mở `.b1-pilot/worker.env` và điền:
+Script sẽ hỏi **một khóa kết nối có sẵn trên AWS** (nhập ẩn). Người vận hành EC2 cung cấp khóa qua kênh riêng tư. Khóa này chứng minh PC được phép nhận công việc. Script tự tạo **khóa Docker riêng cho PC**, namespace và thông số socket; không cần tự chỉnh năm dòng cấu hình như trước.
 
-~~~dotenv
-ARENA_REMOTE_SERVER_URL=https://traitimcodon.duckdns.org
-ARENA_REMOTE_RUNNER_KEY=<khoa_giong_tren_AWS>
-ARENA_RUNNER_TOKEN=<khoa_rieng_cua_PC_it_nhat_32_ky_tu>
-SANDBOX_NAMESPACE=neon-school-worker
-DOCKER_SOCKET_GID=0
-~~~
+**Nếu thay laptop Worker cũ:** trước tiên, khi không có trận đang chạy, chuyển AWS sang Local và dừng agent của laptop cũ theo [runbook B1.5](docs/B15_SHARED_PILOT_RUNNER_SWITCH.md). Chỉ sau đó mới khởi động Worker trên PC trường để tránh hai máy cùng dùng một khóa.
 
-**Hai khóa có nhiệm vụ khác nhau:** `ARENA_REMOTE_RUNNER_KEY` phải trùng khóa Worker của AWS; `ARENA_RUNNER_TOKEN` tạo mới riêng cho PC. Giữ bí mật cả hai. Chọn mã nguồn Worker tương thích với phiên bản Arena trên EC2.
+Bật Docker rồi chạy (PowerShell Windows, dùng một dòng nên Ubuntu cũng dùng được):
 
-**Nếu đang chuyển từ laptop Worker cũ sang PC trường:** hãy chờ hết trận, chuyển AWS về Local (Bước 3), rồi **dừng Agent trên laptop cũ** trước khi bật PC mới. Hai máy không được đồng thời dùng cùng khóa Worker.
-
-Khởi động Docker Desktop, rồi chạy:
-
-~~~powershell
+~~~bash
 docker compose --env-file .b1-pilot/worker.env -p neon-b1-worker -f compose.remote-worker.yaml up -d --build --wait
 ~~~
 
-Nếu PC dùng **Ubuntu Server**, dùng Docker Engine + Compose, lấy `DOCKER_SOCKET_GID` bằng `stat -c '%g' /var/run/docker.sock` rồi chạy lệnh Docker Compose tương ứng bằng Bash (có thể cần `sudo`). PC chỉ cần kết nối HTTPS **đi ra** AWS; **không** mở port 9000/Docker API ra Internet.
+PC chỉ kết nối **ra ngoài qua HTTPS**, không cần mở cổng cho người ngoài truy cập PC.
 
-### Bước 2 — Chuyển bot từ AWS sang PC
+### Cho AWS chuyển việc chạy bot sang PC
 
-Đảm bảo **không còn trận hoặc lượt biên dịch đang chạy**, và không có laptop cũ nào tiếp tục chạy Agent cùng khóa. Trên EC2, tại `~/neon-arena-b1-pilot`, chạy:
+Trên **EC2**, tại `~/neon-arena-b1-pilot`, chỉ khi không có trận hoặc lượt biên dịch đang chạy:
 
 ~~~bash
 sudo python3 -m scripts.b15_pilot_runner switch --target remote --backup-directory .runner-switch/b15-backup-002
 sudo python3 -m scripts.b15_pilot_runner status
 ~~~
 
-`b15-backup-002` là **bản backup được xác minh của hệ thống hiện tại**; với máy chủ khác phải thay bằng đường dẫn backup hợp lệ đã chuẩn bị. Nếu đang ở Remote, không chạy chuyển mode lần nữa. Khi `mode: remote` và `ready: true`, hãy đấu thử một trận rồi kiểm tra replay.
+`b15-backup-002` là **ví dụ từ hệ thống EC2 pilot hiện tại**; trên máy khác phải dùng backup đã kiểm tra và còn hợp lệ. Nếu EC2 đang dùng **Remote laptop cũ**, phải chuyển về Local và dừng agent laptop cũ trước khi bật Worker PC mới như hướng dẫn trên. **Không dùng hai Remote Worker cùng một khóa đồng thời.**
 
-### Bước 3 — Chuyển bot về AWS khi cần
-
-Sau khi chờ hết các công việc đang chạy, trên EC2:
+Muốn chạy bot trở lại trên EC2, chờ hết công việc rồi chạy:
 
 ~~~bash
 sudo python3 -m scripts.b15_pilot_runner switch --target local --backup-directory .runner-switch/b15-backup-002
 sudo python3 -m scripts.b15_pilot_runner status
 ~~~
 
-Khi Local đã sẵn sàng, có thể dừng Agent trên PC. Nếu PC mất mạng/điện giữa trận, **không tự cho bot thua hoặc chạy lại trận chưa rõ trạng thái**; xử lý theo [runbook B1.5](docs/B15_SHARED_PILOT_RUNNER_SWITCH.md).
+**Giới hạn hiện tại:** chỉ **một Runner hoạt động tại một thời điểm, tối đa hai trận đồng thời**. PC mạnh hơn có thể giúp chạy bot ổn định hơn, nhưng chưa tự tăng số trận hay hỗ trợ nhiều PC chạy song song. Xem [runbook chuyển Runner](docs/B15_SHARED_PILOT_RUNNER_SWITCH.md).
 
-> **Giới hạn:** PC mạnh hơn không tự tăng số trận chạy cùng lúc. B1.5 chỉ có **một Remote Worker và tối đa 2 trận đồng thời**. Giải lớn cần kiểm thử tải; muốn nhiều Worker phải phát triển thêm bộ phân phối trận.
+## Vì sao vẫn cần vài thông số thiết lập?
 
----
+- **IP LAN:** để các máy thi biết website nằm trên máy nào. Mỗi trường có IP khác nhau nên cần nhập **một lần**.
+- **Khóa bảo mật:** để máy lạ không giả làm website hoặc Remote Worker. Các script đã **tự tạo khóa mới**, riêng khóa ghép nối Remote phải khớp với AWS nên cần nhập một lần.
+- **HTTPS nội bộ:** để đăng nhập bằng mật khẩu an toàn hơn trong LAN; vẫn cần cài chứng chỉ CA tin cậy trên máy thí sinh.
 
-**Đọc thêm:** [Thi Offline](docs/EXAM_MODE.md) · [Vận hành server](docs/OPERATIONS.md) · [Giải Team](docs/TEAM_TOURNAMENTS.md) · [Chuyển Runner](docs/B15_SHARED_PILOT_RUNNER_SWITCH.md).
-
-**An toàn:** Không đăng `.env`, token hay backup lên GitHub. Không dùng `docker compose down -v` hoặc `docker system prune --volumes` để dọn máy vì có thể mất dữ liệu.
+**Không chia sẻ** file `.env`, `.b1-pilot/worker.env` hoặc khóa qua GitHub/chat. Không chạy `docker compose down -v` vì lệnh này có thể xóa dữ liệu giải đấu.

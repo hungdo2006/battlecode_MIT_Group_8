@@ -55,7 +55,7 @@ Cài `arena-exam-root.crt` vào **kho chứng chỉ tin cậy** trên các máy 
 
 **Xuất kết quả ở đâu?** Sau khi giải đã hoàn tất các trận Official, đăng nhập Admin → **Giải đấu → Xuất kết quả offline**. Trình duyệt tải xuống file `neon-results-....json`. Script thiết lập LAN đã chuẩn bị khóa ký cho file này.
 
-**Đưa kết quả lên website Online:** Vào Admin Online → **Giải đấu → Nhập kết quả giải offline**, chọn file và xem trước trước khi công bố. **Lưu ý:** AWS B1.5 hiện *chưa được cấu hình sẵn khóa xác minh file*, nên bước nhập lên AWS cần được đội kỹ thuật chuẩn bị và kiểm thử riêng. Gói này chỉ gồm kết quả/bảng điểm, **không chuyển replay hoặc tài khoản**. Xem [chuyển kết quả Offline → Online](docs/OFFLINE_RESULTS_TRANSFER.md).
+**Đưa kết quả lên website Online:** Vào Admin Online → **Giải đấu → Nhập kết quả giải offline**, chọn file và xem trước trước khi công bố. **Lưu ý:** Website AWS hiện *chưa được cấu hình sẵn khóa xác minh file*, nên bước nhập lên AWS cần được đội kỹ thuật chuẩn bị và kiểm thử riêng. Gói này chỉ gồm kết quả/bảng điểm, **không chuyển replay hoặc tài khoản**. Xem [chuyển kết quả Offline → Online](docs/OFFLINE_RESULTS_TRANSFER.md).
 
 ## 2. Thi Online — dùng website AWS đang hoạt động
 
@@ -63,16 +63,18 @@ Cài `arena-exam-root.crt` vào **kho chứng chỉ tin cậy** trên các máy 
 
 Ban tổ chức đăng nhập Admin, tạo giải, công bố luật và mở đăng ký; người chơi lập Team, nộp bot; Admin chốt lịch, theo dõi các trận và công bố kết quả.
 
-Đội kỹ thuật có thể kiểm tra trên **EC2 Ubuntu**:
+Đội kỹ thuật sử dụng công cụ **Arena Operator** để kiểm tra trên **EC2 Ubuntu**:
 
 ~~~bash
 cd ~/neon-arena-b1-pilot
-sudo python3 -m scripts.b15_pilot_runner status
+sudo python3 -m scripts.arena_operator status
 ~~~
 
 Chỉ mở giải khi Runner báo sẵn sàng. Nếu đang ở chế độ **Remote**, PC chạy bot cũng phải đang bật và kết nối; website còn hoạt động không có nghĩa là bot vẫn chạy được nếu PC đã tắt.
 
-Các lệnh này chỉ dành cho **AWS B1.5 đã được triển khai**, không tự cài một AWS mới. Trước giải thật cần thử một trận, replay và backup; xem [hướng dẫn vận hành B1.5](docs/B15_SHARED_PILOT_RUNNER_SWITCH.md).
+**Tên gọi:** Arena Server là máy AWS; Arena Worker là PC chạy bot; Arena Operator là lệnh quản lý Server. Thư mục `~/neon-arena-b1-pilot` vẫn giữ nguyên vì là đường dẫn cài đặt hiện tại. Trên EC2 chưa cập nhật mã Git, lệnh cũ `scripts.b15_pilot_runner` vẫn hoạt động như trước.
+
+Các lệnh này chỉ dành cho **Arena Server đang vận hành trên AWS**, không tự cài một AWS mới. Trước giải thật cần thử một trận, replay và backup; xem [hướng dẫn vận hành Arena Server](docs/ARENA_SERVER_OPERATIONS.md).
 
 ## 3. Thi Online nhưng chạy bot bằng PC mạnh của trường
 
@@ -80,7 +82,7 @@ Các lệnh này chỉ dành cho **AWS B1.5 đã được triển khai**, không
 
 ### Thiết lập PC lần đầu
 
-Trên PC (cài Git, Python 3, Docker Desktop Linux Containers hoặc Docker Engine trên Ubuntu), clone repo rồi chạy trình tạo cấu hình:
+Trên PC (cài Git, Python 3, Docker Desktop Linux Containers hoặc Docker Engine trên Ubuntu), clone repo rồi chạy trình tạo cấu hình. Dùng **Arena Worker** để khởi động và kiểm tra bot:
 
 ~~~bash
 git clone https://github.com/hungdo2006/battlecode_MIT_Group_8.git neon-arena-worker
@@ -90,12 +92,13 @@ python scripts/setup_remote_worker.py
 
 Script sẽ hỏi **một khóa kết nối có sẵn trên AWS** (nhập ẩn). Người vận hành EC2 cung cấp khóa qua kênh riêng tư. Khóa này chứng minh PC được phép nhận công việc. Script tự tạo **khóa Docker riêng cho PC**, namespace và thông số socket; không cần tự chỉnh năm dòng cấu hình như trước.
 
-**Nếu thay laptop Worker cũ:** trước tiên, khi không có trận đang chạy, chuyển AWS sang Local và dừng agent của laptop cũ theo [runbook B1.5](docs/B15_SHARED_PILOT_RUNNER_SWITCH.md). Chỉ sau đó mới khởi động Worker trên PC trường để tránh hai máy cùng dùng một khóa.
+**Nếu thay laptop Worker cũ:** trước tiên, khi không có trận đang chạy, chuyển AWS sang Local và dừng agent của laptop cũ theo [hướng dẫn chuyển Runner](docs/ARENA_SERVER_OPERATIONS.md). Chỉ sau đó mới khởi động Worker trên PC trường để tránh hai máy cùng dùng một khóa.
 
 Bật Docker rồi chạy (PowerShell Windows, dùng một dòng nên Ubuntu cũng dùng được):
 
 ~~~bash
-docker compose --env-file .b1-pilot/worker.env -p neon-b1-worker -f compose.remote-worker.yaml up -d --build --wait
+python scripts/arena_worker.py start
+python scripts/arena_worker.py status
 ~~~
 
 PC chỉ kết nối **ra ngoài qua HTTPS**, không cần mở cổng cho người ngoài truy cập PC.
@@ -105,8 +108,8 @@ PC chỉ kết nối **ra ngoài qua HTTPS**, không cần mở cổng cho ngư�
 Trên **EC2**, tại `~/neon-arena-b1-pilot`, chỉ khi không có trận hoặc lượt biên dịch đang chạy:
 
 ~~~bash
-sudo python3 -m scripts.b15_pilot_runner switch --target remote --backup-directory .runner-switch/b15-backup-002
-sudo python3 -m scripts.b15_pilot_runner status
+sudo python3 -m scripts.arena_operator switch --target remote --backup-directory .runner-switch/b15-backup-002
+sudo python3 -m scripts.arena_operator status
 ~~~
 
 `b15-backup-002` là **ví dụ từ hệ thống EC2 pilot hiện tại**; trên máy khác phải dùng backup đã kiểm tra và còn hợp lệ. Nếu EC2 đang dùng **Remote laptop cũ**, phải chuyển về Local và dừng agent laptop cũ trước khi bật Worker PC mới như hướng dẫn trên. **Không dùng hai Remote Worker cùng một khóa đồng thời.**
@@ -114,11 +117,11 @@ sudo python3 -m scripts.b15_pilot_runner status
 Muốn chạy bot trở lại trên EC2, chờ hết công việc rồi chạy:
 
 ~~~bash
-sudo python3 -m scripts.b15_pilot_runner switch --target local --backup-directory .runner-switch/b15-backup-002
-sudo python3 -m scripts.b15_pilot_runner status
+sudo python3 -m scripts.arena_operator switch --target local --backup-directory .runner-switch/b15-backup-002
+sudo python3 -m scripts.arena_operator status
 ~~~
 
-**Giới hạn hiện tại:** chỉ **một Runner hoạt động tại một thời điểm, tối đa hai trận đồng thời**. PC mạnh hơn có thể giúp chạy bot ổn định hơn, nhưng chưa tự tăng số trận hay hỗ trợ nhiều PC chạy song song. Xem [runbook chuyển Runner](docs/B15_SHARED_PILOT_RUNNER_SWITCH.md).
+**Giới hạn hiện tại:** chỉ **một Runner hoạt động tại một thời điểm, tối đa hai trận đồng thời**. PC mạnh hơn có thể giúp chạy bot ổn định hơn, nhưng chưa tự tăng số trận hay hỗ trợ nhiều PC chạy song song. Xem [runbook chuyển Runner](docs/ARENA_SERVER_OPERATIONS.md).
 
 ## Vì sao vẫn cần vài thông số thiết lập?
 

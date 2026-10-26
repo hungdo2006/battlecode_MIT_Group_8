@@ -31,6 +31,7 @@ def test_frontend_payload_must_match_checkout(monkeypatch, tmp_path):
     frontend = tmp_path / "frontend"
     frontend.mkdir()
     for name in release.FILES:
+        (frontend / name).parent.mkdir(parents=True, exist_ok=True)
         (frontend / name).write_bytes(name.encode())
     monkeypatch.setattr(release, "ROOT", tmp_path)
     wanted = {name: hashlib.sha256(name.encode()).hexdigest() for name in release.FILES}
@@ -43,6 +44,46 @@ def test_frontend_payload_must_match_checkout(monkeypatch, tmp_path):
     assert "--network" in calls[0] and "none" in calls[0]
     assert "--read-only" in calls[0]
     monkeypatch.setattr(release.switch, "run", lambda args: json.dumps({"app.js": "wrong"}))
+    with pytest.raises(ValueError, match="differs from checked-out"):
+        release.verify_image(image("a", ["base"]), image("b", ["base", "copy"]))
+
+
+def test_image_probe_hashes_nested_landing_assets_without_docker(monkeypatch, tmp_path):
+    """Execute the generated image probe against a fixture, including binary fonts."""
+    import subprocess
+    import sys
+
+    frontend = tmp_path / "frontend"
+    for name in release.FILES:
+        target = frontend / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"wOF2\x00\xff\r\n" if name.endswith(".woff2") else name.encode())
+    monkeypatch.setattr(release, "ROOT", tmp_path)
+
+    def fixture_probe(args):
+        program = args[-1].replace("pathlib.Path('/app/frontend')", f"pathlib.Path({str(frontend)!r})")
+        return subprocess.check_output([sys.executable, "-c", program], text=True)
+
+    monkeypatch.setattr(release.switch, "run", fixture_probe)
+    release.verify_image(image("a", ["base"]), image("b", ["base", "copy"]))
+
+
+@pytest.mark.parametrize("missing", [
+    "landing.css", "art/arena-workstation.svg", "fonts/Handjet.woff2", "fonts/Handjet-OFL.txt",
+    "tokens.css", "results.css", "results.html", "renderers.js",
+    "fonts/InterVariable.woff2", "fonts/OFL.txt",
+])
+def test_matching_html_cannot_hide_missing_frontend_asset(monkeypatch, tmp_path, missing):
+    frontend = tmp_path / "frontend"
+    wanted = {}
+    for name in release.FILES:
+        target = frontend / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(name.encode())
+        wanted[name] = hashlib.sha256(target.read_bytes()).hexdigest()
+    monkeypatch.setattr(release, "ROOT", tmp_path)
+    del wanted[missing]
+    monkeypatch.setattr(release.switch, "run", lambda args: json.dumps(wanted))
     with pytest.raises(ValueError, match="differs from checked-out"):
         release.verify_image(image("a", ["base"]), image("b", ["base", "copy"]))
 

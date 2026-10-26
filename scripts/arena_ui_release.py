@@ -19,7 +19,10 @@ from scripts import runner_site_backup as backup
 ROOT = Path(__file__).resolve().parents[1]
 SITE_DIR = ROOT / ".runner-switch/b15-pilot/site"
 IMAGE_SHA = re.compile(r"sha256:[a-f0-9]{64}\Z")
-FILES = ("app.js", "index.html")
+FILES = ("app.js", "index.html", "tokens.css", "styles.css", "ui.js", "landing.css",
+         "renderers.js", "results.html", "results.css", "protocol.html", "lan.html", "favicon.svg",
+         "art/arena-workstation.svg", "fonts/Handjet.woff2", "fonts/Handjet-OFL.txt",
+         "fonts/InterVariable.woff2", "fonts/OFL.txt")
 CONFIG_FIELDS = ("Env", "Cmd", "Entrypoint", "User", "WorkingDir",
                  "ExposedPorts", "Volumes", "Healthcheck", "StopSignal", "Labels")
 
@@ -41,7 +44,7 @@ def verify_image(old, new):
     check = ("import hashlib,json,pathlib;"
              "p=pathlib.Path('/app/frontend');"
              "print(json.dumps({n:hashlib.sha256((p/n).read_bytes()).hexdigest() "
-             "for n in ('app.js','index.html')}))")
+             f"for n in {FILES!r}}}))")
     actual = json.loads(switch.run([
         "docker", "run", "--rm", "--pull", "never", "--network", "none",
         "--read-only", "--cap-drop", "ALL", "--security-opt",

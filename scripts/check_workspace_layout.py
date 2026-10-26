@@ -25,7 +25,7 @@ from backend.main import create_app
 from backend.writer_lock import WriterLock
 
 EVIDENCE = ROOT / ".qa-evidence" / "workspace-layout"
-WIDTHS = (1366, 1440, 360, 390, 768)
+WIDTHS = (320, 360, 390, 768, 1024, 1440)
 
 
 def run():
@@ -155,10 +155,12 @@ def run():
                 player.click("#upload-team-link")
                 expect(player.locator("#account-team-create [name=slug]")).to_be_focused()
                 player.click("#upload-workflow-details > summary")
-                matrix(player, "new-player", ("home", "upload", "official", "scrimmage", "profile", "rules"))
-                view(player, "rules")
-                expect(player.locator("#rules-form")).to_be_hidden()
-                expect(player.locator("#rules-summary")).to_be_visible()
+                matrix(player, "new-player", ("home", "upload", "official", "scrimmage", "profile"))
+                # Account-only mode scopes rules to each tournament. The global
+                # legacy rule editor must remain inaccessible for both roles.
+                expect(player.locator('.nav-item[data-view="rules"]')).to_be_hidden()
+                player.evaluate("location.hash = 'rules'")
+                expect(player.locator("#view-home")).to_be_visible()
                 expect(player.locator("#workspace-game-select")).to_be_hidden()
                 player.locator("#user-menu > summary").focus()
                 player.keyboard.press("Enter")
@@ -219,15 +221,9 @@ def run():
                 opponent.click("#account-team-activate")
                 expect(opponent.locator("#account-team-status")).to_contain_text("Đã sẵn sàng đăng ký")
 
-                view(admin, "rules")
-                admin.fill("#rule-max_turns", "80")
-                expect(admin.locator("#rules-state")).to_have_text("Chưa lưu")
-                expect(admin.locator("#competition-open")).to_be_disabled()
-                admin.click("#rules-form [type=submit]")
-                expect(admin.locator("#rules-state")).to_have_text("Đã lưu")
-                admin.click("#competition-open")
-                expect(admin.locator("#rules-state")).to_have_text("Đã khóa")
-                expect(admin.locator("#rule-max_turns")).to_be_disabled()
+                expect(admin.locator('.nav-item[data-view="rules"]')).to_be_hidden()
+                admin.evaluate("location.hash = 'rules'")
+                expect(admin.locator("#view-home")).to_be_visible()
                 view(admin, "official")
                 admin.click("#official-refresh")
                 expect(admin.locator("#official-team-a")).to_be_enabled()
@@ -288,8 +284,8 @@ def run():
                 admin.unroute("**/api/admin/accounts?*")
                 admin.click("#admin-refresh-bots")
                 expect(admin.locator("#admin-load-feedback")).to_be_hidden()
-                matrix(admin, "admin", ("home", "profile", "administration", "seasons", "tournaments", "official", "rules"))
-                matrix(player, "captain", ("home", "upload", "official", "scrimmage", "rules", "profile"))
+                matrix(admin, "admin", ("home", "profile", "administration", "seasons", "tournaments", "official", "system"))
+                matrix(player, "captain", ("home", "upload", "official", "scrimmage", "profile"))
                 member.reload()
                 member.wait_for_function("app.initialized && !app.initializing")
                 matrix(member, "member", ("home", "upload", "official", "scrimmage", "profile"))

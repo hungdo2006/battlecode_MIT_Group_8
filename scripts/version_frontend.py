@@ -11,7 +11,7 @@ import re
 ROOT = Path(__file__).resolve().parent.parent
 FRONTEND = ROOT / "frontend"
 ASSET_URL = re.compile(
-    r"/static/(?P<name>styles\.css|app\.js|ui\.js|protocol\.js|lan\.js|renderers\.js|favicon\.svg|fonts/(?:InterVariable|SourceSerif4Variable)\.woff2)"
+    r"/static/(?P<name>tokens\.css|styles\.css|landing\.css|results\.css|app\.js|ui\.js|protocol\.js|lan\.js|renderers\.js|favicon\.svg|art/arena-workstation\.svg|fonts/(?:InterVariable|SourceSerif4Variable|VT323-Regular|Handjet)\.woff2)"
     r"(?:\?v=[^\s\"'<>]*)?"
 )
 
@@ -35,8 +35,7 @@ def main():
     args = parser.parse_args()
     stale = []
     # Fingerprint font URLs in CSS before fingerprinting that stylesheet in HTML.
-    styles = FRONTEND / 'styles.css'
-    paths = ([styles] if styles.exists() else []) + sorted(FRONTEND.glob("*.html"))
+    paths = sorted(FRONTEND.glob("*.css")) + sorted(FRONTEND.glob("*.html"))
     for path in paths:
         source = path.read_text(encoding="utf-8")
         updated = versioned_html(source)

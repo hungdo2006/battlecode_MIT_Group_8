@@ -1,40 +1,40 @@
 "use strict";
 // Canvas renderers receive saved JSON state. They never execute bot code.
-// Cyan and pink match the UI player tokens. Labels, distinct body fills and
+// Mint and cream match the UI player tokens. Labels, distinct body fills and
 // piece shapes keep each side identifiable without relying on color alone.
-const ARENA_COLORS = { A: "#5de4ed", B: "#f197d9" };
+const ARENA_COLORS = { A: "#48d5ae", B: "#f2efe6" };
 const colors = ARENA_COLORS;
 const PIECE_NAMES = { rock: "Búa", paper: "Bao", scissors: "Kéo" };
 const squareName = position => `${String.fromCharCode(97 + position.col)}${position.row + 1}`;
 
 function drawBattlecode(ctx, canvas, frame) {
   const w=canvas.width,h=canvas.height,board=frame.board;
-  ctx.clearRect(0,0,w,h);ctx.fillStyle="#0d101c";ctx.fillRect(0,0,w,h);
+  ctx.clearRect(0,0,w,h);ctx.fillStyle="#121212";ctx.fillRect(0,0,w,h);
   if (!board?.width) {
-    ctx.fillStyle="#9ca9c4";ctx.font="16px Inter,sans-serif";ctx.textAlign="center";
+    ctx.fillStyle="#b9b8b0";ctx.font="16px Inter,sans-serif";ctx.textAlign="center";
     ctx.fillText("Battlecode 2026 · Engine chính thức",w/2,h/2);return;
   }
   const cell=Math.min((w-140)/board.width,(h-100)/board.height),gx=(w-cell*board.width)/2,gy=(h-cell*board.height)/2;
   const position=index=>[gx+(index%board.width)*cell,gy+(board.height-1-Math.floor(index/board.width))*cell];
-  ctx.fillStyle="#121827";ctx.fillRect(gx,gy,cell*board.width,cell*board.height);
-  ctx.strokeStyle="#171c2c";ctx.lineWidth=.6;
+  ctx.fillStyle="#1b1b1b";ctx.fillRect(gx,gy,cell*board.width,cell*board.height);
+  ctx.strokeStyle="#363833";ctx.lineWidth=.6;
   for(let x=0;x<=board.width;x++){ctx.beginPath();ctx.moveTo(gx+x*cell,gy);ctx.lineTo(gx+x*cell,gy+cell*board.height);ctx.stroke();}
   for(let y=0;y<=board.height;y++){ctx.beginPath();ctx.moveTo(gx,gy+y*cell);ctx.lineTo(gx+cell*board.width,gy+y*cell);ctx.stroke();}
-  for(const [indices,color] of [[board.walls,"#727c9e"],[frame.terrain?.dirt||board.initial_dirt,"#3d4862"]]) {
+  for(const [indices,color] of [[board.walls,"#858a80"],[frame.terrain?.dirt||board.initial_dirt,"#454b42"]]) {
     ctx.fillStyle=color;for(const index of indices||[]){const[x,y]=position(index);ctx.fillRect(x+.5,y+.5,cell-1,cell-1);}
   }
-  ctx.fillStyle="#f3d377";
+  ctx.fillStyle="#efca7c";
   for(const index of frame.terrain?.cheese||board.initial_cheese||[]){const[x,y]=position(index);ctx.fillRect(x+cell*.35,y+cell*.35,cell*.3,cell*.3);}
-  for(const[index]of frame.terrain?.traps||[]){const[x,y]=position(index);ctx.strokeStyle="#ff95aa";ctx.strokeRect(x+cell*.2,y+cell*.2,cell*.6,cell*.6);}
+  for(const[index]of frame.terrain?.traps||[]){const[x,y]=position(index);ctx.strokeStyle="#ff9a91";ctx.strokeRect(x+cell*.2,y+cell*.2,cell*.6,cell*.6);}
   for(const unit of frame.units||[]){
     const x=gx+(unit.x+.5)*cell,y=gy+(board.height-unit.y-.5)*cell,king=unit.robotType===2,cat=unit.robotType===3;
     const radius=cell*(king?.65:cat?.55:.34);
-    ctx.beginPath();ctx.arc(x,y,radius,0,Math.PI*2);ctx.fillStyle=unit.team===1?colors.A:unit.team===2?colors.B:"#8794b2";ctx.fill();
-    ctx.strokeStyle="#e8e7ff";ctx.lineWidth=king?2:1;ctx.stroke();
-    if(cell>=10){ctx.fillStyle="#0d101c";ctx.font=`600 ${Math.max(7,cell*.5)}px Inter,sans-serif`;ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText(king?"K":cat?"C":"R",x,y);}
+    ctx.beginPath();ctx.arc(x,y,radius,0,Math.PI*2);ctx.fillStyle=unit.team===1?colors.A:unit.team===2?colors.B:"#a4a79d";ctx.fill();
+    ctx.strokeStyle="#f2efe6";ctx.lineWidth=king?2:1;ctx.stroke();
+    if(cell>=10){ctx.fillStyle="#121212";ctx.font=`600 ${Math.max(7,cell*.5)}px Inter,sans-serif`;ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText(king?"K":cat?"C":"R",x,y);}
   }
-  ctx.textBaseline="alphabetic";ctx.textAlign="center";ctx.font="11px Inter,sans-serif";ctx.fillStyle="#9ca9c4";
-  ctx.fillText("K · Rat King    R · Rat    C · Cat    A · cyan    B · hồng",w/2,h-18);
+  ctx.textBaseline="alphabetic";ctx.textAlign="center";ctx.font="11px Inter,sans-serif";ctx.fillStyle="#b9b8b0";
+  ctx.fillText("K · Rat King    R · Rat    C · Cat    A · xanh bạc hà    B · kem",w/2,h-18);
 }
 function polygon(ctx, points, fill, stroke = null, width = 1) {
   ctx.beginPath();
@@ -47,9 +47,9 @@ function polygon(ctx, points, fill, stroke = null, width = 1) {
 function drawRobot(ctx, x, y, size, player, hp, maximum, time, isHit) {
   const color = colors[player];
   const solid = player === "A";
-  const armor = solid ? "#153a47" : "#f197d9";
-  const detail = solid ? "#205c6c" : "#b95c9c";
-  const ink = solid ? "#a8f7ff" : "#32182e";
+  const armor = solid ? "#1b4538" : "#f2efe6";
+  const detail = solid ? "#2b6653" : "#b8b5a9";
+  const ink = solid ? "#b8f5df" : "#292c25";
   ctx.save();
   ctx.translate(x, y);
   const scale = size / 60;
@@ -66,7 +66,7 @@ function drawRobot(ctx, x, y, size, player, hp, maximum, time, isHit) {
   polygon(ctx, [[7, 8], [20, 8], [25, 24], [8, 24]], detail, color);
   polygon(ctx, [[-24, -17], [-15, -12], [-17, 7], [-29, 7], [-31, -8]], armor, color);
   polygon(ctx, [[24, -17], [15, -12], [17, 7], [29, 7], [31, -8]], armor, color);
-  polygon(ctx, [[-15, -18], [15, -18], [21, -8], [17, 12], [-17, 12], [-21, -8]], isHit ? "#3d4862" : armor, color, 1.3);
+  polygon(ctx, [[-15, -18], [15, -18], [21, -8], [17, 12], [-17, 12], [-21, -8]], isHit ? "#454b42" : armor, color, 1.3);
   ctx.shadowBlur = 0;
   ctx.fillStyle = detail; ctx.fillRect(-9, -10, 18, 13);
   ctx.strokeStyle = color; ctx.strokeRect(-9, -10, 18, 13);
@@ -78,7 +78,7 @@ function drawRobot(ctx, x, y, size, player, hp, maximum, time, isHit) {
   ctx.strokeStyle = color; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(0, -38); ctx.lineTo(0, -45); ctx.stroke();
   ctx.fillStyle = color; ctx.fillRect(-2, -47, 4, 3);
-  ctx.fillStyle = "#3d4862"; ctx.fillRect(-24, 32, 48, 3);
+  ctx.fillStyle = "#454b42"; ctx.fillRect(-24, 32, 48, 3);
   ctx.fillStyle = color; ctx.fillRect(-24, 32, 48 * Math.max(0, hp / maximum), 3);
   ctx.font = "11px Consolas, monospace"; ctx.textAlign = "center";
   ctx.fillStyle = color; ctx.fillText(`ROBOT ${player}`, 0, 48);
@@ -88,20 +88,20 @@ function drawRobot(ctx, x, y, size, player, hp, maximum, time, isHit) {
 function drawRobotArena(ctx, canvas, frame, transition, time, reducedMotion) {
   const w = canvas.width, h = canvas.height;
   ctx.clearRect(0, 0, w, h);
-  ctx.fillStyle = "#0d101c"; ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = "#121212"; ctx.fillRect(0, 0, w, h);
   const n = frame.rules.map_size;
   const gridSize = Math.min(h - 98, w - 150);
   const cell = gridSize / n;
   const gx = (w - gridSize) / 2, gy = (h - gridSize) / 2;
-  ctx.strokeStyle = "#293248"; ctx.lineWidth = 1;
+  ctx.strokeStyle = "#363833"; ctx.lineWidth = 1;
   for (let i = 0; i <= n; i++) {
     ctx.beginPath(); ctx.moveTo(gx + i * cell, gy); ctx.lineTo(gx + i * cell, gy + gridSize); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(gx, gy + i * cell); ctx.lineTo(gx + gridSize, gy + i * cell); ctx.stroke();
   }
   // Solid, quiet board frame; coordinate and movement geometry is unchanged.
-  ctx.strokeStyle = "#8794b2"; ctx.lineWidth = 1;
+  ctx.strokeStyle = "#a4a79d"; ctx.lineWidth = 1;
   ctx.strokeRect(gx, gy, gridSize, gridSize);
-  ctx.font = "11px Consolas, monospace"; ctx.textAlign = "center"; ctx.fillStyle = "#9ca9c4";
+  ctx.font = "11px Consolas, monospace"; ctx.textAlign = "center"; ctx.fillStyle = "#b9b8b0";
   for (let i = 0; i < n; i++) {
     ctx.fillText(String(i).padStart(2, "0"), gx + (i + .5) * cell, gy - 12);
     ctx.fillText(String(i).padStart(2, "0"), gx - 18, gy + (i + .5) * cell + 3);
@@ -149,18 +149,18 @@ function drawRobotArena(ctx, canvas, frame, transition, time, reducedMotion) {
 function drawPiece(ctx, x, y, size, piece, opacity = 1) {
   const color = colors[piece.owner];
   const solid = piece.owner === "A";
-  const ink = solid ? "#a8f7ff" : "#32182e";
-  const detail = solid ? "#205c6c" : "#e6a0d5";
+  const ink = solid ? "#b8f5df" : "#292c25";
+  const detail = solid ? "#2b6653" : "#e1ded4";
   ctx.save(); ctx.translate(x, y); ctx.scale(size / 54, size / 54); ctx.globalAlpha = opacity;
   ctx.shadowColor = color; ctx.shadowBlur = 0;
-  polygon(ctx, [[-24, -12], [-14, -23], [14, -23], [24, -12], [24, 13], [13, 23], [-13, 23], [-24, 13]], solid ? "#153a47" : "#f197d9", color, 1.2);
+  polygon(ctx, [[-24, -12], [-14, -23], [14, -23], [24, -12], [24, 13], [13, 23], [-13, 23], [-24, 13]], solid ? "#1b4538" : "#f2efe6", color, 1.2);
   ctx.shadowBlur = 0;
   if (piece.type === "rock") {
     polygon(ctx, [[-13, -7], [-8, -14], [2, -16], [12, -9], [14, 6], [6, 12], [-10, 10], [-15, 3]], detail, ink, 1.4);
     ctx.strokeStyle = ink; ctx.beginPath(); ctx.moveTo(-8, -9); ctx.lineTo(2, -2); ctx.lineTo(10, -6); ctx.stroke();
   } else if (piece.type === "paper") {
     polygon(ctx, [[-11, -16], [5, -16], [13, -8], [13, 14], [-11, 14]], detail, ink, 1.3);
-    polygon(ctx, [[5, -16], [5, -8], [13, -8]], solid ? "#727c9e" : "#3d4862", ink);
+    polygon(ctx, [[5, -16], [5, -8], [13, -8]], solid ? "#858a80" : "#454b42", ink);
     ctx.strokeStyle = ink;
     for (const yLine of [-3, 3, 9]) { ctx.beginPath(); ctx.moveTo(-6, yLine); ctx.lineTo(8, yLine); ctx.stroke(); }
   } else {
@@ -178,7 +178,7 @@ function drawPiece(ctx, x, y, size, piece, opacity = 1) {
 function drawOTT(ctx, canvas, frame, transition, time, reducedMotion) {
   const width = canvas.width, height = canvas.height;
   ctx.clearRect(0, 0, width, height);
-  ctx.fillStyle = "#0d101c"; ctx.fillRect(0, 0, width, height);
+  ctx.fillStyle = "#121212"; ctx.fillRect(0, 0, width, height);
   const grid = Math.min(height - 98, width - 100), cell = grid / frame.board_size;
   const gx = (width - grid) / 2, gy = (height - grid) / 2;
   const center = p => ({ x: gx + (p.col + .5) * cell, y: gy + (frame.board_size - 1 - p.row + .5) * cell });
@@ -188,9 +188,9 @@ function drawOTT(ctx, canvas, frame, transition, time, reducedMotion) {
   for (let row = 0; row < frame.board_size; row++) {
     for (let col = 0; col < frame.board_size; col++) {
       const p = center({ row, col });
-      ctx.fillStyle = (row + col) % 2 ? "#171c2c" : "#101624";
+      ctx.fillStyle = (row + col) % 2 ? "#363833" : "#161815";
       ctx.fillRect(p.x - cell / 2, p.y - cell / 2, cell, cell);
-      ctx.strokeStyle = "#3d4862"; ctx.lineWidth = 1;
+      ctx.strokeStyle = "#454b42"; ctx.lineWidth = 1;
       ctx.strokeRect(p.x - cell / 2, p.y - cell / 2, cell, cell);
       for (const player of ["A", "B"]) {
         if (same(frame.goals[player], { row, col })) {
@@ -206,7 +206,7 @@ function drawOTT(ctx, canvas, frame, transition, time, reducedMotion) {
       }
     }
   }
-  ctx.font = "12px Consolas,monospace"; ctx.textAlign = "center"; ctx.fillStyle = "#9ca9c4";
+  ctx.font = "12px Consolas,monospace"; ctx.textAlign = "center"; ctx.fillStyle = "#b9b8b0";
   for (let index = 0; index < frame.board_size; index++) {
     ctx.fillText(String.fromCharCode(97 + index), gx + (index + .5) * cell, gy - 12);
     ctx.fillText(String(frame.board_size - index), gx - 17, gy + (index + .5) * cell + 3);
@@ -218,7 +218,7 @@ function drawOTT(ctx, canvas, frame, transition, time, reducedMotion) {
     ctx.beginPath(); ctx.moveTo(from.x, from.y); ctx.lineTo(to.x, to.y); ctx.stroke(); ctx.setLineDash([]);
     if (move.captured && t < 1 && !reducedMotion) {
       drawPiece(ctx, to.x, to.y, cell * .71, move.captured, 1 - t);
-      ctx.save(); ctx.strokeStyle = "#b0b9d3"; ctx.globalAlpha = 1 - t; ctx.lineWidth = 2;
+      ctx.save(); ctx.strokeStyle = "#b9b8b0"; ctx.globalAlpha = 1 - t; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.arc(to.x, to.y, cell * (.15 + t * .6), 0, Math.PI * 2); ctx.stroke(); ctx.restore();
     }
   }
@@ -234,11 +234,11 @@ function drawOTT(ctx, canvas, frame, transition, time, reducedMotion) {
       drawPiece(ctx, p.x, p.y - cell * .03, cell * .72, piece);
     }
   }
-  ctx.font = "12px Consolas,monospace"; ctx.fillStyle = "#b0b9d3"; ctx.textAlign = "left";
+  ctx.font = "12px Consolas,monospace"; ctx.fillStyle = "#b9b8b0"; ctx.textAlign = "left";
   ctx.fillText("R / BÚA", gx + grid + 20, gy + 25);
   ctx.fillText("P / BAO", gx + grid + 20, gy + 48);
   ctx.fillText("S / KÉO", gx + grid + 20, gy + 71);
-  ctx.fillStyle = "#9ca9c4"; ctx.fillText("R > S", gx + grid + 20, gy + 117);
+  ctx.fillStyle = "#b9b8b0"; ctx.fillText("R > S", gx + grid + 20, gy + 117);
   ctx.fillText("S > P", gx + grid + 20, gy + 140); ctx.fillText("P > R", gx + grid + 20, gy + 163);
 }
 
@@ -248,8 +248,8 @@ window.NeonRenderers = (() => {
   const registry = new Map();
   const generic = {
     draw(ctx, canvas, frame) {
-      ctx.fillStyle = "#0d101c"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = "#b0b9d3"; ctx.font = "12px Consolas,monospace";
+      ctx.fillStyle = "#121212"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#b9b8b0"; ctx.font = "12px Consolas,monospace";
       JSON.stringify(frame, null, 2).split("\n").slice(0, 30).forEach((line, i) => ctx.fillText(line.slice(0, 90), 40, 55 + i * 15));
     },
     hud(frame) { return { grid: frame.game_id || "GAME", phase: "STATE VIEW", turnMax: "—", players: { A: { value: 0, max: 1, text: "PLAYER A" }, B: { value: 0, max: 1, text: "PLAYER B" } } }; },

@@ -3,61 +3,76 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#090a12">
+  <meta name="theme-color" content="#121212">
   <meta name="referrer" content="no-referrer">
-  <meta name="description" content="NEON ARENA — không gian thi đấu bot đa game trên local và LAN.">
+  <meta name="description" content="Viết code. Chọn chiến thuật. Để bot tranh tài. NEON ARENA là không gian thi đấu lập trình bot dành cho những ý tưởng của bạn.">
   <title>NEON ARENA · Tournament workspace</title>
-  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=b78a50b1c80f">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=060d21f42e8e">
   <link rel="preload" href="/static/fonts/InterVariable.woff2?v=693b77d4f32e" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/static/styles.css?v=888090b8fe89">
-  <script src="/static/renderers.js?v=9aa93bd51455" defer></script>
-  <script src="/static/ui.js?v=01d6bafd6c85" defer></script>
-  <script src="/static/app.js?v=84251cdf83cf" defer></script>
+  <link rel="preload" href="/static/fonts/Handjet.woff2?v=58b1a0647480" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/static/tokens.css?v=513960b6a3bb">
+  <link rel="stylesheet" href="/static/styles.css?v=6e7852970813">
+  <link rel="stylesheet" href="/static/landing.css?v=a7d7b33e94c0">
+  <script src="/static/renderers.js?v=a50abc4d90b8" defer></script>
+  <script src="/static/ui.js?v=b9037ffce0ec" defer></script>
+  <script src="/static/app.js?v=b4824f65ae67" defer></script>
 </head>
 <body class="account-landing-active">
   <!-- Public welcome screen; workspace visibility is never an authorization boundary. -->
   <section class="account-landing" id="account-landing" aria-labelledby="landing-title">
-    <div class="landing-frame">
+    <a class="landing-skip" href="#landing-content">Đến nội dung chính</a>
+    <div class="landing-frame" id="landing-top">
       <header class="landing-header">
-        <div class="landing-brand"><span class="landing-logo" aria-hidden="true">N↗</span><span>NEON ARENA<small>BOT TOURNAMENT PLATFORM</small></span></div>
-        <nav class="landing-navigation" aria-label="Khám phá NEON ARENA"><a class="landing-header-note" href="#landing-workflow">Cách thi đấu <span aria-hidden="true">↓</span></a><a class="landing-docs-link" href="/static/protocol.html">Tài liệu bot <span aria-hidden="true">↗</span></a></nav>
+        <a class="landing-brand" href="#landing-top" aria-label="NEON ARENA — đầu trang"><span class="landing-logo" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 20V4h4v4h4v4h4V4h6v16h-4v-4h-4v-4H9v8Z"/></svg></span><span>NEON ARENA<small>A PLAYGROUND FOR YOUR CODE</small></span></a>
+        <button class="landing-menu-toggle" id="landing-menu-toggle" type="button" aria-controls="landing-navigation" aria-expanded="false" hidden><span>Menu</span><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 6h14M3 13h14"/></svg></button>
+        <nav class="landing-navigation" id="landing-navigation" aria-label="Khám phá NEON ARENA">
+          <a href="#landing-features">Khám phá</a><a href="#landing-workflow">Cách thi đấu</a><a href="/static/protocol.html">Tài liệu <span aria-hidden="true">↗</span></a>
+          <div class="landing-nav-auth"><button type="button" data-landing-auth="login" disabled>Đăng nhập</button><button class="landing-nav-register" type="button" data-landing-auth="register" disabled>Đăng ký <span aria-hidden="true">↗</span></button></div>
+        </nav>
       </header>
-      <main class="landing-main">
+      <main id="landing-content" tabindex="-1">
+      <section class="landing-main" aria-labelledby="landing-title">
         <div class="landing-copy">
-          <p class="landing-eyebrow"><span aria-hidden="true">✦</span> NỀN TẢNG THI ĐẤU BOT</p>
-          <h1 id="landing-title">Viết chiến thuật.<br><span>Làm chủ trận đấu.</span></h1>
-          <p class="landing-lead">Từ những dòng code đến một đội thi đấu. Xây dựng bot, tranh tài cùng đối thủ và khám phá điều làm nên một chiến thuật xuất sắc.</p>
-          <div class="landing-actions">
-            <button class="landing-action primary" id="landing-login" type="button" disabled>Vào đấu trường <span aria-hidden="true">↗</span></button>
+          <p class="landing-eyebrow" data-intro><span aria-hidden="true">+</span> NƠI Ý TƯỞNG BƯỚC VÀO TRẬN ĐẤU</p>
+          <h1 id="landing-title" data-intro>Viết code.<br><span>Đấu trí.</span><br>Để bot lo.</h1>
+          <p class="landing-lead" data-intro>Một chút code. Một chiến thuật riêng.<br class="landing-desktop-break"> Xây dựng bot, tìm đồng đội và để ý tưởng của bạn tranh tài trong đấu trường.</p>
+          <div class="landing-actions" data-intro>
+            <button class="landing-action primary" id="landing-login" type="button" disabled>Tham gia đấu trường <span aria-hidden="true">↗</span></button>
             <button class="landing-action secondary" id="landing-register" type="button" disabled>Đăng ký Player</button>
           </div>
-          <div class="landing-languages" aria-label="Ngôn ngữ được hỗ trợ"><span><i aria-hidden="true"></i>Python</span><span><i aria-hidden="true"></i>C++</span><span><i aria-hidden="true"></i>Java</span></div>
+          <div class="landing-languages" aria-label="Ngôn ngữ được hỗ trợ" data-intro><span><i aria-hidden="true"></i>Python</span><span><i aria-hidden="true"></i>C++</span><span><i aria-hidden="true"></i>Java</span><span class="landing-language-note">Ý tưởng là của bạn.</span></div>
           <p class="landing-status" id="landing-status" role="status" aria-live="polite">Đang kiểm tra phiên đăng nhập…</p>
           <p class="landing-register-note" id="landing-register-note"></p>
           <button class="landing-retry hidden" id="landing-retry" type="button">Thử kết nối lại</button>
         </div>
-        <aside class="landing-protocol" aria-labelledby="landing-protocol-title">
-          <div class="terminal-toolbar" aria-hidden="true"><span class="terminal-dots"><i></i><i></i><i></i></span><span>strategy.py</span><span class="terminal-symbol">&lt;/&gt;</span></div>
-          <div class="landing-protocol-heading"><span class="eyebrow">CODE → ARENA</span><span class="tag">Python · Robot Battle</span></div>
-          <h2 id="landing-protocol-title">Một ý tưởng.<br>Hàng trăm nước đi.</h2>
-          <p>Bot đọc trạng thái, chọn hành động và trả kết quả. Bạn tập trung vào chiến thuật.</p>
-          <pre aria-label="Ví dụ giao thức bot Python"><code><span class="code-comment"># Đọc một lượt. Chọn một nước đi.</span>
-<span class="code-keyword">import</span> json, sys
-
-<span class="code-keyword">for</span> line <span class="code-keyword">in</span> sys.stdin:
-    state = json.<span class="code-function">loads</span>(line)
-    action = {<span class="code-string">"type"</span>: <span class="code-string">"wait"</span>}
-    <span class="code-function">print</span>(json.<span class="code-function">dumps</span>(action), flush=<span class="code-constant">True</span>)</code></pre>
-          <div class="landing-protocol-footer"><span>Ví dụ giao thức · không phải trận trực tiếp</span><a href="/static/protocol.html">Đọc hướng dẫn <span aria-hidden="true">→</span></a></div>
-        </aside>
-      </main>
-      <div class="landing-section-heading"><div><p class="eyebrow">TỪ Ý TƯỞNG ĐẾN ĐẤU TRƯỜNG</p><h2>Chiến thuật hay bắt đầu từ bạn.</h2></div><span>Code. Compete. Evolve.</span></div>
-      <section class="landing-workflow" id="landing-workflow" aria-label="Từ ý tưởng đến trận đấu">
-        <div><span class="landing-step-number">01</span><h2>Viết chiến thuật của bạn</h2><p>Xây dựng bot bằng Python, C++ hoặc Java. Bắt đầu từ ý tưởng hoặc bot mẫu.</p><a class="text-button" href="/static/protocol.html#examples-section">Xem bot mẫu →</a></div>
-        <div><span class="landing-step-number">02</span><h2>Cùng đội bước vào giải đấu</h2><p>Thành lập đội, chọn bot đại diện và chuẩn bị cho những trận đấu tiếp theo.</p><a class="text-button" href="/lan#account-workflow">Cách tạo đội và thi đấu →</a></div>
-        <div><span class="landing-step-number">03</span><h2>Học từ từng nước đi</h2><p>Theo dõi trận đấu và xem lại replay để hoàn thiện chiến thuật của bạn.</p></div>
+        <figure class="landing-protocol landing-art" aria-labelledby="landing-protocol-title" data-intro>
+          <div class="landing-window-bar"><span class="landing-window-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>arena-lab.exe</span><span aria-hidden="true">[ − × ]</span></div>
+          <img src="/static/art/arena-workstation.svg?v=e67b751f0062" width="560" height="464" alt="Minh họa pixel: góc bàn lập trình với máy tính cổ, bàn phím, cây xanh và hai bot trên màn hình chiến thuật." fetchpriority="high" decoding="async">
+          <figcaption><h2 id="landing-protocol-title">Góc nhỏ. Chiến thuật lớn.</h2><span>MINH HỌA <span aria-hidden="true">↗</span></span></figcaption>
+        </figure>
       </section>
-      <footer class="landing-footer"><span>NEON ARENA · Competitive bot programming</span><span>Built for curious minds.</span></footer>
+
+      <section class="landing-features" id="landing-features" aria-labelledby="landing-features-title" data-reveal>
+        <div class="landing-section-heading"><p class="landing-eyebrow">TỪ DÒNG CODE ĐẾN ĐẤU TRƯỜNG</p><h2 id="landing-features-title">Chơi bằng <span>trí tưởng tượng.</span></h2><p>Bạn viết chiến thuật. Đấu trường là nơi thử sức.</p></div>
+        <div class="landing-feature-grid">
+          <article class="landing-feature"><div class="landing-feature-top"><svg class="landing-pixel-icon" viewBox="0 0 40 40" aria-hidden="true"><path d="M14 9H9v5H4v12h5v5h5M26 9h5v5h5v12h-5v5h-5M23 5h-4v10h-4v20h4V25h4Z"/></svg><span>01 / CREATE</span></div><h3>Viết một đối thủ đáng gờm.</h3><p>Biến ý tưởng thành bot bằng Python, C++ hoặc Java. Bot mẫu giúp bạn bắt đầu từ nước đi đầu tiên.</p><a href="/static/protocol.html#examples-section">Khám phá bot mẫu <span aria-hidden="true">↗</span></a></article>
+          <article class="landing-feature"><div class="landing-feature-top"><svg class="landing-pixel-icon" viewBox="0 0 40 40" aria-hidden="true"><path d="M10 5h20v5h7v12h-7v5h-7v5h7v4H10v-4h7v-5h-7v-5H3V10h7Zm0 9H7v4h3Zm20 0v4h3v-4ZM14 9v14h12V9Z"/></svg><span>02 / COMPETE</span></div><h3>Cùng đội bước vào giải đấu.</h3><p>Tìm đồng đội, chọn bot đại diện và tham gia giải. Mỗi đối thủ là một bài toán mới để chinh phục.</p><a href="/lan#account-workflow">Tìm hiểu cách thi đấu <span aria-hidden="true">↗</span></a></article>
+          <article class="landing-feature"><div class="landing-feature-top"><svg class="landing-pixel-icon" viewBox="0 0 40 40" aria-hidden="true"><path d="M14 4h16v4h5v5h4v14h-4v5h-5v4H14v-4H9v-5h4v4h17v-4h5V13h-5V9H14v4h5v4H5V3h4v6h5Zm5 10h4v4h5v4h-5v4h-4Z"/></svg><span>03 / EVOLVE</span></div><h3>Hay hơn sau mỗi trận.</h3><p>Theo dõi kết quả, tua lại từng nước đi trong replay. Hiểu điều đã xảy ra và tìm chiến thuật tiếp theo.</p><a href="#landing-workflow">Bắt đầu hành trình <span aria-hidden="true">↗</span></a></article>
+        </div>
+      </section>
+
+      <section class="landing-workflow-section" id="landing-workflow" aria-labelledby="landing-workflow-title" data-reveal>
+        <div class="landing-workflow-intro"><p class="landing-eyebrow">KHỞI ĐỘNG THÔI / PRESS START</p><h2 id="landing-workflow-title">Ý tưởng của bạn.<br>Ba bước để <span>tranh tài.</span></h2><a class="landing-inline-link" href="/lan#account-workflow">Hướng dẫn cho người mới <span aria-hidden="true">↗</span></a></div>
+        <ol class="landing-workflow">
+          <li><span class="landing-step-number" aria-hidden="true">01</span><div><h3>Tạo tài khoản. Chuẩn bị bot.</h3><p>Đăng ký Player, chọn ngôn ngữ quen thuộc và bắt đầu với bot mẫu.</p></div></li>
+          <li><span class="landing-step-number" aria-hidden="true">02</span><div><h3>Tìm đội. Chọn giải đấu.</h3><p>Tạo hoặc tham gia đội, nộp bot và đăng ký giải khi ban tổ chức mở đăng ký.</p></div></li>
+          <li><span class="landing-step-number" aria-hidden="true">03</span><div><h3>Thi đấu. Xem lại. Tiến bộ.</h3><p>Theo dõi kết quả, phân tích replay và tiếp tục thử những ý tưởng mới.</p></div></li>
+        </ol>
+      </section>
+
+      <section class="landing-closing" aria-labelledby="landing-closing-title" data-reveal><span class="landing-closing-mark" aria-hidden="true">&gt;_</span><div><p class="landing-eyebrow">NƯỚC ĐI TIẾP THEO LÀ CỦA BẠN</p><h2 id="landing-closing-title">Một ý tưởng hay đang chờ được viết.</h2></div><button class="landing-action primary" type="button" data-landing-auth="login" disabled>Vào đấu trường <span aria-hidden="true">↗</span></button></section>
+      </main>
+      <footer class="landing-footer"><a href="#landing-top">NEON ARENA <span aria-hidden="true">©</span> <span class="landing-footer-note">Code. Compete. Evolve.</span></a><div><a href="/static/protocol.html">Tài liệu bot <span aria-hidden="true">↗</span></a><span>Made for curious minds <span class="landing-footer-spark" aria-hidden="true">✳</span></span></div></footer>
     </div>
   </section>
   <a class="skip-link" href="#main-content">Đến nội dung chính</a>
@@ -86,7 +101,7 @@
   <div class="nav-backdrop" id="nav-backdrop" hidden></div>
   <aside class="sidebar" id="workspace-navigation" aria-label="Điều hướng workspace" tabindex="-1">
     <div class="sidebar-brand-row">
-      <a class="brand" href="#home" aria-label="NEON ARENA trang chủ"><span class="brand-mark" aria-hidden="true">N↗</span><span>neon arena<span class="brand-sub">TOURNAMENT WORKSPACE</span></span></a>
+      <a class="brand" href="#home" aria-label="NEON ARENA trang chủ"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 20V4h4v4h4v4h4V4h6v16h-4v-4h-4v-4H9v8Z"/></svg></span><span>neon arena<span class="brand-sub">TOURNAMENT WORKSPACE</span></span></a>
       <button class="icon-button nav-close" id="nav-close" type="button" aria-label="Đóng điều hướng">×</button>
     </div>
     <nav aria-label="Điều hướng chính">
@@ -169,9 +184,9 @@
           <section class="panel arena-panel" aria-label="Đấu trường trực tiếp và replay">
             <div class="panel-heading"><h2>Bàn đấu <span class="tag" id="arena-game">Game</span></h2><span class="live-tag" id="arena-status"><i></i>Chờ trận đấu</span></div>
             <div class="combatants">
-              <div class="fighter fighter-a"><span class="fighter-icon">A</span><div><small>PLAYER A</small><strong id="fighter-a-name">Chưa có bot thi đấu</strong><div class="hp-track"><span id="hp-a-fill"></span></div><span class="hp-text" id="hp-a-text">—</span></div></div>
+              <div class="fighter fighter-a"><span class="fighter-icon" aria-hidden="true">A</span><div><small>PLAYER A</small><strong id="fighter-a-name">Chưa có bot thi đấu</strong><span class="fighter-bot" id="fighter-a-bot"></span><div class="hp-track"><span id="hp-a-fill"></span></div><span class="hp-text" id="hp-a-text">—</span></div></div>
               <div class="vs">vs<span>HEAD TO HEAD</span></div>
-              <div class="fighter fighter-b"><div><small>PLAYER B</small><strong id="fighter-b-name">Chưa có bot thi đấu</strong><div class="hp-track"><span id="hp-b-fill"></span></div><span class="hp-text" id="hp-b-text">—</span></div><span class="fighter-icon">B</span></div>
+              <div class="fighter fighter-b"><div><small>PLAYER B</small><strong id="fighter-b-name">Chưa có bot thi đấu</strong><span class="fighter-bot" id="fighter-b-bot"></span><div class="hp-track"><span id="hp-b-fill"></span></div><span class="hp-text" id="hp-b-text">—</span></div><span class="fighter-icon" aria-hidden="true">B</span></div>
             </div>
             <div class="canvas-wrap" id="canvas-wrap">
               <div class="canvas-hud"><span id="arena-map-label">Bàn chơi</span><span id="arena-phase">Đang tải…</span></div>
@@ -196,7 +211,7 @@
 
         <section class="view" id="view-standings" aria-label="Bảng xếp hạng"><div class="page-intro"><h1>Bảng xếp hạng</h1><p>Kết quả được tổng hợp từ các trận free-play đã hoàn tất.</p><a class="text-button" href="/results" target="_blank" rel="noopener">Xem bảng điểm công khai ↗</a></div><section class="panel standings-panel"><div class="panel-heading"><h2>Bảng xếp hạng</h2><label class="standings-game-filter">Game<select id="standings-game-select" aria-label="Chọn game để xem bảng xếp hạng"></select></label></div><div class="standings-table-wrap"><table class="standings-table"><thead><tr><th>Hạng</th><th>Người chơi</th><th>Đã đấu</th><th>Thắng</th><th>Hòa</th><th>Thua</th><th>Tỷ lệ thắng</th><th>Phong độ 5 trận gần nhất</th></tr></thead><tbody id="standings-body"><tr><td colspan="8" class="empty-state">Đang tải bảng xếp hạng…</td></tr></tbody></table></div></section></section>
 
-        <section class="view" id="view-tournaments" aria-label="Giải đấu"><div class="page-intro"><h1>Giải đấu</h1><p>Organizer tạo giải, chọn thể thức và theo dõi tiến trình ghép trận.</p></div><details class="panel workflow-disclosure organizer-only legacy-match-panel tournament-create-panel"><summary>T?o gi?i ??u</summary><div class="panel-heading"><h2>Tạo giải đấu</h2><span class="tag">Organizer</span></div><form id="tournament-create-form" class="padded-form"><label>Tên giải<input name="name" type="text" maxlength="64" required></label><label>Thể thức<select name="format" required><option value="single_elimination">Loại trực tiếp</option><option value="double_elimination">Double elimination</option><option value="round_robin">Vòng tròn tính điểm</option></select></label><div><span>Chọn người chơi</span><div id="tournament-player-options" class="match-list"><div class="empty-state">Đang tải danh sách người chơi…</div></div></div><p id="tournament-feedback" class="feedback"></p><button class="button primary" type="submit">Tạo giải <span>↗</span></button></form></details><section class="panel tournament-list-panel"><div class="panel-heading"><h2>Các giải đấu</h2><button class="button ghost small" id="refresh-tournaments" type="button">Làm mới</button></div><div id="tournaments-list" class="match-list"><div class="empty-state">Đang tải danh sách giải đấu…</div></div></section>
+        <section class="view" id="view-tournaments" aria-label="Giải đấu"><div class="page-intro"><h1>Giải đấu</h1><p>Organizer tạo giải, chọn thể thức và theo dõi tiến trình ghép trận.</p></div><details class="panel workflow-disclosure organizer-only legacy-match-panel tournament-create-panel"><summary>Tạo giải đấu</summary><div class="panel-heading"><h2>Tạo giải đấu</h2><span class="tag">Organizer</span></div><form id="tournament-create-form" class="padded-form"><label>Tên giải<input name="name" type="text" maxlength="64" required></label><label>Thể thức<select name="format" required><option value="single_elimination">Loại trực tiếp</option><option value="double_elimination">Double elimination</option><option value="round_robin">Vòng tròn tính điểm</option></select></label><div><span>Chọn người chơi</span><div id="tournament-player-options" class="match-list"><div class="empty-state">Đang tải danh sách người chơi…</div></div></div><p id="tournament-feedback" class="feedback"></p><button class="button primary" type="submit">Tạo giải <span>↗</span></button></form></details><section class="panel tournament-list-panel"><div class="panel-heading"><h2>Các giải đấu</h2><button class="button ghost small" id="refresh-tournaments" type="button">Làm mới</button></div><div id="tournaments-list" class="match-list"><div class="empty-state">Đang tải danh sách giải đấu…</div></div></section>
           <div id="account-team-tournaments" class="hidden">
             <div class="page-intro"><h1>Giải đấu</h1><p>Chọn trò chơi, mời đội tham gia rồi điều hành từng vòng. Bạn không cần mở khóa phần Game mặc định để tạo giải.</p></div>
             <div class="tournament-signup-shortcut hidden" id="player-tournament-signup"><div><strong>Bạn muốn tham gia một giải?</strong><p>Trưởng đội đăng ký trong đợt tuyển đội đang mở. Sau khi đăng ký, Ban tổ chức sẽ công bố lịch thi đấu.</p></div><a class="button primary" href="#seasons">Xem đợt đăng ký →</a></div>
@@ -412,7 +427,8 @@
         <section id="admin-pane-accounts" role="tabpanel" aria-labelledby="admin-tab-accounts" tabindex="0">
         <div class="admin-tools"><details class="workflow-disclosure" id="admin-invite-disclosure"><summary>Mời Player</summary><section class="panel"><div class="panel-heading"><h2>Mời Player mới</h2></div><form id="admin-invite-form" class="padded-form"><label>Tên đăng nhập<input name="username" required minlength="3" maxlength="32" autocomplete="off"></label><label>Tên hiển thị<input name="name" maxlength="64" required></label><button class="button primary" type="submit">Tạo lời mời Player</button><label class="hidden" id="admin-invite-token-label">Mã kích hoạt dùng một lần<input id="admin-invite-token" readonly autocomplete="off" spellcheck="false"></label><div id="admin-invite-feedback" class="feedback hidden" role="status"></div></form></section></details><button class="text-button" id="admin-refresh-accounts" type="button">Làm mới ↻</button></div>
         <section class="panel"><div class="panel-heading"><h2>Tài khoản</h2><form id="admin-account-search" class="inline-search"><label for="admin-account-query" class="sr-only">Tìm tài khoản</label><input id="admin-account-query" name="search" placeholder="Tên hoặc username" maxlength="128"><button class="button ghost small" type="submit">Tìm</button></form></div>
-          <div class="data-table-wrap" tabindex="0" role="region" aria-label="Danh sách tài khoản, cuộn ngang để xem đầy đủ"><table class="data-table"><thead><tr><th>Thành viên</th><th>Vai trò</th><th>Trạng thái</th><th>Đội</th><th>Thao tác</th></tr></thead><tbody id="admin-accounts-body"></tbody></table></div><div class="table-pagination"><span id="admin-account-count" class="form-note"></span><div class="form-buttons"><button class="button ghost small" id="admin-accounts-prev" type="button">Trước</button><button class="button ghost small" id="admin-accounts-next" type="button">Sau</button></div></div>
+          <p class="table-scroll-hint" id="admin-accounts-scroll-hint" hidden><span aria-hidden="true">↔</span> Vuốt ngang để xem đầy đủ<span class="sr-only">. Khi chọn bảng, dùng phím mũi tên để cuộn.</span></p>
+          <div class="data-table-wrap" tabindex="0" role="region" aria-label="Danh sách tài khoản" aria-describedby="admin-accounts-scroll-hint" data-scroll-hint="admin-accounts-scroll-hint"><table class="data-table"><thead><tr><th>Thành viên</th><th>Vai trò</th><th>Trạng thái</th><th>Đội</th><th>Thao tác</th></tr></thead><tbody id="admin-accounts-body"></tbody></table></div><div class="table-pagination"><span id="admin-account-count" class="form-note"></span><div class="form-buttons"><button class="button ghost small" id="admin-accounts-prev" type="button">Trước</button><button class="button ghost small" id="admin-accounts-next" type="button">Sau</button></div></div>
         </section>
         <div id="admin-recovery-host"></div>
         </section>

@@ -2,6 +2,100 @@
 
 // Shared progressive enhancements for the workspace and standalone documents.
 (() => {
+  // Public entry is a progressive enhancement, independent of auth/business state.
+  const landing = document.getElementById("account-landing");
+  if (landing) {
+    const header = landing.querySelector(".landing-header");
+    const menu = document.getElementById("landing-menu-toggle");
+    const navigation = document.getElementById("landing-navigation");
+    const mobile = window.matchMedia("(max-width: 640px)");
+    const closeMenu = (returnFocus = false) => {
+      navigation.classList.remove("is-open");
+      menu.setAttribute("aria-expanded", "false");
+      if (returnFocus) menu.focus();
+    };
+    menu.hidden = false;
+    header.classList.add("is-enhanced");
+    menu.addEventListener("click", () => {
+      const open = menu.getAttribute("aria-expanded") !== "true";
+      menu.setAttribute("aria-expanded", String(open));
+      navigation.classList.toggle("is-open", open);
+    });
+    navigation.addEventListener("click", event => {
+      if (event.target.closest("a, button")) closeMenu();
+    });
+    header.addEventListener("keydown", event => {
+      if (event.key === "Escape" && menu.getAttribute("aria-expanded") === "true") {
+        event.preventDefault();
+        closeMenu(true);
+      }
+    });
+    mobile.addEventListener("change", () => closeMenu());
+    // Additional entry points proxy the original buttons, including their disabled
+    // state. Registration availability still comes exclusively from app bootstrap.
+    for (const kind of ["login", "register"]) {
+      const original = document.getElementById(`landing-${kind}`);
+      const triggers = [...landing.querySelectorAll(`[data-landing-auth="${kind}"]`)];
+      const sync = () => { for (const trigger of triggers) trigger.disabled = original.disabled; };
+      new MutationObserver(sync).observe(original, { attributes: true, attributeFilter: ["disabled"] });
+      sync();
+      for (const trigger of triggers) trigger.addEventListener("click", () => original.click());
+    }
+    const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    // Keep public section links out of the application's workspace hash router.
+    // Native hrefs remain useful when JS is unavailable.
+    landing.addEventListener("click", event => {
+      if (event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+      const link = event.target.closest('a[href^="#landing-"]');
+      const target = link && document.getElementById(link.hash.slice(1));
+      if (!target) return;
+      event.preventDefault();
+      if (!target.hasAttribute("tabindex")) {
+        target.tabIndex = -1;
+        target.addEventListener("blur", () => target.removeAttribute("tabindex"), { once: true });
+      }
+      target.focus({ preventScroll: true });
+      target.scrollIntoView({ behavior: motion.matches ? "instant" : "smooth", block: "start" });
+    });
+    const enter = node => {
+      if (motion.matches) return;
+      node.classList.add("is-entering");
+      node.addEventListener("animationend", () => node.classList.remove("is-entering"), { once: true });
+    };
+    landing.querySelectorAll("[data-intro]").forEach((node, index) => {
+      node.style.setProperty("--intro-delay", `${Math.min(index * 65, 260)}ms`);
+      enter(node);
+    });
+    if ("IntersectionObserver" in window && !motion.matches) {
+      const observer = new IntersectionObserver(entries => {
+        for (const entry of entries) if (entry.isIntersecting) {
+          enter(entry.target);
+          observer.unobserve(entry.target);
+        }
+      }, { threshold: 0.08 });
+      landing.querySelectorAll("[data-reveal]").forEach(node => observer.observe(node));
+      motion.addEventListener("change", () => {
+        if (motion.matches) {
+          observer.disconnect();
+          landing.querySelectorAll(".is-entering").forEach(node => node.classList.remove("is-entering"));
+        }
+      });
+    }
+  }
+  // Describe scrollable tables only while their columns exceed the visible area.
+  for (const region of document.querySelectorAll("[data-scroll-hint]")) {
+    const hint = document.getElementById(region.dataset.scrollHint);
+    if (!hint) continue;
+    const sync = () => {
+      hint.hidden = !region.clientWidth || region.scrollWidth <= region.clientWidth + 1;
+      if (hint.hidden) region.removeAttribute("aria-describedby");
+      else region.setAttribute("aria-describedby", hint.id);
+    };
+    const observer = new ResizeObserver(sync);
+    observer.observe(region);
+    sync();
+  }
+
   for (const tablist of document.querySelectorAll("[data-tabs]")) {
     const tabs = [...tablist.querySelectorAll('[role="tab"]')];
     const select = tab => {

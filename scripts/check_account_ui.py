@@ -136,6 +136,23 @@ def run():
                 page.wait_for_function("!document.querySelector('#workspace-game-select').disabled")
                 assert page.locator("#workspace-game-select").is_enabled()
 
+                # The current Player navigation intentionally hides advanced
+                # settings (PR #47/#48). Exercise the details focus cycle as Admin.
+                page.set_viewport_size({"width": 390, "height": 844})
+                admin_navigation = page.locator("#workspace-navigation")
+                page.click("#nav-toggle")
+                page.wait_for_function("document.activeElement.id === 'nav-close'")
+                assert admin_navigation.locator("#nav-advanced").is_visible()
+                admin_navigation.locator("#nav-advanced > summary").focus()
+                page.keyboard.press("Enter")
+                admin_controls = admin_navigation.locator('a[href], button:not(:disabled), summary, [tabindex="0"]').filter(visible=True)
+                admin_controls.last.focus()
+                page.keyboard.press("Tab")
+                assert admin_controls.first.evaluate("node => node === document.activeElement")
+                page.keyboard.press("Escape")
+                assert page.locator("#nav-toggle").evaluate("node => node === document.activeElement")
+                page.set_viewport_size({"width": 1440, "height": 900})
+
                 # Failed/ambiguous logout must retain identity and offer retry;
                 # none of these responses confirms server-side revocation.
                 logout_url = origin + "/api/admin/auth/logout"
@@ -228,14 +245,8 @@ def run():
                 assert controls.first.evaluate("node => node === document.activeElement")
                 page.keyboard.press("Shift+Tab")
                 assert controls.last.evaluate("node => node === document.activeElement")
-                # Closed details must contribute its summary, but not hidden
-                # child links, to the modal's keyboard cycle.
-                navigation.locator("#nav-advanced > summary").focus()
-                page.keyboard.press("Enter")
-                controls = navigation.locator('a[href], button:not(:disabled), summary, [tabindex="0"]').filter(visible=True)
-                controls.last.focus()
-                page.keyboard.press("Tab")
-                assert controls.first.evaluate("node => node === document.activeElement")
+                assert navigation.locator("#nav-advanced").is_hidden()
+                assert navigation.locator('[data-view="rules"]').is_hidden()
                 page.keyboard.press("Escape")
                 assert toggle.evaluate("node => node === document.activeElement")
                 assert not page.locator(".shell").evaluate("node => node.inert")
@@ -246,7 +257,7 @@ def run():
 
                 for width, height in ((360, 800), (390, 844), (768, 1024)):
                     page.set_viewport_size({"width": width, "height": height})
-                    for view in ("home", "upload", "standings", "tournaments", "official", "scrimmage", "watch", "seasons", "profile", "rules"):
+                    for view in ("home", "upload", "standings", "tournaments", "official", "scrimmage", "watch", "seasons", "profile"):
                         if view == "profile":
                             page.click("#user-menu > summary")
                             page.locator('#user-menu [data-view="profile"]').click()

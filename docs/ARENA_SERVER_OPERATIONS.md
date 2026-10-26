@@ -79,13 +79,19 @@ sudo python3 -m scripts.runner_site_backup verify \
 
 Chỉ sử dụng đường dẫn mới cho các lệnh `arena_operator switch` sau khi nhận `PASS: verify`. Nếu chưa đổi tên, **tiếp tục dùng đường dẫn cũ**. Tuyệt đối không đổi `.runner-switch/b15-pilot/` (đó là trạng thái chuyển Runner đã pin), Docker project hay tên volume.
 
-Lưu ý: đổi tên **không biến backup cũ thành backup mới**. Khi thay đổi image/cấu hình, phải tạo và xác minh một bản sao lưu mới trong thư mục chưa tồn tại.
+Lưu ý: đổi tên **không biến backup cũ thành backup mới**. Khi thay đổi image/cấu hình, phải tạo và xác minh một bản sao lưu mới trong thư mục chưa tồn tại. Phần đổi tên ở trên chỉ còn mang tính lịch sử đối với các image trước khi cập nhật giao diện.
+
+## Dùng backup nào khi chuyển Local ↔ Remote?
+
+Các lệnh chuyển Runner phải dùng **bản backup đã kiểm thử phục hồi và tương thích với image/cấu hình đang chạy**. Sau khi nâng cấp giao diện ngày 26/10/2026, ví dụ cho EC2 hiện tại là `.runner-switch/arena-backup-post-ui-20261026`, **chỉ khi** lệnh backup sau nâng cấp đã báo `verified_cold_restore_drill` và khôi phục chế độ ban đầu thành công.
+
+Tên backup **không cố định**. Mỗi lần cập nhật image hay kế hoạch Runner, phải tạo một backup mới rồi dùng đường dẫn mới đó cho các lệnh `switch`. Các backup trước nâng cấp như `arena-backup-initial` hay `arena-backup-verified` vẫn có thể lưu trữ, nhưng không được mặc định tái sử dụng để chuyển Runner của phiên bản mới.
 
 ## 3. Chuyển bot sang chạy ngay trên EC2
 
 ```bash
 sudo python3 -m scripts.arena_operator switch \
-  --target local --backup-directory .runner-switch/arena-backup-initial
+  --target local --backup-directory .runner-switch/arena-backup-post-ui-20261026
 sudo python3 -m scripts.arena_operator status
 ```
 
@@ -110,7 +116,7 @@ Trên EC2:
 
 ```bash
 sudo python3 -m scripts.arena_operator switch \
-  --target remote --backup-directory .runner-switch/arena-backup-initial
+  --target remote --backup-directory .runner-switch/arena-backup-post-ui-20261026
 sudo python3 -m scripts.arena_operator status
 ```
 

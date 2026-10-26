@@ -11,7 +11,7 @@ import re
 ROOT = Path(__file__).resolve().parent.parent
 FRONTEND = ROOT / "frontend"
 ASSET_URL = re.compile(
-    r"/static/(?P<name>styles\.css|landing\.css|app\.js|ui\.js|protocol\.js|lan\.js|renderers\.js|favicon\.svg|art/arena-workstation\.svg|fonts/(?:InterVariable|SourceSerif4Variable|VT323-Regular|Handjet)\.woff2)"
+    r"/static/(?P<name>tokens\.css|styles\.css|landing\.css|results\.css|app\.js|ui\.js|protocol\.js|lan\.js|renderers\.js|favicon\.svg|art/arena-workstation\.svg|fonts/(?:InterVariable|SourceSerif4Variable|VT323-Regular|Handjet)\.woff2)"
     r"(?:\?v=[^\s\"'<>]*)?"
 )
 

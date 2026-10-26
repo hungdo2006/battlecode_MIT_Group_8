@@ -1,58 +1,6 @@
 @charset "UTF-8";
 
 /* Retro Pixel foundation. Opt-in tokens for later Player/Admin work. */
-@font-face {
-  font-family: "Handjet";
-  src: url("/static/fonts/Handjet.woff2?v=58b1a0647480") format("woff2");
-  font-weight: 100 900;
-  font-style: normal;
-  font-display: swap;
-}
-:root {
-  --retro-bg: #121212;
-  --retro-surface: #1b1b1b;
-  --retro-surface-raised: #232522;
-  --retro-accent: #48d5ae;
-  --retro-accent-hover: #79e6c6;
-  --retro-accent-soft: #1d302a;
-  --retro-text: #f2efe6;
-  --retro-muted: #b9b8b0;
-  --retro-cream: #f2efe6;
-  --retro-ink: #242722;
-  --retro-border: #363833;
-  --retro-input-border: #6e726a;
-  --retro-success: #79dbac;
-  --retro-warning: #efca7c;
-  --retro-danger: #ff9a91;
-  --retro-font-body: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --retro-font-display: "Handjet", "Cascadia Mono", monospace;
-  --retro-font-code: "Cascadia Code", Consolas, monospace;
-  --retro-display-weight: 550;
-  --retro-display-shape: "ELSH" 2, "ELGR" 1;
-  --retro-hero-size: 94px;
-  --retro-hero-line: 88px;
-  --retro-section-size: 48px;
-  --retro-space-1: 4px;
-  --retro-space-2: 8px;
-  --retro-space-3: 12px;
-  --retro-space-4: 16px;
-  --retro-space-5: 24px;
-  --retro-space-6: 32px;
-  --retro-space-7: 48px;
-  --retro-space-8: 64px;
-  --retro-space-9: 96px;
-  --retro-radius: 2px;
-  --retro-radius-panel: 4px;
-  --retro-shadow: 4px 4px 0 #0005;
-  --retro-shadow-dialog: 12px 12px 0 #0005;
-  --retro-ease: cubic-bezier(.22, 1, .36, 1);
-  --retro-motion-feedback: 140ms;
-  --retro-motion-hover: 200ms;
-  --retro-motion-panel: 260ms;
-  --retro-motion-reveal: 520ms;
-  --retro-motion-hero: 640ms;
-}
-
 /* Scope the new palette to public entry. The operational workspace opts in later. */
 .account-landing, body.account-landing-active :is(#account-dialog, .toast) {
   color-scheme: dark;

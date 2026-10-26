@@ -1,0 +1,114 @@
+@charset "UTF-8";
+
+/* Shared NEON ARENA foundation: approved Handjet, Inter and retro palette. */
+@font-face {
+  font-family: Inter;
+  src: url("/static/fonts/InterVariable.woff2?v=693b77d4f32e") format("woff2");
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Handjet";
+  src: url("/static/fonts/Handjet.woff2?v=58b1a0647480") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+:root {
+  --retro-bg: #121212;
+  --retro-surface: #1b1b1b;
+  --retro-surface-raised: #232522;
+  --retro-accent: #48d5ae;
+  --retro-accent-hover: #79e6c6;
+  --retro-accent-soft: #1d302a;
+  --retro-text: #f2efe6;
+  --retro-muted: #b9b8b0;
+  --retro-cream: #f2efe6;
+  --retro-ink: #242722;
+  --retro-border: #363833;
+  --retro-input-border: #6e726a;
+  --retro-success: #79dbac;
+  --retro-warning: #efca7c;
+  --retro-danger: #ff9a91;
+  --retro-font-body: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --retro-font-display: "Handjet", "Cascadia Mono", monospace;
+  --retro-font-code: "Cascadia Code", Consolas, monospace;
+  --retro-display-weight: 550;
+  --retro-display-shape: "ELSH" 2, "ELGR" 1;
+  --retro-hero-size: 94px;
+  --retro-hero-line: 88px;
+  --retro-section-size: 48px;
+  --retro-space-1: 4px;
+  --retro-space-2: 8px;
+  --retro-space-3: 12px;
+  --retro-space-4: 16px;
+  --retro-space-5: 24px;
+  --retro-space-6: 32px;
+  --retro-space-7: 48px;
+  --retro-space-8: 64px;
+  --retro-space-9: 96px;
+  --retro-radius: 2px;
+  --retro-radius-panel: 4px;
+  --retro-shadow: 4px 4px 0 #0005;
+  --retro-shadow-dialog: 12px 12px 0 #0005;
+  --retro-ease: cubic-bezier(.22, 1, .36, 1);
+  --retro-motion-feedback: 140ms;
+  --retro-motion-hover: 200ms;
+  --retro-motion-panel: 260ms;
+  --retro-motion-reveal: 520ms;
+  --retro-motion-hero: 640ms;
+}
+
+
+/* Semantic aliases keep existing renderer, status and component contracts. */
+:root {
+  color-scheme: dark;
+  --bg: var(--retro-bg);
+  --surface: var(--retro-surface);
+  --surface-soft: var(--retro-bg);
+  --panel: var(--retro-surface);
+  --panel-alt: var(--retro-surface-raised);
+  --border: var(--retro-border);
+  --border-soft: #2e302c;
+  --input-border: var(--retro-input-border);
+  --text: var(--retro-text);
+  --muted: var(--retro-muted);
+  --subtle: #a4a79d;
+  --accent: var(--retro-accent);
+  --accent-hover: var(--retro-accent-hover);
+  --accent-soft: var(--retro-accent-soft);
+  --player-a: var(--retro-accent);
+  --player-b: var(--retro-cream);
+  --success: var(--retro-success);
+  --success-soft: #163026;
+  --warning: var(--retro-warning);
+  --warning-soft: #302718;
+  --danger: var(--retro-danger);
+  --danger-soft: #33211e;
+  --gradient: var(--retro-accent);
+  --gradient-hover: var(--retro-accent-hover);
+  --gradient-text: var(--retro-accent);
+  --cyan: var(--retro-accent);
+  --purple: var(--retro-accent);
+  --pink: var(--retro-cream);
+  --green: var(--retro-success);
+  --font: var(--retro-font-body);
+  --display: var(--retro-font-display);
+  --editorial: var(--retro-font-display);
+  --mono: var(--retro-font-code);
+  --radius-sm: var(--retro-radius);
+  --radius: var(--retro-radius-panel);
+  --radius-lg: var(--retro-radius-panel);
+  --shadow-float: var(--retro-shadow-dialog);
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --ease: var(--retro-ease);
+  --motion-fast: var(--retro-motion-feedback);
+  --motion: var(--retro-motion-panel);
+  --sidebar-width: 248px;
+}

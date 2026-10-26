@@ -11,11 +11,11 @@
   <link rel="preload" href="/static/fonts/InterVariable.woff2?v=693b77d4f32e" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/static/fonts/Handjet.woff2?v=58b1a0647480" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/static/tokens.css?v=513960b6a3bb">
-  <link rel="stylesheet" href="/static/styles.css?v=784c4310c7ed">
+  <link rel="stylesheet" href="/static/styles.css?v=6e7852970813">
   <link rel="stylesheet" href="/static/landing.css?v=a7d7b33e94c0">
   <script src="/static/renderers.js?v=a50abc4d90b8" defer></script>
-  <script src="/static/ui.js?v=d655ac518931" defer></script>
-  <script src="/static/app.js?v=55ade4380ef7" defer></script>
+  <script src="/static/ui.js?v=b9037ffce0ec" defer></script>
+  <script src="/static/app.js?v=b4824f65ae67" defer></script>
 </head>
 <body class="account-landing-active">
   <!-- Public welcome screen; workspace visibility is never an authorization boundary. -->
@@ -184,9 +184,9 @@
           <section class="panel arena-panel" aria-label="Đấu trường trực tiếp và replay">
             <div class="panel-heading"><h2>Bàn đấu <span class="tag" id="arena-game">Game</span></h2><span class="live-tag" id="arena-status"><i></i>Chờ trận đấu</span></div>
             <div class="combatants">
-              <div class="fighter fighter-a"><span class="fighter-icon">A</span><div><small>PLAYER A</small><strong id="fighter-a-name">Chưa có bot thi đấu</strong><div class="hp-track"><span id="hp-a-fill"></span></div><span class="hp-text" id="hp-a-text">—</span></div></div>
+              <div class="fighter fighter-a"><span class="fighter-icon" aria-hidden="true">A</span><div><small>PLAYER A</small><strong id="fighter-a-name">Chưa có bot thi đấu</strong><span class="fighter-bot" id="fighter-a-bot"></span><div class="hp-track"><span id="hp-a-fill"></span></div><span class="hp-text" id="hp-a-text">—</span></div></div>
               <div class="vs">vs<span>HEAD TO HEAD</span></div>
-              <div class="fighter fighter-b"><div><small>PLAYER B</small><strong id="fighter-b-name">Chưa có bot thi đấu</strong><div class="hp-track"><span id="hp-b-fill"></span></div><span class="hp-text" id="hp-b-text">—</span></div><span class="fighter-icon">B</span></div>
+              <div class="fighter fighter-b"><div><small>PLAYER B</small><strong id="fighter-b-name">Chưa có bot thi đấu</strong><span class="fighter-bot" id="fighter-b-bot"></span><div class="hp-track"><span id="hp-b-fill"></span></div><span class="hp-text" id="hp-b-text">—</span></div><span class="fighter-icon" aria-hidden="true">B</span></div>
             </div>
             <div class="canvas-wrap" id="canvas-wrap">
               <div class="canvas-hud"><span id="arena-map-label">Bàn chơi</span><span id="arena-phase">Đang tải…</span></div>
@@ -427,7 +427,8 @@
         <section id="admin-pane-accounts" role="tabpanel" aria-labelledby="admin-tab-accounts" tabindex="0">
         <div class="admin-tools"><details class="workflow-disclosure" id="admin-invite-disclosure"><summary>Mời Player</summary><section class="panel"><div class="panel-heading"><h2>Mời Player mới</h2></div><form id="admin-invite-form" class="padded-form"><label>Tên đăng nhập<input name="username" required minlength="3" maxlength="32" autocomplete="off"></label><label>Tên hiển thị<input name="name" maxlength="64" required></label><button class="button primary" type="submit">Tạo lời mời Player</button><label class="hidden" id="admin-invite-token-label">Mã kích hoạt dùng một lần<input id="admin-invite-token" readonly autocomplete="off" spellcheck="false"></label><div id="admin-invite-feedback" class="feedback hidden" role="status"></div></form></section></details><button class="text-button" id="admin-refresh-accounts" type="button">Làm mới ↻</button></div>
         <section class="panel"><div class="panel-heading"><h2>Tài khoản</h2><form id="admin-account-search" class="inline-search"><label for="admin-account-query" class="sr-only">Tìm tài khoản</label><input id="admin-account-query" name="search" placeholder="Tên hoặc username" maxlength="128"><button class="button ghost small" type="submit">Tìm</button></form></div>
-          <div class="data-table-wrap" tabindex="0" role="region" aria-label="Danh sách tài khoản, cuộn ngang để xem đầy đủ"><table class="data-table"><thead><tr><th>Thành viên</th><th>Vai trò</th><th>Trạng thái</th><th>Đội</th><th>Thao tác</th></tr></thead><tbody id="admin-accounts-body"></tbody></table></div><div class="table-pagination"><span id="admin-account-count" class="form-note"></span><div class="form-buttons"><button class="button ghost small" id="admin-accounts-prev" type="button">Trước</button><button class="button ghost small" id="admin-accounts-next" type="button">Sau</button></div></div>
+          <p class="table-scroll-hint" id="admin-accounts-scroll-hint" hidden><span aria-hidden="true">↔</span> Vuốt ngang để xem đầy đủ<span class="sr-only">. Khi chọn bảng, dùng phím mũi tên để cuộn.</span></p>
+          <div class="data-table-wrap" tabindex="0" role="region" aria-label="Danh sách tài khoản" aria-describedby="admin-accounts-scroll-hint" data-scroll-hint="admin-accounts-scroll-hint"><table class="data-table"><thead><tr><th>Thành viên</th><th>Vai trò</th><th>Trạng thái</th><th>Đội</th><th>Thao tác</th></tr></thead><tbody id="admin-accounts-body"></tbody></table></div><div class="table-pagination"><span id="admin-account-count" class="form-note"></span><div class="form-buttons"><button class="button ghost small" id="admin-accounts-prev" type="button">Trước</button><button class="button ghost small" id="admin-accounts-next" type="button">Sau</button></div></div>
         </section>
         <div id="admin-recovery-host"></div>
         </section>

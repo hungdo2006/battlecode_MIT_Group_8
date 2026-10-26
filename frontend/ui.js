@@ -82,6 +82,20 @@
       });
     }
   }
+  // Describe scrollable tables only while their columns exceed the visible area.
+  for (const region of document.querySelectorAll("[data-scroll-hint]")) {
+    const hint = document.getElementById(region.dataset.scrollHint);
+    if (!hint) continue;
+    const sync = () => {
+      hint.hidden = !region.clientWidth || region.scrollWidth <= region.clientWidth + 1;
+      if (hint.hidden) region.removeAttribute("aria-describedby");
+      else region.setAttribute("aria-describedby", hint.id);
+    };
+    const observer = new ResizeObserver(sync);
+    observer.observe(region);
+    sync();
+  }
+
   for (const tablist of document.querySelectorAll("[data-tabs]")) {
     const tabs = [...tablist.querySelectorAll('[role="tab"]')];
     const select = tab => {

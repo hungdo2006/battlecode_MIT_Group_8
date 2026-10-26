@@ -1,5 +1,10 @@
 # Complete Retro Pixel workspace review
 
+The subsequent [final UI polish and release-readiness pass](FINAL_UI_POLISH.md)
+contains the latest game-context, Admin-table and replay-HUD refinements,
+updated screenshots and regression results. This document records the approved
+full-redesign milestone below.
+
 Implemented on `feature/retro-pixel-ui-redesign`. Ready for the owner's visual
 review. No merge, AWS deployment, operational Runner change or live-data mutation.
 

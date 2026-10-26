@@ -1,4 +1,7 @@
-# Final Retro Pixel screenshots
+# Approved Retro Pixel redesign screenshots
+
+See the [final polish screenshots](../final-polish/README.md) for the subsequent
+game-context, Admin-table and replay-HUD refinements.
 
 Real Chrome captures with disposable QA accounts and data. The landing retains
 approved Variant A. Workspace images are 1440 px desktop and 390 px mobile;

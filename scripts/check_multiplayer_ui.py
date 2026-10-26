@@ -141,8 +141,10 @@ def check(url, code, games=('robot_battle', 'ott_v2'), output_dir=None):
             for page in pages:
                 page.wait_for_function('id => app.match?.id === id', arg=mid)
                 assert not page.locator('#invitation-dialog').is_visible()
-                assert 'Hoang / C++' in page.locator('#fighter-a-name').inner_text()
-                assert 'Minh / Python' in page.locator('#fighter-b-name').inner_text()
+                assert page.locator('#fighter-a-name').inner_text() == 'Hoang'
+                assert page.locator('#fighter-a-bot').inner_text().startswith('C++ · ')
+                assert page.locator('#fighter-b-name').inner_text() == 'Minh'
+                assert page.locator('#fighter-b-bot').inner_text().startswith('Python · ')
             a.locator('#play-pause').click()
             paused_cursor = a.evaluate('app.cursor')
             assert a.evaluate('app.paused') and not b.evaluate('app.paused')

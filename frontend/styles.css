@@ -176,7 +176,9 @@ summary { width: fit-content; cursor: pointer; }
 .fighter { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
 .fighter > div { flex: 1; min-width: 0; }
 .fighter small { color: var(--muted); font-size: 10px; font-weight: 500; letter-spacing: .5px; }
-.fighter strong { display: block; margin: 2px 0 8px; font-size: 12px; font-weight: 500; line-height: 1.5; overflow-wrap: anywhere; }
+.fighter strong { display: block; margin: 2px 0 4px; font-size: 13px; font-weight: 600; line-height: 1.5; overflow-wrap: anywhere; }
+.fighter-bot { display: block; margin-bottom: 10px; color: var(--muted); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.fighter-bot:empty { display: none; }
 .fighter-icon { display: grid; place-items: center; flex-shrink: 0; width: 32px; height: 32px; border: 1px solid #48d5ae55; border-radius: var(--radius); color: var(--player-a); background: #48d5ae12; font: 500 12px var(--mono); }
 .fighter-b { justify-content: flex-end; text-align: right; }
 .fighter-b .fighter-icon { color: var(--player-b); background: #f2efe612; border-color: #f2efe655; }
@@ -537,6 +539,8 @@ body[data-account-mode=player]:not(.has-match) .arena-section-title, body[data-a
 .inline-search input { margin: 0 !important; width: min(240px,100%); }
 .inline-search { white-space: nowrap; }
 .data-table-wrap { overflow-x: auto; }
+.table-scroll-hint { padding: 10px 16px; color: var(--muted); font-size: 12px; line-height: 1.6; border-bottom: 1px solid var(--border-soft); }
+.table-scroll-hint > span[aria-hidden] { margin-right: 6px; color: var(--accent); }
 .data-table { width: 100%; min-width: 680px; border-collapse: collapse; font-size: 13px; }
 .data-table th, .data-table td { padding: 16px; text-align: left; border-bottom: 1px solid var(--border); }
 .data-table th { background: var(--surface-soft); color: var(--muted); font-size: 12px; font-weight: 500; }
@@ -658,7 +662,7 @@ body[data-account-mode=player]:not(.has-match) .arena-section-title, body[data-a
   .combatants { gap: 10px; padding: 12px; }
   .fighter { gap: 6px; }
   .fighter-icon { width: 22px; height: 22px; font-size: 10px; }
-  .fighter strong { font-size: 12px; }
+  .fighter strong { font-size: 13px; }
   .fighter small, .hp-text { font-size: 12px; }
   .canvas-hud, .canvas-bottom { left: 10px; right: 10px; font-size: 8px; }
   .canvas-hud { top: 8px; }
@@ -957,6 +961,15 @@ body[data-account-mode=player] .stat-card strong, body[data-account-mode=admin] 
 .practice-history-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .practice-history-actions > label { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
 .practice-history-actions select { width: auto; min-width: 130px; margin: 0; font-size: 12px; }
+@media (max-width: 600px) {
+  #view-replay .combatants { display: grid; grid-template-columns: minmax(0,1fr); gap: 12px; padding: 16px; }
+  #view-replay .combatants > .vs { display: none; }
+  #view-replay .fighter { align-items: flex-start; gap: 12px; padding: 12px; border: 1px solid var(--border); border-left: 2px solid var(--player-a); background: var(--surface-soft); }
+  #view-replay .fighter-b { flex-direction: row-reverse; text-align: left; border-left-color: var(--player-b); }
+  #view-replay .fighter-icon { width: 28px; height: 28px; font-size: 12px; }
+  #view-replay .fighter strong { margin-top: 4px; font-size: 14px; }
+  #view-replay .fighter-b .hp-track span { margin-left: 0; }
+}
 @media (max-width: 767px) {
   .practice-panel-heading { padding: 20px 16px 16px; }
   .practice-panel-heading h2 { font-size: 30px; }

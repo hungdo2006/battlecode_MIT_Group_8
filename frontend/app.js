@@ -584,11 +584,15 @@ function ownerLabel(owner) {
 }
 
 function languageLabel(language) { return ({ py: "Python", cpp: "C++", java: "Java" })[language] || language; }
-function fighterLabel(match, side) {
+function fighterIdentity(match, side) {
   const key = side.toLowerCase();
   const bot = match.bots[side];
   const name = match[`player_${key}_name_snapshot`] || match.participants?.[side]?.name || bot.owner?.name || bot.name;
-  return `${name} / ${languageLabel(bot.language)} · ${bot.name}`;
+  return { name, bot: `${languageLabel(bot.language)} · ${bot.name}` };
+}
+function fighterLabel(match, side) {
+  const identity = fighterIdentity(match, side);
+  return `${identity.name} / ${identity.bot}`;
 }
 function activeFrozen() {
   if (app.lobby?.me?.current_match_id) return true;
@@ -1015,8 +1019,9 @@ $("#upload-team-link").onclick = () => {
 
 function renderCompetitionBanner() {
   const state = app.competition;
+  $("#competition-status").hidden = app.accountOnly;
   setText("#competition-status", app.accountOnly
-    ? state?.phase === "open" ? "Mặc định đã khóa · Giải đấu cấu hình riêng" : state?.phase === "draining" ? "Mặc định đang chờ mở khóa" : "Mặc định có thể chỉnh · Giải đấu cấu hình riêng"
+    ? ""
     : state?.phase === "open" ? "OPEN · Cuộc thi đang mở" : state?.phase === "draining" ? "DRAINING · Chờ trận kết thúc" : "SETUP · Đang chuẩn bị");
   $("#competition-banner").dataset.phase = state?.phase || "setup";
   $("#competition-banner").classList.toggle("competition-live", state?.competition_locked === true);
@@ -1222,6 +1227,7 @@ function resetReplay() {
   $("#standby-overlay").classList.remove("hidden");
   for (const side of ["a", "b"]) {
     setText(`#fighter-${side}-name`, "Chưa có bot thi đấu");
+    setText(`#fighter-${side}-bot`, "");
     setText(`#hp-${side}-text`, "—");
     $(`#hp-${side}-fill`).style.width = "0%";
   }
@@ -3796,7 +3802,9 @@ function updateHud(frame) {
   setText("#replay-rule-limit", `Giới hạn ${gameId === "ott_v2" ? "ván" : "trận"}: ${gameId === "ott_v2" ? frame.rules.max_turns : hud.turnMax} lượt${live ? " · Đang nhận thêm diễn biến" : ""}`);
   for (const player of ["A", "B"]) {
     const key = player.toLowerCase();
-    $("#fighter-" + key + "-name").textContent = app.match ? fighterLabel(app.match, player) : "Chưa có bot thi đấu";
+    const identity = app.match ? fighterIdentity(app.match, player) : null;
+    setText(`#fighter-${key}-name`, identity?.name || "Chưa có bot thi đấu");
+    setText(`#fighter-${key}-bot`, identity?.bot || "");
     $("#hp-" + key + "-fill").style.width = `${Math.max(0, Math.min(100, 100 * hud.players[player].value / hud.players[player].max))}%`;
     $("#hp-" + key + "-text").textContent = hud.players[player].text;
   }

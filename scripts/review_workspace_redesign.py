@@ -180,6 +180,40 @@ def capture(origin=None):
                 assert not result["overflow"], (role,view,width,"page overflow")
                 assert not result["duplicateIds"], (role,view,"duplicate IDs")
                 assert "Handjet" in result["heading"], (role,view,"display font")
+                if not document:
+                    expect(page.locator("#competition-status")).to_be_hidden()
+                if role == "admin" and view == "administration":
+                    region = page.locator(".data-table-wrap")
+                    hint = page.locator("#admin-accounts-scroll-hint")
+                    overflow = region.evaluate("node => node.scrollWidth > node.clientWidth + 1")
+                    if overflow:
+                        expect(hint).to_be_visible()
+                        expect(region).to_have_attribute("aria-describedby","admin-accounts-scroll-hint")
+                        region.focus()
+                        region.press("ArrowRight")
+                        page.wait_for_function("document.querySelector('.data-table-wrap').scrollLeft > 0")
+                        # Preserve all five columns and reach the real actions.
+                        assert region.locator("th").count() == 5
+                        action = region.get_by_role("button",name="Khôi phục mật khẩu").first
+                        action.focus()
+                        expect(action).to_be_focused()
+                        assert region.evaluate("node => node.scrollLeft > 0")
+                        region.evaluate("node => { node.scrollLeft = 0; }")
+                    else:
+                        expect(hint).to_be_hidden()
+                        assert region.get_attribute("aria-describedby") is None
+                if view == "replay":
+                    for side in ("a","b"):
+                        identity = page.locator(f".fighter-{side}")
+                        expect(identity.locator("small")).to_have_text("PLAYER "+side.upper())
+                        expect(page.locator(f"#fighter-{side}-name")).not_to_be_empty()
+                        expect(page.locator(f"#fighter-{side}-bot")).to_contain_text("Python ·")
+                        expect(page.locator(f"#hp-{side}-text")).to_contain_text("HP")
+                        assert identity.evaluate("node => [...node.querySelectorAll('strong,.fighter-bot,.hp-text')].every(text => text.scrollWidth <= text.clientWidth + 1)")
+                    if width <= 600:
+                        a = page.locator(".fighter-a").bounding_box()
+                        b = page.locator(".fighter-b").bounding_box()
+                        assert b["y"] >= a["y"]+a["height"], (width,"stacked competitors")
                 measurements.append({"role":role,"view":view,"width":width,**result})
                 if width in (390,1440):
                     page.evaluate("window.scrollTo({top:0,behavior:'instant'})")
@@ -269,6 +303,9 @@ def capture(origin=None):
                     # Revoke this disposable session and wake socket watchers.
                     page.evaluate("async () => { await accountLogout(); }")
                     expect(page.locator("#account-landing")).to_be_visible()
+                    if replay_only:
+                        expect(page.locator("#fighter-a-bot")).to_be_empty()
+                        expect(page.locator("#fighter-b-bot")).to_be_empty()
                     context.close()
                 if not replay_only:
                     with browser.new_context(locale="vi-VN") as context:

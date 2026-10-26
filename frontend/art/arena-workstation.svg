@@ -1,0 +1,122 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="464" viewBox="0 0 560 464" fill="none" shape-rendering="crispEdges">
+  <title>The NEON ARENA strategy room</title>
+  <desc>An original pixel illustration of a warm computer desk, a vintage CRT with a tactical bot grid, a keyboard, books, a coffee mug and a plant. An illustration, not a live match.</desc>
+  <defs>
+    <pattern id="wall" width="32" height="32" patternUnits="userSpaceOnUse"><rect width="32" height="32" fill="#222720"/><path d="M31 0v32M0 31h32" stroke="#282d24"/></pattern>
+    <pattern id="arena" width="24" height="24" patternUnits="userSpaceOnUse"><rect width="24" height="24" fill="#152e26"/><path d="M23 0v24M0 23h24" stroke="#264738"/></pattern>
+    <pattern id="keys" width="16" height="12" patternUnits="userSpaceOnUse"><rect width="12" height="8" fill="#b7b49a"/><rect x="1" y="1" width="10" height="2" fill="#d0cdb5"/></pattern>
+  </defs>
+  <path fill="url(#wall)" d="M0 0h560v464H0z"/>
+  <path fill="#1a201b" d="M0 284h560v180H0z"/>
+  <path fill="#31392d" d="M0 286h560v6H0z"/>
+  <!-- Window and quiet night sky. -->
+  <path fill="#161c19" d="M28 36h139v207H28z"/>
+  <path fill="#4b5140" d="M34 42h127v191H34z"/>
+  <path fill="#303d35" d="M41 49h113v177H41z"/>
+  <path fill="#202f2c" d="M46 54h103v167H46z"/>
+  <path fill="#94a68a" d="M115 70h15v5h5v15h-5v5h-15v-5h-5V75h5z"/>
+  <path fill="#202f2c" d="M112 68h12v16h-12z"/>
+  <path fill="#b9bf9d" d="M65 75h3v3h-3zM136 118h2v2h-2zM74 128h3v3h-3zM121 164h3v3h-3z"/>
+  <path fill="#263932" d="M46 175h16v-28h22v40h12v-22h23v-25h16v43h14v38H46z"/>
+  <path fill="#3c4839" d="M95 49h6v177h-6zM41 133h113v6H41z"/>
+  <path fill="#535a45" d="M26 235h145v9H26z"/>
+  <path fill="#161d18" d="M25 244h147v6H25z"/>
+  <!-- Pinboard, books and shelf. -->
+  <path fill="#191f19" d="M363 40h164v103H363z"/>
+  <path fill="#414937" d="M369 46h152v91H369z"/>
+  <path fill="#6c7050" d="M376 53h138v77H376z"/>
+  <path fill="#c9c6a4" d="M391 67h42v42h-42zM456 81h43v38h-43z"/>
+  <path fill="#8e9974" d="M395 62h12v9h-12zM482 77h12v8h-12z"/>
+  <path fill="#888d6a" d="M399 79h24v3h-24zM399 87h18v3h-18zM399 95h21v3h-21zM465 91h25v3h-25zM465 99h16v3h-16zM465 107h22v3h-22z"/>
+  <path fill="#0f1713" d="M349 171h190v10H349z"/>
+  <path fill="#7b7454" d="M346 162h190v9H346z"/>
+  <path fill="#4a533f" d="M358 150h34v12h-34z"/>
+  <path fill="#b6ad84" d="M363 153h24v5h-24z"/>
+  <path fill="#a18c64" d="M401 108h16v54h-16z"/>
+  <path fill="#c1b48a" d="M404 115h10v3h-10zM404 151h10v3h-10z"/>
+  <path fill="#63795d" d="M420 103h20v59h-20z"/>
+  <path fill="#a2b28a" d="M424 109h3v45h-3z"/>
+  <path fill="#929b74" d="M444 118h13v44h-13z"/>
+  <path fill="#c3bb91" d="M447 123h7v4h-7z"/>
+  <path fill="#aa8460" d="m463 113 17-4 11 51-17 4z"/>
+  <path fill="#d5bd89" d="m468 120 10-2 1 5-10 2z"/>
+  <!-- Desk silhouette and wood. -->
+  <path fill="#111913" d="m18 341 301-63 239 76v48l-313 62L18 388z"/>
+  <path fill="#696349" d="m20 324 302-62 236 76-311 75z"/>
+  <path fill="#7e7655" d="m20 324 227 78 311-70v10l-311 78L20 334z"/>
+  <path fill="#4b4c38" d="M20 334v23l227 79v-16z"/>
+  <path fill="#343f2e" d="m247 420 311-78v24l-311 79z"/>
+  <path stroke="#5c5d43" stroke-width="2" d="m65 316 221 77m-147-92 224 73m-127-91 218 69"/>
+  <path fill="#424934" d="M50 367h16v64H50zM220 428h17v36h-17zM517 382h15v58h-15z"/>
+  <!-- Computer shadow, stand and CRT case. -->
+  <path fill="#333c2b" d="m155 309 167-30 157 47-168 38z"/>
+  <path fill="#73755b" d="M272 282h52v42h-52z"/>
+  <path fill="#b2b08c" d="m247 317 79-14 43 14v10l-82 16-40-14z"/>
+  <path fill="#d0ccb0" d="m205 111 172-14 57 30-176 20z"/>
+  <path fill="#787f61" d="m377 97 57 30v151l-48 32-9-27z"/>
+  <path fill="#545f4a" d="m412 142 22-15v151l-22 17z"/>
+  <path fill="#b8b899" d="M205 111h179v191H205z"/>
+  <path fill="#d1ceb2" d="M205 111h179v7H205zM205 118h7v177h-7z"/>
+  <path fill="#8b9474" d="M212 292h172v10H212z"/>
+  <path fill="#4c5b44" d="M219 128h151v139H219z"/>
+  <path fill="#11261f" d="M224 133h141v129H224z"/>
+  <path fill="url(#arena)" d="M229 138h131v101H229z"/>
+  <path fill="#6b9474" d="M234 145h36v3h-36zM234 151h19v2h-19z"/>
+  <!-- Mint bot and cream bot: illustrative, not engine output. -->
+  <path fill="#48d5ae" d="M250 177h20v4h5v16h-5v5h-20v-5h-5v-16h5zM257 171h6v6h-6zM247 202h6v5h-6zM267 202h6v5h-6z"/>
+  <path fill="#17382b" d="M252 184h5v5h-5zM264 184h5v5h-5zM255 195h11v3h-11z"/>
+  <path fill="#e6d9a8" d="M320 191h20v4h5v16h-5v5h-20v-5h-5v-16h5zM327 185h6v6h-6zM317 216h6v5h-6zM337 216h6v5h-6z"/>
+  <path fill="#4d563b" d="M322 198h5v5h-5zM334 198h5v5h-5zM325 209h11v3h-11z"/>
+  <path fill="#628264" d="M284 190h5v5h-5zM294 190h5v5h-5zM304 190h5v5h-5z"/>
+  <path fill="#46654c" d="M235 217h12v5h-12zM284 157h13v13h-13zM300 222h12v8h-12zM337 158h14v12h-14z"/>
+  <path fill="#99b597" d="M231 246h5v3h-5zM242 246h52v3h-52z"/>
+  <path fill="#48d5ae" d="M300 245h5v7h-5z"/>
+  <path fill="#61745a" d="M329 279h28v4h-28zM329 286h28v3h-28z"/>
+  <path fill="#48d5ae" d="M221 278h6v6h-6z"/>
+  <path fill="#7d8868" d="M233 279h24v3h-24z"/>
+  <path stroke="#3d4c38" stroke-width="3" d="m396 286 20-7m-20-2 20-7m-20-2 20-7m-20-2 20-7"/>
+  <!-- Keyboard and cable. -->
+  <path stroke="#263729" stroke-width="4" d="M233 314v10h-60v7"/>
+  <path fill="#515c43" d="m112 336 172-23 80 49v10l-179 29-73-55z"/>
+  <path fill="#cbc6a3" d="m112 330 172-23 80 49-179 29z"/>
+  <path fill="#9ea484" d="m122 333 158-21 67 42-161 25z"/>
+  <g transform="matrix(1 -.14 1 .62 132 330)"><path fill="url(#keys)" d="M0 0h144v60H0z"/><path fill="#c5c4a2" d="M32 48h72v8H32z"/></g>
+  <path fill="#a1a583" d="m185 385 179-29v10l-179 29z"/>
+  <!-- Lamp and a closed notebook. -->
+  <path fill="#2b3829" d="m49 311 52-12 54 18-55 13z"/>
+  <path fill="#879174" d="M76 214h8v83h-8z"/>
+  <path fill="#b7b691" d="M72 200h16v23H72zM62 287h33v8H62z"/>
+  <path fill="#d4c58f" d="M59 172h42v8h5v36H52v-36h7z"/>
+  <path fill="#b2a476" d="M52 211h54v7H52z"/>
+  <path fill="#e3d7a5" d="M61 177h7v28h-7z"/>
+  <path fill="#384f3d" d="m63 325 49-9 39 15-48 12z"/>
+  <path fill="#aab393" d="m63 319 49-9 39 15-48 12z"/>
+  <path fill="#718b70" d="m68 319 43-7 31 12-42 10z"/>
+  <path fill="#3e5f46" d="m72 317 5-1 32 13-5 2z"/>
+  <!-- Plant with blocky leaves. -->
+  <path fill="#344834" d="m449 307 43-9 40 12-44 13z"/>
+  <path fill="#919477" d="M468 264h40v41h-40z"/>
+  <path fill="#b0ac88" d="M464 260h48v10h-48z"/>
+  <path fill="#717f60" d="M474 298h34v8h-34z"/>
+  <path fill="#5b8564" d="M484 194h6v66h-6zM461 213h25v6h-25zM490 222h26v7h-26zM472 238h15v6h-15z"/>
+  <path fill="#8caf82" d="M462 202h12v5h9v12h-15v-5h-6zM495 208h17v-6h11v12h-5v8h-23zM471 179h12v6h7v18h-11v-8h-8z"/>
+  <path fill="#628969" d="M451 222h12v7h11v11h-12v-5h-11zM493 236h16v-7h11v13h-5v7h-22z"/>
+  <!-- Coffee, mouse and desk details. -->
+  <path fill="#3f4c35" d="m410 344 23-5 20 8-25 6z"/>
+  <path fill="#c8c4a0" d="M414 306h25v33h-25zM439 311h10v19h-10z"/>
+  <path fill="#263c2c" d="M439 316h5v9h-5z"/>
+  <path fill="#e2d8b5" d="M414 302h25v7h-25z"/>
+  <path fill="#555a3d" d="M418 304h17v4h-17z"/>
+  <path fill="#9da380" d="M414 332h25v7h-25z"/>
+  <path fill="#acb198" d="M419 310h4v16h-4z"/>
+  <path stroke="#34462e" stroke-width="3" d="M389 358v-13h9v-20h-7"/>
+  <path fill="#c5c4a3" d="m378 350 16-3 16 10v12l-16 5-16-10z"/>
+  <path fill="#9aa484" d="m394 352 12 7v9l-12 4z"/>
+  <path stroke="#707e60" stroke-width="2" d="m387 352 9 6v7"/>
+  <path fill="#9aa284" d="m462 366 44-11 13 7-45 12z"/>
+  <path fill="#687f60" d="m466 366 15-4 8 5-14 4z"/>
+  <path fill="#b9ba95" d="m490 360 13-3 9 5-14 3z"/>
+  <!-- Restrained room details, all static. -->
+  <path fill="#8b9a79" d="M186 53h3v10h-3zM182 57h11v3h-11zM537 230h3v8h-3zM534 233h9v2h-9z"/>
+  <path fill="#3c503b" d="M18 272h5v5h-5zM531 53h4v4h-4zM183 250h3v3h-3zM337 34h3v3h-3z"/>
+</svg>

@@ -185,11 +185,11 @@ Phải thấy `mode: local`, `ready: true`, `active_matches: 0`. Chọn đườn
 ```bash
 sudo docker build --pull=false -t neon-arena-ui:season-nav-20261026 -f - . <<'EOF'
 FROM neon-b1-ec2-pilot-arena:1.0
-COPY --chown=10001:10001 frontend/app.js frontend/index.html /app/frontend/
+COPY --chown=10001:10001 frontend/ /app/frontend/
 EOF
 ```
 
-Image mới phải dùng các file frontend **đã được merge mới nhất**, không dùng lại tag `neon-arena-ui:20261026` từng build trước lúc sửa menu Season.
+Image mới phải dùng toàn bộ thư mục frontend **đã được merge mới nhất**, bao gồm CSS, UI script, SVG và font tự host; không chỉ chép `app.js`/`index.html`. Bộ kiểm tra checksum cũng xác minh các asset landing này. Không dùng lại tag `neon-arena-ui:20261026` từng build trước lúc sửa menu Season.
 
 **3. Phát hành có kiểm soát** (sẽ tạm gián đoạn website). Tool kiểm tra backup cũ, xác nhận image mới chỉ thêm một COPY layer, đối chiếu checksum frontend với mã Git, cập nhật **đồng thời** image pin ở Local/Remote, tạo checkpoint chứa các model cũ, drain công việc, thay **chỉ** container Arena, xác minh readiness rồi mới mở nhận trận:
 

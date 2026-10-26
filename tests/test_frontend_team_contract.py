@@ -56,6 +56,27 @@ def test_committed_asset_versions_current():
         assert version_frontend.versioned_html(html) == html, page.name
 
 
+def test_retro_font_artwork_and_stylesheet_have_content_versions(tmp_path, monkeypatch):
+    """A font/art update must invalidate cached landing references as well as CSS."""
+    import hashlib
+    monkeypatch.setattr(version_frontend, "FRONTEND", tmp_path)
+    assets = {
+        "landing.css": b"body { color: green; }\r\n",
+        "art/arena-workstation.svg": b"<svg/>\r\n",
+        "fonts/VT323-Regular.woff2": b"wOF2\x00\xff\r\n",
+    }
+    for name, data in assets.items():
+        target = tmp_path / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+        source = f'<link href="/static/{name}?v=stale">'
+        canonical = data if name.endswith(".woff2") else data.replace(b"\r\n", b"\n")
+        expected = hashlib.sha256(canonical).hexdigest()[:12]
+        assert f"?v={expected}" in version_frontend.versioned_html(source)
+        target.write_bytes(data + b"updated")
+        assert f"?v={expected}" not in version_frontend.versioned_html(source)
+
+
 def test_account_only_refresh_unwraps_team_bot_response():
     js = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
     assert 'const response = await api("/api/player/bots");' in js

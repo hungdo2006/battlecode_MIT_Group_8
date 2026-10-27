@@ -36,7 +36,7 @@ def test_password_hashing_uses_argon2id_random_salts():
     assert not needs_rehash(first)
 
 
-@pytest.mark.parametrize("password", ["", "short", "x" * 1025, "😀" * 257, "\ud800" * 15])
+@pytest.mark.parametrize("password", ["", "short", "seventh", "x" * 1025, "😀" * 257, "\ud800" * 15])
 def test_bad_new_password_rejected(password):
     with pytest.raises(ValueError):
         hash_password(password)
@@ -48,6 +48,15 @@ def test_bad_new_password_rejected(password):
 ])
 def test_invalid_password_hash_returns_false(encoded, password):
     assert not verify_password(encoded, password)
+
+
+def test_admin_bootstrap_accepts_eight_character_password(tmp_path):
+    password = "valid888"
+    bootstrap_admin(tmp_path, "eight.admin", password)
+    with AccountDatabase(tmp_path).read() as connection:
+        row = connection.execute("SELECT password_hash FROM users WHERE username = 'eight.admin'").fetchone()
+        assert row is not None
+        assert verify_password(row["password_hash"], password)
 
 
 def test_bootstrap_persisted_admin_and_audit_are_atomic(tmp_path):

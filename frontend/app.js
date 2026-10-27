@@ -266,7 +266,7 @@ $("#profile-password-form").addEventListener("submit", async event => {
     feedback("#profile-password-feedback", "Hai mật khẩu mới chưa trùng nhau.", true);
     return;
   }
-  const minLength = app.accountAudience === "admin" ? 15 : 8;
+  const minLength = 8;
   if (newPassword.length < minLength) {
     feedback("#profile-password-feedback", `Mật khẩu mới cần ít nhất ${minLength} ký tự.`, true);
     return;

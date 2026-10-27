@@ -8,7 +8,7 @@ from argon2.low_level import Type
 # Never pass a manual salt; argon2-cffi generates a fresh random one per hash.
 _HASHER = PasswordHasher(time_cost=3, memory_cost=65536, parallelism=4,
                          hash_len=32, salt_len=16, type=Type.ID)
-MIN_PASSWORD_LENGTH = 15  # Admin account creation keeps the stronger requirement.
+MIN_PASSWORD_LENGTH = 8  # Minimum for new Admin credentials and self-service changes.
 MIN_PLAYER_PASSWORD_LENGTH = 8
 MAX_PASSWORD_BYTES = 1024
 

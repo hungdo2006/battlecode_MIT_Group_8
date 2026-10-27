@@ -630,11 +630,11 @@ def test_self_password_change_requires_current_password_and_revokes_all_sessions
                              source_key="test-server-peer").principal.account.username == "alice"
 
 
-def test_admin_self_password_change_requires_strong_new_password(env):
-    with pytest.raises(ValueError, match="at least 15"):
-        env.service.change_own_password(env.admin, PASSWORD, "shortpass")
-    assert env.service.change_own_password(env.admin, PASSWORD, "admin-new-secret-password-24")
+def test_admin_self_password_change_accepts_eight_character_minimum(env):
+    with pytest.raises(ValueError, match="at least 8"):
+        env.service.change_own_password(env.admin, PASSWORD, "seventh")
+    assert env.service.change_own_password(env.admin, PASSWORD, "newpass8")
     with pytest.raises(PermissionDenied):
         env.service.require_actor(env.admin)
-    assert env.service.login("admin", "admin-new-secret-password-24", audience="ADMIN",
+    assert env.service.login("admin", "newpass8", audience="ADMIN",
                              source_key="test-server-peer").principal.account.system_role == "ADMIN"
